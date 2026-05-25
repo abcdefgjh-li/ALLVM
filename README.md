@@ -113,6 +113,8 @@ int VMP_PROTECT calculate_result(int a, int b);
 | `-mllvm -irobf-memprotect` | 内存Dump保护 |
 | `-mllvm -irobf-root` | Root检测(有root退出) |
 | `-mllvm -irobf-noroot` | 无Root检测(无root退出) |
+| `-mllvm -irobf-hidemaps` | 隐藏Maps文件(需Root) |
+| `-mllvm -irobf-fakemaps` | 伪造Maps内容 |
 
 ### 系统调用保护 (Syscall Protect)
 
@@ -207,6 +209,8 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 # LOCAL_CFLAGS += -mllvm -irobf-memprotect
 # LOCAL_CFLAGS += -mllvm -irobf-root
 # LOCAL_CFLAGS += -mllvm -irobf-noroot
+# LOCAL_CFLAGS += -mllvm -irobf-hidemaps
+# LOCAL_CFLAGS += -mllvm -irobf-fakemaps
 
 include $(BUILD_EXECUTABLE)
 ```
@@ -251,6 +255,12 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 | 项目 | 地址 |
 |------|------|
 | **xVMP** | https://github.com/amunmv/xvmp |
+
+## 更新日志
+
+### 2026-05-25
+- **新增 HideMaps Pass**: 通过 mount bind 隐藏 `/proc/self/maps` 文件，防止调试工具读取真实内存映射（需要root权限）
+- **新增 FakeMaps Pass**: 生成假的 `/proc/self/maps` 内容，欺骗调试工具显示虚假的内存映射信息
 
 ## 作者
 
