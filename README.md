@@ -2,6 +2,8 @@
 
 基于 LLVM 21.x 的 OLLVM 混淆器，用于 Android NDK 编译的代码混淆和保护。
 
+> **GitHub**: [https://github.com/abcdefgjh-li/ALLVM](https://github.com/abcdefgjh-li/ALLVM)
+
 ## 快速开始
 
 ### 编译 OLLVM
