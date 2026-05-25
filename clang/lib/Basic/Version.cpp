@@ -107,7 +107,7 @@ namespace clang {
 			OS << " " << repo;
 		}
 
-		OS << "\nA-protect\nBy abcdefgjh.\n风止雾散，你我终成陌路。放下过往，奔赴前路，方是归途。\n";
+		OS << "\nA-protect https://github.com/abcdefgjh-li/ALLVM\nBy abcdefgjh.\n风止雾散，你我终成陌路。放下过往，奔赴前路，方是归途。\n";
 		//OS << "XR 定制版 Production by 小二ˣʳ QQ群：478626908 TG群：@XRWZ666\n崇文尚理，知行合一；山野万里，藏尽温柔与星光。\n";
 		return buf;
 	}

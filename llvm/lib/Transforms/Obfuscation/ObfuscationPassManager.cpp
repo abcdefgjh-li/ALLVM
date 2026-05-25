@@ -32,6 +32,8 @@
 #include "llvm/Transforms/Obfuscation/PtraceDetect.h"
 #include "llvm/Transforms/Obfuscation/InlineHookDetect.h"
 #include "llvm/Transforms/Obfuscation/PltHookDetect.h"
+#include "llvm/Transforms/Obfuscation/HideMaps.h"
+#include "llvm/Transforms/Obfuscation/FakeMaps.h"
 #include "llvm/Transforms/Obfuscation/MemProtect.h"
 #include "llvm/Transforms/Obfuscation/RootDetect.h"
 #include "llvm/Transforms/Obfuscation/NoRootDetect.h"
@@ -194,6 +196,16 @@ static cl::opt<bool>
 EnablePltHookDetect("irobf-plthook", cl::init(false), cl::NotHidden,
                     cl::desc("Enable PLT hook detection."),
                     cl::ZeroOrMore);
+
+static cl::opt<bool>
+EnableHideMaps("irobf-hidemaps", cl::init(false), cl::NotHidden,
+               cl::desc("Enable hide /proc/self/maps (requires root)."),
+               cl::ZeroOrMore);
+
+static cl::opt<bool>
+EnableFakeMaps("irobf-fakemaps", cl::init(false), cl::NotHidden,
+               cl::desc("Enable generate fake /proc/self/maps content."),
+               cl::ZeroOrMore);
 
 static cl::opt<bool>
 EnableMemProtect("irobf-memprotect", cl::init(false), cl::NotHidden,
@@ -456,6 +468,14 @@ namespace llvm {
 
 			if (EnablePltHookDetect) {
 				add(llvm::createPltHookDetectPass());
+			}
+
+			if (EnableHideMaps) {
+				add(llvm::createHideMapsPass());
+			}
+
+			if (EnableFakeMaps) {
+				add(llvm::createFakeMapsPass());
 			}
 
 			if (EnableMemProtect) {
