@@ -136,7 +136,7 @@ bool AProtect::runOnModule(Module &M) {
 
     Builder.CreateCall(PrintfFunc, {FormatPtr, ColorStrPtr, AProtectPtr, ResetPtr});
     
-    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
+    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.1.0\n");
     GlobalVariable *VersionGV = new GlobalVariable(
         M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
         VersionStr, ".ap.version");

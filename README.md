@@ -258,9 +258,11 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 
 ## 更新日志
 
-### 2026-05-25
+### v1.1.0 (2026-05-25)
 - **新增 HideMaps Pass**: 通过 mount bind 隐藏 `/proc/self/maps` 文件，防止调试工具读取真实内存映射（需要root权限）
 - **新增 FakeMaps Pass**: 生成假的 `/proc/self/maps` 内容，欺骗调试工具显示虚假的内存映射信息
+- **新增 A-Protect 输出选项**: 增加 `-irobf-aprotect` 选项控制 A-Protect 打印，默认关闭
+- **移除密钥验证**: 去掉卡密校验机制，无需注入 `-irobf-key`
 
 ## 作者
 
