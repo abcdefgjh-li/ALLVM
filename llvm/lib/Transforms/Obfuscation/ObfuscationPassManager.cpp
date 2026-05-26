@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
-#include "llvm/Transforms/Obfuscation/LicenseManager.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -54,11 +53,6 @@ static cl::opt<bool>
 EnableIRObfuscationDebug("irobf-debug", cl::init(false), cl::NotHidden,
                          cl::desc("Enable debug output for obfuscation."),
                          cl::ZeroOrMore);
-
-static cl::opt<std::string>
-LicenseKey("irobf-key", cl::init(""), cl::NotHidden,
-           cl::desc("License key for OLLVM obfuscation (time-based)."),
-           cl::value_desc("key"));
 
 bool llvm::isIRObfuscationDebugEnabled() {
     return EnableIRObfuscationDebug;
@@ -213,6 +207,11 @@ EnableMemProtect("irobf-memprotect", cl::init(false), cl::NotHidden,
                  cl::ZeroOrMore);
 
 static cl::opt<bool>
+EnableAProtect("irobf-aprotect", cl::init(false), cl::NotHidden,
+               cl::desc("Enable A-protect output at program start."),
+               cl::ZeroOrMore);
+
+static cl::opt<bool>
 EnableRootDetect("irobf-root", cl::init(false), cl::NotHidden,
                  cl::desc("Enable root detection (exit if root)."),
                  cl::ZeroOrMore);
@@ -361,6 +360,7 @@ namespace llvm {
 			    EnableVmProtectDetect || EnableUsbProtect || EnableIdaDetect || EnableVpnDetect ||
 			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect || EnableMemDetect ||
 			    EnablePtraceDetect || EnableInlineHookDetect || EnablePltHookDetect || EnableMemProtect ||
+			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect || EnableAProtect ||
 			    EnableSyscallProtect ||
 			    !SamsaraConfigPath.empty();
 
@@ -369,17 +369,11 @@ namespace llvm {
 			}
 
 			if (!EnableIRObfuscation) {
-				bool Changed = run(M);
-				return Changed;
-			}
+			bool Changed = run(M);
+			return Changed;
+		}
 
-			if (!validateLicense(LicenseKey)) {
-				errs() << "[ERROR] OLLVM license key is invalid or expired!\n";
-				errs() << "[ERROR] Provide a valid time-based key via -mllvm -irobf-key=<key>\n";
-				return false;
-			}
-
-			const auto Options(getOptions());
+		const auto Options(getOptions());
 			unsigned   pointerSize = M.getDataLayout().getTypeAllocSize(
 			                             PointerType::getUnqual(M.getContext()));
 
@@ -411,6 +405,9 @@ namespace llvm {
 				if (EnablePltHookDetect) errs() << "  + PltHookDetect\n";
 				if (EnableRootDetect) errs() << "  + RootDetect\n";
 				if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
+				if (EnableHideMaps) errs() << "  + HideMaps\n";
+				if (EnableFakeMaps) errs() << "  + FakeMaps\n";
+				if (EnableAProtect) errs() << "  + AProtect\n";
 				errs() << "========================================\n";
 			}
 
@@ -490,7 +487,9 @@ namespace llvm {
 				add(llvm::createNoRootDetectPass());
 			}
 
-			add(llvm::createAProtectPass());
+			if (EnableAProtect) {
+				add(llvm::createAProtectPass());
+			}
 
 		add(llvm::createConstantIntEncryptionPass(Options.get()));
 		add(llvm::createConstantFPEncryptionPass(Options.get()));

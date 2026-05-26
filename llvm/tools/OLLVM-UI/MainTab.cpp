@@ -165,6 +165,7 @@ void MainTab::setupUI() {
         {"PLT Hook 检测", "irobf-plthook"},
         {"隐藏 Maps (需Root)", "irobf-hidemaps"},
         {"伪造 Maps 内容", "irobf-fakemaps"},
+        {"A-Protect 输出", "irobf-aprotect"},
         {"Root 检测", "irobf-root"},
         {"非 Root 检测", "irobf-noroot"},
         {"调试日志", "irobf-debug"},

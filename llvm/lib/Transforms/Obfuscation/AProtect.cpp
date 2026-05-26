@@ -8,7 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/AProtect.h"
-#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -46,7 +45,6 @@ struct AProtect : public ModulePass {
 char AProtect::ID = 0;
 
 bool AProtect::runOnModule(Module &M) {
-    if (!isLicenseValidated()) return false;
 
     Function *MainFunc = M.getFunction("main");
     if (!MainFunc || MainFunc->isDeclaration()) {

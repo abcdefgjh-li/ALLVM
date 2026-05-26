@@ -1,5 +1,4 @@
 #include "MainWindow.h"
-#include "LicenseGenerator.h"
 #include "ConfigManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -14,7 +13,6 @@
 #include <QRegularExpression>
 #include <QCloseEvent>
 #include <QDialog>
-#include <QDateTime>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_process(nullptr) {
     setWindowTitle("OLLVM 混淆编译配置工具");
@@ -225,10 +223,6 @@ void MainWindow::onInjectFlags() {
 
     QStringList injectFlags;
     injectFlags << "-mllvm" << "-irobf" << flags;
-
-    QString licenseKey = LicenseGenerator::generateLicenseKey(QDateTime::currentSecsSinceEpoch());
-    injectFlags << "-mllvm" << "-irobf-key=" + licenseKey;
-    appendLog("[卡密] 已生成 5 分钟有效卡密: " + licenseKey, "#00bfff");
 
     QString backupFile = mkFile + ".bak";
     if (!QFileInfo::exists(backupFile)) {
