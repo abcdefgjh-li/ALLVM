@@ -1,3 +1,5 @@
+set(INTERPRETER_BC "${CMAKE_CURRENT_SOURCE_DIR}/../../../aVMPInterpreter/aVMPInterpreter.bc")
+
 add_llvm_library(LLVMObfuscation
   LicenseManager.cpp
   CryptoUtils.cpp
@@ -42,3 +44,8 @@ add_llvm_library(LLVMObfuscation
   )
 
 add_dependencies(LLVMObfuscation intrinsics_gen LLVMLinker)
+
+if(EXISTS "${INTERPRETER_BC}")
+  message(STATUS "Embedding aVMPInterpreter.bc into LLVMObfuscation")
+  set_source_files_properties(aVMP.cpp PROPERTIES OBJECT_DEPENDS "${INTERPRETER_BC}")
+endif()
