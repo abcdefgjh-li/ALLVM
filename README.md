@@ -288,16 +288,7 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 | **LLVM 21.x** | https://github.com/llvm/llvm-project |
 | **OLLVM (obfuscator-llvm)** | https://github.com/obfuscator-llvm/obfuscator |
 | **Qt 6** | https://www.qt.io/download-open-source |
-
-## 致谢
-
-感谢以下开源项目对本项目的启发和贡献：
-
-| 项目 | 地址 |
-|------|------|
 | **xVMP** | https://github.com/amunmv/xvmp |
-
-特别感谢：**殇璃大牛**
 
 ## 更新日志
 
