@@ -26,39 +26,45 @@
 .\build.exe
 ```
 
-### 编译测试程序
-
-```bash
-cd test
-..\android-ndk-r30-beta1-windows\ndk-build.cmd clean
-..\android-ndk-r30-beta1-windows\ndk-build.cmd NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk APP_PLATFORM=android-21 APP_ABI=arm64-v8a
-```
-
-### VMP 测试示例
-
-VMP测试项目位于 `test_vmp/` 目录：
-
-```bash
-cd test_vmp
-..\android-ndk-r30-beta1-windows\ndk-build.cmd NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk APP_PLATFORM=android-21 APP_ABI=arm64-v8a
-
-# 推送到模拟器运行
-adb push libs\arm64-v8a\test_vmp_full /data/local/tmp/
-adb shell chmod 755 /data/local/tmp/test_vmp_full
-adb shell /data/local/tmp/test_vmp_full
-```
-
 ## 关键文件位置
 
 | 文件 | 说明 |
 |------|------|
 | `llvm\lib\Transforms\Obfuscation\ObfuscationPassManager.cpp` | Pass 管理器，注册和调度所有混淆 Pass |
 | `llvm\lib\Transforms\Obfuscation\SyscallProtect.cpp` | 系统调用保护，替换 libc 函数为直接 syscall |
+| `llvm\lib\Transforms\Obfuscation\aVMP.cpp` | 虚拟机保护 (VMP) |
+| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | AProtect 保护 |
 | `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 禁用内存Dump，移除内存读权限 |
 | `llvm\lib\Transforms\Obfuscation\Flattening.cpp` | 控制流平坦化 |
 | `llvm\lib\Transforms\Obfuscation\IndirectBranch.cpp` | 间接分支混淆 |
 | `llvm\lib\Transforms\Obfuscation\IndirectCall.cpp` | 间接调用混淆 |
+| `llvm\lib\Transforms\Obfuscation\IndirectGlobalVariable.cpp` | 间接全局变量混淆 |
 | `llvm\lib\Transforms\Obfuscation\StringEncryption.cpp` | 字符串加密 |
+| `llvm\lib\Transforms\Obfuscation\ConstantIntEncryption.cpp` | 整数常量加密 |
+| `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
+| `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
+| `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
+| `llvm\lib\Transforms\Obfuscation\PtraceDetect.cpp` | Ptrace 反调试检测 |
+| `llvm\lib\Transforms\Obfuscation\MemDetect.cpp` | 内存检测 |
+| `llvm\lib\Transforms\Obfuscation\MemProtect.cpp` | 内存保护 |
+| `llvm\lib\Transforms\Obfuscation\InlineHookDetect.cpp` | Inline Hook 检测 |
+| `llvm\lib\Transforms\Obfuscation\PltHookDetect.cpp` | PLT Hook 检测 |
+| `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\FakeMaps.cpp` | 伪造 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\RootDetect.cpp` | Root 检测 |
+| `llvm\lib\Transforms\Obfuscation\NoRootDetect.cpp` | 非Root检测 |
+| `llvm\lib\Transforms\Obfuscation\VmProtectDetect.cpp` | VMProtect 检测 |
+| `llvm\lib\Transforms\Obfuscation\IdaDetect.cpp` | IDA Pro 检测 |
+| `llvm\lib\Transforms\Obfuscation\VpnDetect.cpp` | VPN 检测 |
+| `llvm\lib\Transforms\Obfuscation\ProxyDetect.cpp` | 代理检测 |
+| `llvm\lib\Transforms\Obfuscation\TimeDetect.cpp` | 时间检测 |
+| `llvm\lib\Transforms\Obfuscation\HostsDetect.cpp` | Hosts 文件检测 |
+| `llvm\lib\Transforms\Obfuscation\UsbProtect.cpp` | USB 保护 |
+| `llvm\lib\Transforms\Obfuscation\DetectUtils.cpp` | 检测工具函数 |
+| `llvm\lib\Transforms\Obfuscation\Utils.cpp` | 通用工具函数 |
+| `llvm\lib\Transforms\Obfuscation\CryptoUtils.cpp` | 加密工具函数 |
+| `llvm\lib\Transforms\Obfuscation\ObfuscationOptions.cpp` | 混淆选项 |
+| `llvm\lib\Transforms\Obfuscation\LegacyLowerSwitch.cpp` | Switch 降低转换 |
 | `llvm\include\llvm\Transforms\Obfuscation\` | 头文件目录 |
 
 ## 混淆参数
