@@ -20,52 +20,9 @@
 
 ## 快速开始
 
-### 编译 ALLVM
-
 ```bash
 .\build.exe
 ```
-
-## 关键文件位置
-
-| 文件 | 说明 |
-|------|------|
-| `llvm\lib\Transforms\Obfuscation\ObfuscationPassManager.cpp` | Pass 管理器，注册和调度所有混淆 Pass |
-| `llvm\lib\Transforms\Obfuscation\SyscallProtect.cpp` | 系统调用保护，替换 libc 函数为直接 syscall |
-| `llvm\lib\Transforms\Obfuscation\aVMP.cpp` | 虚拟机保护 (VMP) |
-| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | AProtect 保护 |
-| `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 禁用内存Dump，移除内存读权限 |
-| `llvm\lib\Transforms\Obfuscation\Flattening.cpp` | 控制流平坦化 |
-| `llvm\lib\Transforms\Obfuscation\IndirectBranch.cpp` | 间接分支混淆 |
-| `llvm\lib\Transforms\Obfuscation\IndirectCall.cpp` | 间接调用混淆 |
-| `llvm\lib\Transforms\Obfuscation\IndirectGlobalVariable.cpp` | 间接全局变量混淆 |
-| `llvm\lib\Transforms\Obfuscation\StringEncryption.cpp` | 字符串加密 |
-| `llvm\lib\Transforms\Obfuscation\ConstantIntEncryption.cpp` | 整数常量加密 |
-| `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
-| `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
-| `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
-| `llvm\lib\Transforms\Obfuscation\PtraceDetect.cpp` | Ptrace 反调试检测 |
-| `llvm\lib\Transforms\Obfuscation\MemDetect.cpp` | 内存检测 |
-| `llvm\lib\Transforms\Obfuscation\MemProtect.cpp` | 内存保护 |
-| `llvm\lib\Transforms\Obfuscation\InlineHookDetect.cpp` | Inline Hook 检测 |
-| `llvm\lib\Transforms\Obfuscation\PltHookDetect.cpp` | PLT Hook 检测 |
-| `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 maps 文件 |
-| `llvm\lib\Transforms\Obfuscation\FakeMaps.cpp` | 伪造 maps 文件 |
-| `llvm\lib\Transforms\Obfuscation\RootDetect.cpp` | Root 检测 |
-| `llvm\lib\Transforms\Obfuscation\NoRootDetect.cpp` | 非Root检测 |
-| `llvm\lib\Transforms\Obfuscation\VmProtectDetect.cpp` | VMProtect 检测 |
-| `llvm\lib\Transforms\Obfuscation\IdaDetect.cpp` | IDA Pro 检测 |
-| `llvm\lib\Transforms\Obfuscation\VpnDetect.cpp` | VPN 检测 |
-| `llvm\lib\Transforms\Obfuscation\ProxyDetect.cpp` | 代理检测 |
-| `llvm\lib\Transforms\Obfuscation\TimeDetect.cpp` | 时间检测 |
-| `llvm\lib\Transforms\Obfuscation\HostsDetect.cpp` | Hosts 文件检测 |
-| `llvm\lib\Transforms\Obfuscation\UsbProtect.cpp` | USB 保护 |
-| `llvm\lib\Transforms\Obfuscation\DetectUtils.cpp` | 检测工具函数 |
-| `llvm\lib\Transforms\Obfuscation\Utils.cpp` | 通用工具函数 |
-| `llvm\lib\Transforms\Obfuscation\CryptoUtils.cpp` | 加密工具函数 |
-| `llvm\lib\Transforms\Obfuscation\ObfuscationOptions.cpp` | 混淆选项 |
-| `llvm\lib\Transforms\Obfuscation\LegacyLowerSwitch.cpp` | Switch 降低转换 |
-| `llvm\include\llvm\Transforms\Obfuscation\` | 头文件目录 |
 
 ## 混淆参数
 
@@ -89,21 +46,11 @@
 | `-mllvm -irobf-fla` | 启用控制流平坦化 |
 | `-mllvm -irobf-indgv` | 启用间接全局变量混淆 |
 | `-mllvm -level-indgv=3` | 混淆强度 (1-3) |
-
-### 常量加密
-
-| 参数 | 说明 |
-|------|------|
 | `-mllvm -irobf-cse` | 启用字符串常量加密 |
 | `-mllvm -irobf-cie` | 启用整数常量加密 |
 | `-mllvm -level-cie=3` | 混淆强度 (1-3) |
 | `-mllvm -irobf-cfe` | 启用浮点常量加密 |
 | `-mllvm -level-cfe=3` | 混淆强度 (1-3) |
-
-### RTTI 擦除
-
-| 参数 | 说明 |
-|------|------|
 | `-mllvm -irobf-rtti` | 启用 RTTI 信息擦除 |
 
 ### VMP 虚拟机保护
@@ -161,7 +108,7 @@ int VMP_PROTECT main(int argc, char **argv) {
 | `-mllvm -irobf-hidemaps` | 隐藏Maps文件 (需Root) |
 | `-mllvm -irobf-fakemaps` | 伪造Maps内容 |
 
-### 系统调用保护 (Syscall Protect)
+### 系统调用保护
 
 | 参数 | 说明 |
 |------|------|
@@ -214,7 +161,7 @@ int VMP_PROTECT main(int argc, char **argv) {
    └─ MsRttiEraser
 ```
 
-## Android.mk 完整示例
+## Android.mk 示例
 
 ```makefile
 LOCAL_PATH := $(call my-dir)
@@ -228,9 +175,6 @@ LOCAL_CFLAGS := -w
 # === ALLVM 总开关 ===
 LOCAL_CFLAGS += -mllvm -irobf
 
-# === 调试输出 ===
-# LOCAL_CFLAGS += -mllvm -irobf-debug
-
 # === 代码混淆 ===
 LOCAL_CFLAGS += -mllvm -irobf-indbr
 LOCAL_CFLAGS += -mllvm -level-indbr=3
@@ -239,21 +183,17 @@ LOCAL_CFLAGS += -mllvm -level-icall=3
 LOCAL_CFLAGS += -mllvm -irobf-fla
 LOCAL_CFLAGS += -mllvm -irobf-indgv
 LOCAL_CFLAGS += -mllvm -level-indgv=3
-
-# === 常量加密 ===
 LOCAL_CFLAGS += -mllvm -irobf-cse
 LOCAL_CFLAGS += -mllvm -irobf-cie
 LOCAL_CFLAGS += -mllvm -level-cie=3
 LOCAL_CFLAGS += -mllvm -irobf-cfe
 LOCAL_CFLAGS += -mllvm -level-cfe=3
-
-# === RTTI 擦除 ===
 LOCAL_CFLAGS += -mllvm -irobf-rtti
 
 # === 系统调用保护 (仅 ARM64) ===
 LOCAL_CFLAGS += -mllvm -irobf-syscall
 
-# === VMP 虚拟机保护 (必须搭配 -frtti -fno-exceptions) ===
+# === VMP 虚拟机保护 ===
 # LOCAL_CFLAGS += -mllvm -irobf-vmp
 # LOCAL_CFLAGS += -frtti -fno-exceptions
 
@@ -272,6 +212,7 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 # LOCAL_CFLAGS += -mllvm -irobf-plthook
 # LOCAL_CFLAGS += -mllvm -irobf-memprotect
 # LOCAL_CFLAGS += -mllvm -irobf-bandump
+# LOCAL_CFLAGS += -mllvm -irobf-aprotect
 # LOCAL_CFLAGS += -mllvm -irobf-root
 # LOCAL_CFLAGS += -mllvm -irobf-noroot
 # LOCAL_CFLAGS += -mllvm -irobf-hidemaps
@@ -279,6 +220,47 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 
 include $(BUILD_EXECUTABLE)
 ```
+
+## 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| `llvm\lib\Transforms\Obfuscation\ObfuscationPassManager.cpp` | Pass 管理器 |
+| `llvm\lib\Transforms\Obfuscation\aVMP.cpp` | VMP 虚拟机保护 |
+| `llvm\lib\Transforms\Obfuscation\SyscallProtect.cpp` | 系统调用保护 |
+| `llvm\lib\Transforms\Obfuscation\Flattening.cpp` | 控制流平坦化 |
+| `llvm\lib\Transforms\Obfuscation\IndirectBranch.cpp` | 间接分支混淆 |
+| `llvm\lib\Transforms\Obfuscation\IndirectCall.cpp` | 间接调用混淆 |
+| `llvm\lib\Transforms\Obfuscation\IndirectGlobalVariable.cpp` | 间接全局变量混淆 |
+| `llvm\lib\Transforms\Obfuscation\StringEncryption.cpp` | 字符串加密 |
+| `llvm\lib\Transforms\Obfuscation\ConstantIntEncryption.cpp` | 整数常量加密 |
+| `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
+| `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
+| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | AProtect 保护 |
+| `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 禁用内存Dump |
+| `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
+| `llvm\lib\Transforms\Obfuscation\PtraceDetect.cpp` | Ptrace 反调试检测 |
+| `llvm\lib\Transforms\Obfuscation\MemDetect.cpp` | 内存检测 |
+| `llvm\lib\Transforms\Obfuscation\MemProtect.cpp` | 内存保护 |
+| `llvm\lib\Transforms\Obfuscation\InlineHookDetect.cpp` | Inline Hook 检测 |
+| `llvm\lib\Transforms\Obfuscation\PltHookDetect.cpp` | PLT Hook 检测 |
+| `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\FakeMaps.cpp` | 伪造 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\RootDetect.cpp` | Root 检测 |
+| `llvm\lib\Transforms\Obfuscation\NoRootDetect.cpp` | 非Root检测 |
+| `llvm\lib\Transforms\Obfuscation\VmProtectDetect.cpp` | VMProtect 检测 |
+| `llvm\lib\Transforms\Obfuscation\IdaDetect.cpp` | IDA Pro 检测 |
+| `llvm\lib\Transforms\Obfuscation\VpnDetect.cpp` | VPN 检测 |
+| `llvm\lib\Transforms\Obfuscation\ProxyDetect.cpp` | 代理检测 |
+| `llvm\lib\Transforms\Obfuscation\TimeDetect.cpp` | 时间检测 |
+| `llvm\lib\Transforms\Obfuscation\HostsDetect.cpp` | Hosts 文件检测 |
+| `llvm\lib\Transforms\Obfuscation\UsbProtect.cpp` | USB 保护 |
+| `llvm\lib\Transforms\Obfuscation\DetectUtils.cpp` | 检测工具函数 |
+| `llvm\lib\Transforms\Obfuscation\Utils.cpp` | 通用工具函数 |
+| `llvm\lib\Transforms\Obfuscation\CryptoUtils.cpp` | 加密工具函数 |
+| `llvm\lib\Transforms\Obfuscation\ObfuscationOptions.cpp` | 混淆选项 |
+| `llvm\lib\Transforms\Obfuscation\LegacyLowerSwitch.cpp` | Switch 降低转换 |
+| `llvm\include\llvm\Transforms\Obfuscation\` | 头文件目录 |
 
 ## 引用库
 
@@ -332,7 +314,7 @@ include $(BUILD_EXECUTABLE)
 
 ```
 ALLVM Obfuscator 21.x - LLVM-based code obfuscation for Android NDK
-Copyright (C) 2024-2026  abcdefgjh
+Copyright (C) 2026  abcdefgjh
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
