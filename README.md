@@ -3,8 +3,6 @@
   <br>
   <b>逆向大家庭</b>
   <br><br>
-  <b>作者</b>：abcdefgjh
-  <br>
   <b>QQ</b>：3986612313
   <br>
   <b>TG</b>：<a href="https://t.me/abcdefgjha">@abcdefgjha</a>
