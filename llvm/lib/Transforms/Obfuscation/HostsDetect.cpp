@@ -2,17 +2,14 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
 // 本文件实现Hosts文件检测注入Pass，在程序入口点注入检测代码
 // 检测/etc/hosts中的可疑内容（代理/抓包工具特征）
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/HostsDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -24,7 +21,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 
 #define DEBUG_TYPE "hostsdetect"
 
@@ -45,86 +41,14 @@ struct HostsDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
-    Function* createHostsCheckFunc(Module &M, Function *ReportAndKillFunc);
+    Function* createHostsCheckFunc(Module &M, Function *reportFunc);
 };
 
 }
 
 char HostsDetect::ID = 0;
 
-Function* HostsDetect::createReportAndKillFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "hosts_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到Hosts文件异常!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".hosts.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionCallee AsmExitFunc = M.getOrInsertFunction("exit",
-        FunctionType::get(Type::getVoidTy(M.getContext()), {Int32Ty}, false));
-    Builder.CreateCall(AsmExitFunc, {ConstantInt::get(Int32Ty, 0)});
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
-
-Function* HostsDetect::createHostsCheckFunc(Module &M, Function *ReportAndKillFunc) {
+Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
@@ -174,13 +98,7 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *ReportAndKillFu
     );
     
     auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".hosts.str." + Twine(str)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
+        return DetectUtils::createGlobalString(M, str, ".hosts.str");
     };
     
     Constant *HostsPath = makeString("/etc/hosts");
@@ -245,7 +163,7 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *ReportAndKillFu
     
     Builder.SetInsertPoint(FoundBB);
     Builder.CreateCall(FcloseFunc, {Fp});
-    Builder.CreateCall(ReportAndKillFunc);
+    Builder.CreateCall(reportFunc);
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
@@ -260,39 +178,21 @@ bool HostsDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 使用公共模块创建报告函数
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
-    Function *CheckFunc = createHostsCheckFunc(M, ReportAndKillFunc);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
-
-    if (isIRObfuscationDebugEnabled()) {
-        LLVMContext &Ctx = M.getContext();
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] HostsDetect: Checking hosts file...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".hosts.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
-    Builder.CreateCall(CheckFunc);
-
-    return true;
+    // 创建检测函数
+    Function *CheckFunc = createHostsCheckFunc(M, ReportFunc);
+    
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
+    
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
 ModulePass *llvm::createHostsDetectPass() {

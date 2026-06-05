@@ -235,6 +235,7 @@ void SyscallProtect::injectDebugPrintf(IRBuilder<> &Builder, Module &M, const ch
         GlobalValue::PrivateLinkage, MsgStr,
         ".syscall.debug"
     );
+    MsgGV->setSection(".AProtect.rodata");
     Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(MsgGV, CharPtrTy)});
 }
 

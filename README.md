@@ -34,6 +34,20 @@ cd test
 ..\android-ndk-r30-beta1-windows\ndk-build.cmd NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk APP_PLATFORM=android-21 APP_ABI=arm64-v8a
 ```
 
+### VMP 测试示例
+
+VMP测试项目位于 `test_vmp/` 目录：
+
+```bash
+cd test_vmp
+..\android-ndk-r30-beta1-windows\ndk-build.cmd NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk APP_PLATFORM=android-21 APP_ABI=arm64-v8a
+
+# 推送到模拟器运行
+adb push libs\arm64-v8a\test_vmp_full /data/local/tmp/
+adb shell chmod 755 /data/local/tmp/test_vmp_full
+adb shell /data/local/tmp/test_vmp_full
+```
+
 ## 关键文件位置
 
 | 文件 | 说明 |
@@ -104,10 +118,18 @@ int VMP_PROTECT sensitive_function(int x) {
     return x * 2 + 1;
 }
 
-// 保护多个函数
+// 保护多个函数 - 支持相互调用
 void VMP_PROTECT process_data(char *data, int len);
 int VMP_PROTECT calculate_result(int a, int b);
+
+// VMP函数可以调用其他VMP函数
+int VMP_PROTECT main(int argc, char **argv) {
+    process_data(buffer, len);  // 调用其他VMP函数
+    return calculate_result(1, 2);
+}
 ```
+
+> **特性**: 支持多函数虚拟化，VMP保护的函数可以相互调用。每个函数拥有独立的虚拟机实例和全局变量，互不干扰。
 
 ### 反调试/完整性检测
 
@@ -278,6 +300,17 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 特别感谢：**殇璃大牛**
 
 ## 更新日志
+
+### v1.4.0 (2026-06-04)
+- **VMP 多函数虚拟化支持**:
+  - 支持多个VMP保护的函数相互调用
+  - 每个VMP函数拥有独立的虚拟机实例和全局变量
+  - 修复全局变量冲突问题（添加函数名后缀）
+  - 修复解释器函数克隆时的依赖问题
+- **混淆Pass管理优化**:
+  - 修复混淆Pass无条件启用的问题
+  - 现在只有显式启用的混淆才会生效
+  - ConstantIntEncryption、Flattening等Pass需要手动启用
 
 ### v1.3.0 (2026-06-01)
 - **优化使用体验**:

@@ -2,11 +2,12 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// 检测到有root权限时退出，打印"你给我滚出去!!!"
+// 检测到有root权限时退出
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/RootDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -38,142 +39,78 @@ struct RootDetect : public ModulePass {
     }
 
     bool runOnModule(Module &M) override;
+    
+    Function* createRootCheckFunc(Module &M, Function *reportFunc);
 };
 
 }
 
 char RootDetect::ID = 0;
 
-bool RootDetect::runOnModule(Module &M) {
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Entering runOnModule\n";
-    }
-
-    Function *MainFunc = M.getFunction("main");
-    if (!MainFunc) {
-        if (isIRObfuscationDebugEnabled()) {
-            errs() << "[DEBUG] RootDetect: No main function found, exiting\n";
-        }
-        return false;
-    }
-
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Found main function: " << MainFunc->getName() << "\n";
-    }
-
-    if (MainFunc->isDeclaration()) {
-        if (isIRObfuscationDebugEnabled()) {
-            errs() << "[DEBUG] RootDetect: main is declaration only, exiting\n";
-        }
-        return false;
-    }
-
-    if (MainFunc->empty()) {
-        if (isIRObfuscationDebugEnabled()) {
-            errs() << "[DEBUG] RootDetect: main has no body, exiting\n";
-        }
-        return false;
-    }
-
+Function* RootDetect::createRootCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
-
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Splitting entry block...\n";
-    }
-
-    BasicBlock *ContinueBB = EntryBB.splitBasicBlock(EntryBB.getFirstInsertionPt(), "root_continue");
-
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: EntryBB=" << EntryBB.getName()
-               << " ContinueBB=" << ContinueBB->getName() << "\n";
-    }
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
-
+    
+    Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Declaring external functions...\n";
-    }
-
+    
+    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
+    Function *Func = Function::Create(
+        FuncTy,
+        GlobalValue::InternalLinkage,
+        M.getDataLayout().getProgramAddressSpace(),
+        "check_root",
+        &M
+    );
+    
+    Func->addFnAttr(Attribute::NoInline);
+    
+    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
+    BasicBlock *RootFoundBB = BasicBlock::Create(Ctx, "root_found", Func);
+    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
+    
+    IRBuilder<> Builder(EntryBB);
+    
+    // 调用getuid()检测root
     FunctionCallee GetuidFunc = M.getOrInsertFunction(
         "getuid",
         FunctionType::get(Int32Ty, {}, false)
     );
-
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-
-    if (isIRObfuscationDebugEnabled()) {
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] RootDetect: Checking root...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".root.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, CharPtrTy)});
-    }
-
-    BasicBlock *CheckBB = BasicBlock::Create(Ctx, "root_check", MainFunc);
-    BasicBlock *RootFoundBB = BasicBlock::Create(Ctx, "root_found", MainFunc);
-
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Creating BBs: CheckBB=" << CheckBB->getName()
-               << " RootFoundBB=" << RootFoundBB->getName() << "\n";
-    }
-
-    Builder.CreateBr(CheckBB);
-    EntryBB.getTerminator()->eraseFromParent();
-
-    Builder.SetInsertPoint(CheckBB);
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Building getuid() check in CheckBB\n";
-    }
+    
     Value *Uid = Builder.CreateCall(GetuidFunc);
     Value *IsRoot = Builder.CreateICmpEQ(Uid, ConstantInt::get(Int32Ty, 0));
-    Builder.CreateCondBr(IsRoot, RootFoundBB, ContinueBB);
-
+    Builder.CreateCondBr(IsRoot, RootFoundBB, ExitBB);
+    
     Builder.SetInsertPoint(RootFoundBB);
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Building root-found exit in RootFoundBB\n";
-    }
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "你给我滚出去!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M, MsgStr->getType(), true,
-        GlobalValue::PrivateLinkage, MsgStr,
-        ".root.msg"
-    );
-    Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(MsgGV, CharPtrTy)});
-    Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
+    Builder.CreateCall(reportFunc);
+    Builder.CreateBr(ExitBB);
+    
+    Builder.SetInsertPoint(ExitBB);
+    Builder.CreateRetVoid();
+    
+    return Func;
+}
 
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Builder.CreateCall(KillFunc, {Pid, ConstantInt::get(Int32Ty, 9)});
-    Builder.CreateUnreachable();
-
+bool RootDetect::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] RootDetect: Insertion complete, returning true\n";
+        errs() << "[DEBUG] RootDetect: Injecting root detection\n";
     }
 
-    return true;
+    Function *MainFunc = M.getFunction("main");
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
+        return false;
+    }
+
+    // 使用公共模块创建报告函数
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
+    
+    // 创建Root检测函数
+    Function *CheckFunc = createRootCheckFunc(M, ReportFunc);
+    
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
+    
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
 ModulePass *llvm::createRootDetectPass() {

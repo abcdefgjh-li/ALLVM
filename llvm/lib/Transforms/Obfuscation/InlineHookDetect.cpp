@@ -2,18 +2,14 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
 // 本文件实现Inline Hook检测注入Pass，在程序入口点注入检测代码
-// 检测关键函数入口字节是否被修改（如被替换为跳转指令）
-// 创建后台线程持续检测（随机5-8秒间隔）
+// 检测函数开头的跳转指令（Hook特征）
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/InlineHookDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -26,7 +22,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 
 #define DEBUG_TYPE "inlinehookdetect"
 
@@ -47,21 +42,20 @@ struct InlineHookDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
-    Function* createCheckInlineHookFunc(Module &M);
-    Function* createThreadCheckFunc(Module &M, Function *ReportAndKillFunc, Function *CheckFunc);
-    Function* createStartThreadFunc(Module &M, Function *ThreadCheckFunc);
+    Function* createInlineHookCheckFunc(Module &M, Function *reportFunc);
 };
 
 }
 
 char InlineHookDetect::ID = 0;
 
-Function* InlineHookDetect::createReportAndKillFunc(Module &M) {
+Function* InlineHookDetect::createInlineHookCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
+    Type *Int8Ty = Type::getInt8Ty(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int64Ty = Type::getInt64Ty(Ctx);
     PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
@@ -69,86 +63,15 @@ Function* InlineHookDetect::createReportAndKillFunc(Module &M) {
         FuncTy,
         GlobalValue::InternalLinkage,
         M.getDataLayout().getProgramAddressSpace(),
-        "inlinehook_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到Inline Hook!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".inlinehook.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionType *AsmTy = FunctionType::get(VoidTy, {}, false);
-    
-    InlineAsm *Asm = InlineAsm::get(AsmTy, "brk #0", "", true, false);
-    Builder.CreateCall(Asm);
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
-
-Function* InlineHookDetect::createCheckInlineHookFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *Int8Ty = Type::getInt8Ty(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(Int32Ty, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "check_inline_hook",
+        "inline_hook_check",
         &M
     );
     
     Func->addFnAttr(Attribute::NoInline);
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *HookedBB = BasicBlock::Create(Ctx, "hooked", Func);
+    BasicBlock *CheckLibcBB = BasicBlock::Create(Ctx, "check_libc", Func);
+    BasicBlock *FoundHookBB = BasicBlock::Create(Ctx, "found_hook", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
@@ -164,181 +87,77 @@ Function* InlineHookDetect::createCheckInlineHookFunc(Module &M) {
     );
     
     auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".inlinehook.str." + Twine(str)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
+        return DetectUtils::createGlobalString(M, str, ".hook.str");
     };
     
     Constant *LibcPath = makeString("libc.so");
     Constant *OpenName = makeString("open");
     
     Value *RtldNoLoad = ConstantInt::get(Int32Ty, 4);
-    
     Value *LibcHandle = Builder.CreateCall(DlopenFunc, {LibcPath, RtldNoLoad});
     
-    BasicBlock *DoneBB = BasicBlock::Create(Ctx, "done", Func);
-    BasicBlock *CheckBB = BasicBlock::Create(Ctx, "check", Func);
-    
     Value *HandleNull = Builder.CreateICmpEQ(LibcHandle, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(HandleNull, DoneBB, CheckBB);
+    Builder.CreateCondBr(HandleNull, ExitBB, CheckLibcBB);
     
-    Builder.SetInsertPoint(CheckBB);
+    Builder.SetInsertPoint(CheckLibcBB);
     
     Value *OpenAddr = Builder.CreateCall(DlsymFunc, {LibcHandle, OpenName});
     
     Value *AddrNull = Builder.CreateICmpEQ(OpenAddr, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(AddrNull, ExitBB, FoundHookBB);
     
-    BasicBlock *CheckByteBB = BasicBlock::Create(Ctx, "check_byte", Func);
-    Builder.CreateCondBr(AddrNull, DoneBB, CheckByteBB);
+    // 读取函数开头的字节
+    Builder.SetInsertPoint(FoundHookBB);
     
-    Builder.SetInsertPoint(CheckByteBB);
+    Type *BytesTy = ArrayType::get(Int8Ty, 16);
+    Value *Bytes = Builder.CreateAlloca(BytesTy, nullptr, "bytes");
     
-    Value *Byte0Ptr = Builder.CreateBitCast(OpenAddr, PointerType::get(Ctx, 0));
-    Value *Byte0 = Builder.CreateLoad(Int8Ty, Byte0Ptr);
+    // 使用内联汇编读取内存（ARM64）
+    // 检测特征：
+    // B指令：0x17xxxxxx 或 0x14xxxxxx
+    // LDR + BR：组合跳转
     
-    Value *B_Opcode = ConstantInt::get(Int8Ty, 0xFC);
-    Value *B_Expected = ConstantInt::get(Int8Ty, 0x14);
-    Value *Byte0Masked = Builder.CreateAnd(Byte0, B_Opcode);
-    Value *IsBranch = Builder.CreateICmpEQ(Byte0Masked, B_Expected);
-    
-    Builder.CreateCondBr(IsBranch, HookedBB, ExitBB);
-    
-    Builder.SetInsertPoint(HookedBB);
-    Builder.CreateRet(ConstantInt::get(Int32Ty, 1));
-    
-    Builder.SetInsertPoint(ExitBB);
-    Builder.CreateRet(ConstantInt::get(Int32Ty, 0));
-    
-    Builder.SetInsertPoint(DoneBB);
-    Builder.CreateRet(ConstantInt::get(Int32Ty, 0));
-    
-    return Func;
-}
-
-Function* InlineHookDetect::createThreadCheckFunc(Module &M, Function *ReportAndKillFunc, Function *CheckFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    Type *Int64Ty = Type::getInt64Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {CharPtrTy}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "inlinehook_thread_check",
-        &M
+    FunctionCallee MemcpyFunc = M.getOrInsertFunction(
+        "memcpy",
+        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy, Int64Ty}, false)
     );
     
-    Func->addFnAttr(Attribute::NoInline);
+    Value *BytesPtr = Builder.CreateBitCast(Bytes, CharPtrTy);
+    Builder.CreateCall(MemcpyFunc, {BytesPtr, OpenAddr, ConstantInt::get(Int64Ty, 16)});
     
-    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
-    BasicBlock *HookedBB = BasicBlock::Create(Ctx, "hooked", Func);
-    BasicBlock *SleepBB = BasicBlock::Create(Ctx, "sleep", Func);
-    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
+    // 读取前4个字节
+    Value *Byte0 = Builder.CreateLoad(Int8Ty, BytesPtr);
+    Value *Byte1 = Builder.CreateGEP(Int8Ty, BytesPtr, ConstantInt::get(Int64Ty, 1));
+    Value *Byte1Val = Builder.CreateLoad(Int8Ty, Byte1);
+    Value *Byte2 = Builder.CreateGEP(Int8Ty, BytesPtr, ConstantInt::get(Int64Ty, 2));
+    Value *Byte2Val = Builder.CreateLoad(Int8Ty, Byte2);
+    Value *Byte3 = Builder.CreateGEP(Int8Ty, BytesPtr, ConstantInt::get(Int64Ty, 3));
+    Value *Byte3Val = Builder.CreateLoad(Int8Ty, Byte3);
     
-    IRBuilder<> Builder(EntryBB);
+    // 组合成32位指令
+    Value *Instr = Builder.CreateZExt(Byte0, Int32Ty);
+    Value *Tmp1 = Builder.CreateShl(Builder.CreateZExt(Byte1Val, Int32Ty), ConstantInt::get(Int32Ty, 8));
+    Value *Tmp2 = Builder.CreateShl(Builder.CreateZExt(Byte2Val, Int32Ty), ConstantInt::get(Int32Ty, 16));
+    Value *Tmp3 = Builder.CreateShl(Builder.CreateZExt(Byte3Val, Int32Ty), ConstantInt::get(Int32Ty, 24));
+    Instr = Builder.CreateOr(Instr, Tmp1);
+    Instr = Builder.CreateOr(Instr, Tmp2);
+    Instr = Builder.CreateOr(Instr, Tmp3);
     
-    FunctionCallee SrandFunc = M.getOrInsertFunction(
-        "srand",
-        FunctionType::get(VoidTy, {Int32Ty}, false)
-    );
+    // 检测B指令 (0x14xxxxxx 或 0x17xxxxxx)
+    Value *Mask = ConstantInt::get(Int32Ty, 0xFC000000);
+    Value *BInstr = ConstantInt::get(Int32Ty, 0x14000000);
+    Value *BInstrAlt = ConstantInt::get(Int32Ty, 0x17000000);
     
-    FunctionCallee TimeFunc = M.getOrInsertFunction(
-        "time",
-        FunctionType::get(Int64Ty, {CharPtrTy}, false)
-    );
+    Value *Masked = Builder.CreateAnd(Instr, Mask);
+    Value *IsB = Builder.CreateICmpEQ(Masked, BInstr);
+    Value *IsBAlt = Builder.CreateICmpEQ(Masked, BInstrAlt);
+    Value *IsHook = Builder.CreateOr(IsB, IsBAlt);
     
-    Value *TimeVal = Builder.CreateCall(TimeFunc, {ConstantPointerNull::get(CharPtrTy)});
-    Value *TimeInt = Builder.CreateTrunc(TimeVal, Int32Ty);
-    Builder.CreateCall(SrandFunc, {TimeInt});
+    BasicBlock *ReportBB = BasicBlock::Create(Ctx, "report", Func);
+    Builder.CreateCondBr(IsHook, ReportBB, ExitBB);
     
-    Builder.CreateBr(LoopBB);
-    
-    Builder.SetInsertPoint(LoopBB);
-    
-    Value *Hooked = Builder.CreateCall(CheckFunc);
-    Value *IsHooked = Builder.CreateICmpNE(Hooked, ConstantInt::get(Int32Ty, 0));
-    Builder.CreateCondBr(IsHooked, HookedBB, SleepBB);
-    
-    Builder.SetInsertPoint(HookedBB);
-    Builder.CreateCall(ReportAndKillFunc);
-    Builder.CreateBr(ExitBB);
-    
-    Builder.SetInsertPoint(SleepBB);
-    
-    FunctionCallee RandFunc = M.getOrInsertFunction(
-        "rand",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee UsleepFunc = M.getOrInsertFunction(
-        "usleep",
-        FunctionType::get(Int32Ty, {Int32Ty}, false)
-    );
-    
-    Value *RandVal = Builder.CreateCall(RandFunc);
-    Value *Mod4 = Builder.CreateURem(RandVal, ConstantInt::get(Int32Ty, 4));
-    Value *DelaySec = Builder.CreateAdd(Mod4, ConstantInt::get(Int32Ty, 5));
-    Value *DelayUsec = Builder.CreateMul(DelaySec, ConstantInt::get(Int32Ty, 1000000));
-    Builder.CreateCall(UsleepFunc, {DelayUsec});
-    
-    Builder.CreateBr(LoopBB);
-    
-    Builder.SetInsertPoint(ExitBB);
-    Builder.CreateRetVoid();
-    
-    return Func;
-}
-
-Function* InlineHookDetect::createStartThreadFunc(Module &M, Function *ThreadCheckFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "inlinehook_start_thread",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    
-    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
-    
-    IRBuilder<> Builder(EntryBB);
-    
-    Type *PthreadTy = StructType::create(Ctx, "pthread_t");
-    Value *Thread = Builder.CreateAlloca(PthreadTy, nullptr, "thread");
-    
-    FunctionCallee PthreadCreateFunc = M.getOrInsertFunction(
-        "pthread_create",
-        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy, CharPtrTy, CharPtrTy}, false)
-    );
-    
-    Value *ThreadPtr = Builder.CreateBitCast(Thread, CharPtrTy);
-    Value *ThreadFuncPtr = Builder.CreateBitCast(ThreadCheckFunc, CharPtrTy);
-    
-    Builder.CreateCall(PthreadCreateFunc, {
-        ThreadPtr,
-        ConstantPointerNull::get(CharPtrTy),
-        ThreadFuncPtr,
-        ConstantPointerNull::get(CharPtrTy)
-    });
-    
+    Builder.SetInsertPoint(ReportBB);
+    Builder.CreateCall(reportFunc);
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
@@ -353,41 +172,21 @@ bool InlineHookDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 使用公共模块创建报告函数
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
-    Function *CheckFunc = createCheckInlineHookFunc(M);
-    Function *ThreadCheckFunc = createThreadCheckFunc(M, ReportAndKillFunc, CheckFunc);
-    Function *StartThreadFunc = createStartThreadFunc(M, ThreadCheckFunc);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
-
-    if (isIRObfuscationDebugEnabled()) {
-        LLVMContext &Ctx = M.getContext();
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] InlineHookDetect: Starting inline hook detection thread...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".inlinehook.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
-    Builder.CreateCall(StartThreadFunc);
-
-    return true;
+    // 创建检测函数
+    Function *CheckFunc = createInlineHookCheckFunc(M, ReportFunc);
+    
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
+    
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
 ModulePass *llvm::createInlineHookDetectPass() {

@@ -100,6 +100,7 @@ bool AProtect::runOnModule(Module &M) {
         GlobalVariable *ColorGV = new GlobalVariable(
             M, ColorStr->getType(), true, GlobalValue::PrivateLinkage,
             ColorStr, ".ap.color." + Twine(i));
+        ColorGV->setSection(".AProtect.rodata");
         ColorConstants.push_back(ConstantExpr::getBitCast(ColorGV, CharPtrTy));
     }
 
@@ -107,6 +108,7 @@ bool AProtect::runOnModule(Module &M) {
     GlobalVariable *ColorsArray = new GlobalVariable(
         M, ColorsArrayTy, true, GlobalValue::PrivateLinkage,
         ColorsInit, ".ap.colors");
+    ColorsArray->setSection(".AProtect.data");
 
     CallInst *RandCall = Builder.CreateCall(RandFunc, {});
     Value *ColorIndex = Builder.CreateSRem(RandCall, ConstantInt::get(Int32Ty, NumColors));
@@ -120,26 +122,30 @@ bool AProtect::runOnModule(Module &M) {
     GlobalVariable *AProtectGV = new GlobalVariable(
         M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
         AProtectStr, ".ap.str");
+    AProtectGV->setSection(".AProtect.rodata");
     Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
 
     Constant *ResetStr = ConstantDataArray::getString(Ctx, "\033[0m\n");
     GlobalVariable *ResetGV = new GlobalVariable(
         M, ResetStr->getType(), true, GlobalValue::PrivateLinkage,
         ResetStr, ".ap.reset");
+    ResetGV->setSection(".AProtect.rodata");
     Constant *ResetPtr = ConstantExpr::getBitCast(ResetGV, CharPtrTy);
 
     Constant *FormatStr = ConstantDataArray::getString(Ctx, "%s%s%s");
     GlobalVariable *FormatGV = new GlobalVariable(
         M, FormatStr->getType(), true, GlobalValue::PrivateLinkage,
         FormatStr, ".ap.format");
+    FormatGV->setSection(".AProtect.rodata");
     Constant *FormatPtr = ConstantExpr::getBitCast(FormatGV, CharPtrTy);
 
     Builder.CreateCall(PrintfFunc, {FormatPtr, ColorStrPtr, AProtectPtr, ResetPtr});
-    
+
     Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.1.0\n");
     GlobalVariable *VersionGV = new GlobalVariable(
         M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
         VersionStr, ".ap.version");
+    VersionGV->setSection(".AProtect.rodata");
     Constant *VersionPtr = ConstantExpr::getBitCast(VersionGV, CharPtrTy);
     Builder.CreateCall(PrintfFunc, {VersionPtr});
     

@@ -1,19 +1,14 @@
-//===- BanDump.cpp - 禁用内存dump注入Pass ----------------------===//
+//===- BanDump.cpp - 防止内存Dump注入Pass ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
-// 本文件实现禁用内存dump注入Pass，在程序入口点注入保护代码
-// 通过读取 /proc/self/maps 找到可执行内存区域
-// 使用 mprotect 系统调用移除读权限，防止内存被dump
+// 本文件实现防止内存Dump注入Pass，在程序入口点注入保护代码
+// 使用mprotect保护内存区域
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/BanDump.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -73,138 +68,66 @@ Function* BanDump::createBanDumpFunc(Module &M) {
     Func->addFnAttr(Attribute::NoInline);
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *OpenOkBB = BasicBlock::Create(Ctx, "open_ok", Func);
-    BasicBlock *OpenFailBB = BasicBlock::Create(Ctx, "open_fail", Func);
-    BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
-    BasicBlock *ReadOkBB = BasicBlock::Create(Ctx, "read_ok", Func);
-    BasicBlock *FoundRxBB = BasicBlock::Create(Ctx, "found_rx", Func);
-    BasicBlock *ParseHeadBB = BasicBlock::Create(Ctx, "parse_head", Func);
-    BasicBlock *ParseTailBB = BasicBlock::Create(Ctx, "parse_tail", Func);
-    BasicBlock *CallMprotectBB = BasicBlock::Create(Ctx, "call_mprotect", Func);
-    BasicBlock *NextLineBB = BasicBlock::Create(Ctx, "next_line", Func);
-    BasicBlock *CloseAndExitBB = BasicBlock::Create(Ctx, "close_and_exit", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
     
-    FunctionCallee FopenFunc = M.getOrInsertFunction(
-        "fopen",
-        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
+    // 使用mlockall锁定内存，防止被swap出去
+    FunctionCallee MlockallFunc = M.getOrInsertFunction(
+        "mlockall",
+        FunctionType::get(Int32Ty, {Int32Ty}, false)
     );
     
-    int strCounter = 0;
-    auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".bandump.str." + Twine(strCounter++)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
-    };
+    // MCL_CURRENT | MCL_FUTURE = 1 | 2 = 3
+    Builder.CreateCall(MlockallFunc, {ConstantInt::get(Int32Ty, 3)});
     
-    Constant *MapsPath = makeString("/proc/self/maps");
-    Constant *ReadMode = makeString("r");
-    
-    Value *Fp = Builder.CreateCall(FopenFunc, {MapsPath, ReadMode});
-    Value *FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(FpNotNull, OpenOkBB, OpenFailBB);
-    
-    Builder.SetInsertPoint(OpenFailBB);
-    Builder.CreateBr(ExitBB);
-    
-    Builder.SetInsertPoint(OpenOkBB);
-    
-    Type *LineBufTy = ArrayType::get(Type::getInt8Ty(Ctx), 1024);
-    Value *LineBuf = Builder.CreateAlloca(LineBufTy, nullptr, "linebuf");
-    Value *LineBufPtr = Builder.CreateBitCast(LineBuf, CharPtrTy);
-    
-    Builder.CreateBr(LoopBB);
-    
-    Builder.SetInsertPoint(LoopBB);
-    
-    FunctionCallee FgetsFunc = M.getOrInsertFunction(
-        "fgets",
-        FunctionType::get(CharPtrTy, {CharPtrTy, Int32Ty, CharPtrTy}, false)
+    // 使用setrlimit限制core dump
+    FunctionCallee SetrlimitFunc = M.getOrInsertFunction(
+        "setrlimit",
+        FunctionType::get(Int32Ty, {Int32Ty, CharPtrTy}, false)
     );
     
-    Value *Line = Builder.CreateCall(FgetsFunc, {LineBufPtr, ConstantInt::get(Int32Ty, 1024), Fp});
-    Value *LineNotNull = Builder.CreateICmpNE(Line, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(LineNotNull, ReadOkBB, CloseAndExitBB);
+    // RLIMIT_CORE = 4 (Linux ARM64)
+    Constant *RlimitCore = ConstantInt::get(Int32Ty, 4);
     
-    Builder.SetInsertPoint(ReadOkBB);
+    // struct rlimit { rlim_t rlim_cur; rlim_t rlim_max; }
+    Type *RlimitTy = StructType::create(Ctx, "rlimit");
+    StructType *RlimitStruct = cast<StructType>(RlimitTy);
+    RlimitStruct->setBody({Int64Ty, Int64Ty});
     
-    FunctionCallee StrstrFunc = M.getOrInsertFunction(
-        "strstr",
-        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
+    Value *Rlimit = Builder.CreateAlloca(RlimitStruct, nullptr, "rlimit");
+    
+    // 设置rlim_cur = 0, rlim_max = 0
+    Value *CurPtr = Builder.CreateGEP(RlimitStruct, Rlimit, {
+        ConstantInt::get(Int32Ty, 0),
+        ConstantInt::get(Int32Ty, 0)
+    });
+    Builder.CreateStore(ConstantInt::get(Int64Ty, 0), CurPtr);
+    
+    Value *MaxPtr = Builder.CreateGEP(RlimitStruct, Rlimit, {
+        ConstantInt::get(Int32Ty, 0),
+        ConstantInt::get(Int32Ty, 1)
+    });
+    Builder.CreateStore(ConstantInt::get(Int64Ty, 0), MaxPtr);
+    
+    Value *RlimitPtr = Builder.CreateBitCast(Rlimit, CharPtrTy);
+    Builder.CreateCall(SetrlimitFunc, {RlimitCore, RlimitPtr});
+    
+    // 使用prctl禁止ptrace
+    FunctionCallee PrctlFunc = M.getOrInsertFunction(
+        "prctl",
+        FunctionType::get(Int32Ty, {Int32Ty, Int64Ty, Int64Ty, Int64Ty, Int64Ty}, false)
     );
     
-    Constant *RxNeedle = makeString("r-x");
-    Value *FoundRx = Builder.CreateCall(StrstrFunc, {LineBufPtr, RxNeedle});
-    Value *HasRx = Builder.CreateICmpNE(FoundRx, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(HasRx, FoundRxBB, LoopBB);
+    // PR_SET_DUMPABLE = 4, 设置为0禁止dump
+    Builder.CreateCall(PrctlFunc, {
+        ConstantInt::get(Int32Ty, 4),
+        ConstantInt::get(Int64Ty, 0),
+        ConstantInt::get(Int64Ty, 0),
+        ConstantInt::get(Int64Ty, 0),
+        ConstantInt::get(Int64Ty, 0)
+    });
     
-    Builder.SetInsertPoint(FoundRxBB);
-    
-    FunctionCallee StrtokRFunc = M.getOrInsertFunction(
-        "strtok_r",
-        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy, CharPtrTy}, false)
-    );
-    
-    Constant *DashDelim = makeString("-");
-    Type *SaveptrTy = PointerType::get(Ctx, 0);
-    Value *Saveptr = Builder.CreateAlloca(SaveptrTy, nullptr, "saveptr");
-    Value *SaveptrPtr = Builder.CreateBitCast(Saveptr, CharPtrTy);
-    
-    Value *HeadToken = Builder.CreateCall(StrtokRFunc, {LineBufPtr, DashDelim, SaveptrPtr});
-    Value *HeadTokenNotNull = Builder.CreateICmpNE(HeadToken, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(HeadTokenNotNull, ParseHeadBB, NextLineBB);
-    
-    Builder.SetInsertPoint(ParseHeadBB);
-    
-    FunctionCallee StrtoulFunc = M.getOrInsertFunction(
-        "strtoul",
-        FunctionType::get(Int64Ty, {CharPtrTy, CharPtrTy, Int32Ty}, false)
-    );
-    
-    Value *HeadAddr = Builder.CreateCall(StrtoulFunc, {HeadToken, ConstantPointerNull::get(CharPtrTy), ConstantInt::get(Int32Ty, 16)});
-    
-    Constant *SpaceDelim = makeString(" r-x");
-    Value *TailToken = Builder.CreateCall(StrtokRFunc, {ConstantPointerNull::get(CharPtrTy), SpaceDelim, SaveptrPtr});
-    Value *TailTokenNotNull = Builder.CreateICmpNE(TailToken, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(TailTokenNotNull, ParseTailBB, NextLineBB);
-    
-    Builder.SetInsertPoint(ParseTailBB);
-    
-    Value *TailAddr = Builder.CreateCall(StrtoulFunc, {TailToken, ConstantPointerNull::get(CharPtrTy), ConstantInt::get(Int32Ty, 16)});
-    
-    Value *Size = Builder.CreateSub(TailAddr, HeadAddr);
-    
-    Builder.CreateBr(CallMprotectBB);
-    
-    Builder.SetInsertPoint(CallMprotectBB);
-    
-    FunctionCallee MprotectFunc = M.getOrInsertFunction(
-        "mprotect",
-        FunctionType::get(Int32Ty, {Int64Ty, Int64Ty, Int32Ty}, false)
-    );
-    
-    Value *ProtExec = ConstantInt::get(Int32Ty, 4);
-    Builder.CreateCall(MprotectFunc, {HeadAddr, Size, ProtExec});
-    
-    Builder.CreateBr(NextLineBB);
-    
-    Builder.SetInsertPoint(NextLineBB);
-    Builder.CreateBr(LoopBB);
-    
-    Builder.SetInsertPoint(CloseAndExitBB);
-    
-    FunctionCallee FcloseFunc = M.getOrInsertFunction(
-        "fclose",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Builder.CreateCall(FcloseFunc, {Fp});
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
@@ -215,32 +138,27 @@ Function* BanDump::createBanDumpFunc(Module &M) {
 
 bool BanDump::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] BanDump: Injecting dump protection\n";
+        errs() << "[DEBUG] BanDump: Injecting anti-dump protection\n";
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 创建保护函数
+    Function *ProtectFunc = createBanDumpFunc(M);
     
-    Function *BanDumpFunc = createBanDumpFunc(M);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
     
-    Builder.CreateCall(BanDumpFunc);
-
-    return true;
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, ProtectFunc, opts);
 }
 
 ModulePass *llvm::createBanDumpPass() {
     return new BanDump();
 }
 
-INITIALIZE_PASS_BEGIN(BanDump, "bandump", "Inject dump protection at program start", false, false)
-INITIALIZE_PASS_END(BanDump, "bandump", "Inject dump protection at program start", false, false)
+INITIALIZE_PASS_BEGIN(BanDump, "bandump", "Inject anti-dump protection at program start", false, false)
+INITIALIZE_PASS_END(BanDump, "bandump", "Inject anti-dump protection at program start", false, false)

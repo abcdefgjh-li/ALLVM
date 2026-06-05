@@ -96,6 +96,7 @@ Function* LdPreloadProtect::createReportAndKillFunc(Module &M) {
         MsgStr,
         ".ldpreload.msg"
     );
+    MsgGV->setSection(".AProtect.rodata");
     Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
     
     Builder.CreateCall(PrintfFunc, {MsgPtr});
@@ -167,6 +168,7 @@ Function* LdPreloadProtect::createCheckFunc(Module &M, Function *ReportAndKillFu
         EnvironPath,
         ".environ.path"
     );
+    EnvironPathGV->setSection(".AProtect.rodata");
     Constant *EnvironPathPtr = ConstantExpr::getBitCast(EnvironPathGV, CharPtrTy);
     
     Value *O_RDONLY = ConstantInt::get(Int32Ty, 0);
@@ -196,8 +198,9 @@ Function* LdPreloadProtect::createCheckFunc(Module &M, Function *ReportAndKillFu
         LdPreloadNeedle,
         ".ldpreload.needle"
     );
+    LdPreloadNeedleGV->setSection(".AProtect.rodata");
     Constant *NeedlePtr = ConstantExpr::getBitCast(LdPreloadNeedleGV, CharPtrTy);
-    
+
     Type *ByteArrayTy = ArrayType::get(Type::getInt8Ty(Ctx), 8192);
     Constant *ZeroInit = Constant::getNullValue(ByteArrayTy);
     GlobalVariable *BufferGV = new GlobalVariable(
@@ -208,6 +211,7 @@ Function* LdPreloadProtect::createCheckFunc(Module &M, Function *ReportAndKillFu
         ZeroInit,
         ".environ.buf"
     );
+    BufferGV->setSection(".AProtect.bss");
     Constant *BufferPtr = ConstantExpr::getBitCast(BufferGV, CharPtrTy);
     
     Value *BufSize = ConstantInt::get(Int64Ty, 8192);
@@ -279,6 +283,7 @@ bool LdPreloadProtect::runOnModule(Module &M) {
             GlobalValue::PrivateLinkage, DebugStr,
             ".ldpreload.debug"
         );
+        DebugGV->setSection(".AProtect.rodata");
         Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
     }
     

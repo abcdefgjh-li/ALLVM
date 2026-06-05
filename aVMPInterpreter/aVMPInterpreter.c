@@ -1,8 +1,17 @@
+// Enable debug output unconditionally for testing
+// #define GOVM_CPP_DEBUG 1
+
+#include <stdio.h>
+#include <string.h>
 #include "aVMPInterpreter.h"
 
 // Debug functions - implemented by VMP pass via IR injection
 // Controlled by -irobf-debug flag
 extern void vmp_debug_id(int id, uint64_t val);
+
+// Debug mode control - set by VMP pass when -irobf-debug is enabled
+// 0 = debug disabled (default), 1 = debug enabled
+extern uint8_t vmp_debug_enabled;
 
 // Debug IDs
 #define DEBUG_ID_NEW_BB     1
@@ -16,7 +25,8 @@ extern void vmp_debug_id(int id, uint64_t val);
 #define DEBUG_ID_SEED_VM    9
 #define DEBUG_ID_IP         10
 
-#define DEBUG(id, val) vmp_debug_id(id, val)
+// DEBUG macro: only outputs when vmp_debug_enabled is set
+#define DEBUG(id, val) do { if (vmp_debug_enabled) vmp_debug_id(id, val); } while(0)
 
 #define SEG_SIZE 5000
 
@@ -279,16 +289,39 @@ void load_handler() {
 void store_handler() {
     uint8_t var_size = get_byte_code();
     uint8_t var_type = get_byte_code();
-    uint64_t store_value = get_value_with_size(var_size, var_type);
 
-    uint8_t ptr_size = get_byte_code();
-    uint8_t ptr_type = get_byte_code();
-    uint64_t ptr_offset = unpack_code(pointer_size);
+    if (var_size > 8 && var_type == 0) {
+        // 大尺寸值（如16字节数组）：直接从源地址复制内存到目标地址
+        uint64_t src_offset = unpack_code(pointer_size);
+        
+        // 读取指针信息
+        uint8_t ptr_size = get_byte_code();
+        uint8_t ptr_type = get_byte_code();
+        uint64_t ptr_offset = unpack_code(pointer_size);
+        uint64_t ptr = unpack_data(ptr_offset, pointer_size);
+        
+        uint64_t src_addr = data_seg_addr + src_offset;
+        
+        #ifdef GOVM_CPP_DEBUG
+        printf("[store_handler] Large value: size=%d, src_offset=%lu, ptr=%lx\n", var_size, src_offset, ptr);
+        fflush(stdout);
+        #endif
+        
+        // 直接内存复制
+        memcpy((void*)ptr, (void*)src_addr, var_size);
+    } else {
+        // 小尺寸值（<=8字节）或常量：使用原有逻辑
+        uint64_t store_value = get_value_with_size(var_size, var_type);
 
-    uint64_t ptr = unpack_data(ptr_offset, pointer_size);
+        uint8_t ptr_size = get_byte_code();
+        uint8_t ptr_type = get_byte_code();
+        uint64_t ptr_offset = unpack_code(pointer_size);
 
-    // printf("store ptr: %lx, store_value: %lx, var_size: %lx\n", ptr, store_value, var_size);
-    pack_store_addr(ptr, store_value, var_size);
+        uint64_t ptr = unpack_data(ptr_offset, pointer_size);
+
+        // printf("store ptr: %lx, store_value: %lx, var_size: %lx\n", ptr, store_value, var_size);
+        pack_store_addr(ptr, store_value, var_size);
+    }
 }
 
 #ifdef IS_INLINE_FUNC
@@ -1111,29 +1144,13 @@ uint8_t get_opcode() {
 void vm_interpreter() {
 
     // DEBUG: Print entry
-    #ifdef GOVM_CPP_DEBUG
-    printf("[VM] vm_interpreter started\n");
-    fflush(stdout);
-    #endif
+    DEBUG(DEBUG_ID_NEW_BB, 999);
 
     // init pointer size based on architecture
     pointer_size = sizeof(void*);
 
-    // DEBUG: Print pointer size
-    #ifdef GOVM_CPP_DEBUG
-    printf("[VM] pointer_size = %u\n", pointer_size);
-    fflush(stdout);
-    #endif
-
     // init
     ip = 0;
-
-    // DEBUG: Print data_seg_addr and code_seg_addr
-    #ifdef GOVM_CPP_DEBUG
-    printf("[VM] data_seg_addr = 0x%lx\n", (unsigned long)data_seg_addr);
-    printf("[VM] code_seg_addr = 0x%lx\n", (unsigned long)code_seg_addr);
-    fflush(stdout);
-    #endif
 
     // when step into a new basicblock, we need to fetch opcode_seed and vm_code_seed
     uint8_t is_a_new_bb = 1;
@@ -1143,12 +1160,7 @@ void vm_interpreter() {
     while(1) {
         instruction_count++;
         
-        #ifdef GOVM_CPP_DEBUG
-        if (instruction_count <= 10 || instruction_count % 100 == 0) {
-            printf("[VM] Instruction #%d, ip=%lu\n", instruction_count, (unsigned long)ip);
-            fflush(stdout);
-        }
-        #endif
+        DEBUG(DEBUG_ID_IP, instruction_count);
 
         if (is_a_new_bb) {
             opcode_xorshift32_state = get_xorshift_seed();
@@ -1156,21 +1168,13 @@ void vm_interpreter() {
             is_a_new_bb = 0;
             current_bb_id = ip;
             
-            #ifdef GOVM_CPP_DEBUG
-            printf("[VM] New BB: ip=%lu, op_seed=%u, vm_seed=%u\n", 
-                   (unsigned long)ip, opcode_xorshift32_state, vm_code_state);
-            fflush(stdout);
-            #endif
+            DEBUG(DEBUG_ID_NEW_BB, ip);
         }
 
         // switch op_code and add ip
         uint8_t opcode = get_opcode();
-        #ifdef GOVM_CPP_DEBUG
-        if (instruction_count <= 20) {
-            printf("[VM]   opcode = 0x%02x\n", opcode);
-            fflush(stdout);
-        }
-        #endif
+        DEBUG(DEBUG_ID_OPCODE, opcode);
+        
         switch (opcode) {
                 
             case NOP_OP:
@@ -1247,7 +1251,18 @@ void vm_interpreter() {
                 return;
                 break;
             case Call_OP:
-                call_handler(unpack_code(pointer_size));
+                {
+                    uint64_t packed_funcid = unpack_code(pointer_size);
+                    // packed_res format: {type_size(1), type_id(1), offset(pointer_size)}
+                    // Total: 2 + pointer_size bytes
+                    uint8_t type_size = get_byte_code();
+                    uint8_t type_id = get_byte_code();
+                    uint64_t offset = unpack_code(pointer_size);
+                    // Use DEBUG_ID_NEW_BB (1) for funcid, DEBUG_ID_OPCODE (2) for offset
+                    DEBUG(DEBUG_ID_NEW_BB, packed_funcid);
+                    DEBUG(DEBUG_ID_OPCODE, offset);
+                    call_handler(packed_funcid);
+                }
                 break;
             default:
                 #ifdef GOVM_CPP_DEBUG

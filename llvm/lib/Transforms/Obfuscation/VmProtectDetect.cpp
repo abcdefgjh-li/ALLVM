@@ -2,18 +2,14 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
 // 本文件实现虚拟机文件检测注入Pass，在程序入口点注入检测代码
 // 通过 stat() 扫描已知虚拟机/模拟器特征文件路径
-// 检测到则强制终止进程
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/VmProtectDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -26,7 +22,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 
 #define DEBUG_TYPE "vmprotectdetect"
 
@@ -75,7 +70,6 @@ struct VmProtectDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
 
-    Function* createReportAndKillFunc(Module &M);
     Function* createVMCheckFunc(Module &M, Function *ReportAndKillFunc);
     Function* createCpuinfoCheckFunc(Module &M, Function *ReportAndKillFunc);
 };
@@ -83,101 +77,6 @@ struct VmProtectDetect : public ModulePass {
 }
 
 char VmProtectDetect::ID = 0;
-
-Function* VmProtectDetect::createReportAndKillFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "vmprotect_report_and_kill",
-        &M
-    );
-
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "你给我滚出去!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".vmdetect.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-
-    FunctionType *AsmTy = FunctionType::get(VoidTy, {}, false);
-
-    InlineAsm *Asm1 = InlineAsm::get(AsmTy,
-        "mov x0, #0\n"
-        "mov x8, #93\n"
-        "svc #0",
-        "", true, false);
-    Builder.CreateCall(Asm1);
-
-    InlineAsm *Asm2 = InlineAsm::get(AsmTy,
-        "mov x0, #0\n"
-        "mov x8, #94\n"
-        "svc #0",
-        "", true, false);
-    Builder.CreateCall(Asm2);
-
-    InlineAsm *Asm3 = InlineAsm::get(AsmTy,
-        "mov x8, #172\n"
-        "svc #0\n"
-        "mov x1, #9\n"
-        "mov x8, #129\n"
-        "svc #0",
-        "", true, false);
-    Builder.CreateCall(Asm3);
-
-    InlineAsm *Asm4 = InlineAsm::get(AsmTy, "brk #0", "", true, false);
-    Builder.CreateCall(Asm4);
-
-    Builder.CreateUnreachable();
-
-    return Func;
-}
 
 Function* VmProtectDetect::createVMCheckFunc(Module &M, Function *ReportAndKillFunc) {
     LLVMContext &Ctx = M.getContext();
@@ -335,13 +234,7 @@ Function* VmProtectDetect::createCpuinfoCheckFunc(Module &M, Function *ReportAnd
     );
     
     auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".cpuinfo.str." + Twine(str)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
+        return DetectUtils::createGlobalString(M, str, ".cpuinfo.str");
     };
     
     Constant *CpuinfoPath = makeString("/proc/cpuinfo");
@@ -413,38 +306,21 @@ bool VmProtectDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
-
-    LLVMContext &Ctx = M.getContext();
-
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
+    // 使用公共模块创建报告函数
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M);
+    
+    // 创建检测函数
     Function *CheckFunc = createVMCheckFunc(M, ReportAndKillFunc);
     Function *CpuinfoCheckFunc = createCpuinfoCheckFunc(M, ReportAndKillFunc);
 
+    BasicBlock &EntryBB = MainFunc->getEntryBlock();
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
 
-    if (isIRObfuscationDebugEnabled()) {
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] VmProtectDetect: Checking VM files...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".vmdetect.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
+    // 注入检测调用
     Builder.CreateCall(CheckFunc);
     Builder.CreateCall(CpuinfoCheckFunc);
 

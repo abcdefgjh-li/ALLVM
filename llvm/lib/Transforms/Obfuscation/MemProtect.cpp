@@ -2,17 +2,13 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
 // 本文件实现内存保护注入Pass，在程序入口点注入保护代码
-// 禁用core dump和锁定内存防止dump
+// 使用mprotect保护代码段
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/MemProtect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -45,14 +41,14 @@ struct MemProtect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createProtectFunc(Module &M);
+    Function* createMemProtectFunc(Module &M);
 };
 
 }
 
 char MemProtect::ID = 0;
 
-Function* MemProtect::createProtectFunc(Module &M) {
+Function* MemProtect::createMemProtectFunc(Module &M) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
@@ -71,36 +67,122 @@ Function* MemProtect::createProtectFunc(Module &M) {
     
     Func->addFnAttr(Attribute::NoInline);
     
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
+    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
+    BasicBlock *OpenOkBB = BasicBlock::Create(Ctx, "open_ok", Func);
+    BasicBlock *OpenFailBB = BasicBlock::Create(Ctx, "open_fail", Func);
+    BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
+    BasicBlock *CheckLineBB = BasicBlock::Create(Ctx, "check_line", Func);
+    BasicBlock *ProtectBB = BasicBlock::Create(Ctx, "protect", Func);
+    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
-    Type *RlimitTy = StructType::create(Ctx, "rlimit");
-    StructType *RlimitStruct = cast<StructType>(RlimitTy);
-    RlimitStruct->setBody({Int64Ty, Int64Ty});
+    IRBuilder<> Builder(EntryBB);
     
-    Value *Rl = Builder.CreateAlloca(RlimitStruct, nullptr, "rl");
-    
-    Value *RlimCurPtr = Builder.CreateGEP(RlimitStruct, Rl, {ConstantInt::get(Int32Ty, 0), ConstantInt::get(Int32Ty, 0)});
-    Builder.CreateStore(ConstantInt::get(Int64Ty, 0), RlimCurPtr);
-    
-    Value *RlimMaxPtr = Builder.CreateGEP(RlimitStruct, Rl, {ConstantInt::get(Int32Ty, 0), ConstantInt::get(Int32Ty, 1)});
-    Builder.CreateStore(ConstantInt::get(Int64Ty, 0), RlimMaxPtr);
-    
-    FunctionCallee SetrlimitFunc = M.getOrInsertFunction(
-        "setrlimit",
-        FunctionType::get(Int32Ty, {Int32Ty, CharPtrTy}, false)
+    FunctionCallee FopenFunc = M.getOrInsertFunction(
+        "fopen",
+        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
     );
     
-    Value *RlPtr = Builder.CreateBitCast(Rl, CharPtrTy);
-    Builder.CreateCall(SetrlimitFunc, {ConstantInt::get(Int32Ty, 4), RlPtr});
-    
-    FunctionCallee MlockallFunc = M.getOrInsertFunction(
-        "mlockall",
-        FunctionType::get(Int32Ty, {Int32Ty}, false)
+    FunctionCallee FgetsFunc = M.getOrInsertFunction(
+        "fgets",
+        FunctionType::get(CharPtrTy, {CharPtrTy, Int32Ty, CharPtrTy}, false)
     );
     
-    Builder.CreateCall(MlockallFunc, {ConstantInt::get(Int32Ty, 3)});
+    FunctionCallee FcloseFunc = M.getOrInsertFunction(
+        "fclose",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
+    );
     
+    FunctionCallee StrstrFunc = M.getOrInsertFunction(
+        "strstr",
+        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
+    );
+    
+    FunctionCallee SscanfFunc = M.getOrInsertFunction(
+        "sscanf",
+        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy}, true)
+    );
+    
+    FunctionCallee MprotectFunc = M.getOrInsertFunction(
+        "mprotect",
+        FunctionType::get(Int32Ty, {CharPtrTy, Int64Ty, Int32Ty}, false)
+    );
+    
+    auto makeString = [&](const char *str) -> Constant* {
+        return DetectUtils::createGlobalString(M, str, ".mem.str");
+    };
+    
+    Constant *MapsPath = makeString("/proc/self/maps");
+    Constant *ReadMode = makeString("r");
+    Constant *SscanfFmt = makeString("%lx-%lx %4s %lx");
+
+    Type *Int8Ty = Type::getInt8Ty(Ctx);
+    
+    Value *Fp = Builder.CreateCall(FopenFunc, {MapsPath, ReadMode});
+    Value *FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(FpNotNull, OpenOkBB, OpenFailBB);
+    
+    Builder.SetInsertPoint(OpenFailBB);
+    Builder.CreateBr(ExitBB);
+    
+    Builder.SetInsertPoint(OpenOkBB);
+    
+    Type *LineBufTy = ArrayType::get(Int8Ty, 512);
+    Value *LineBuf = Builder.CreateAlloca(LineBufTy, nullptr, "linebuf");
+    Value *LineBufPtr = Builder.CreateBitCast(LineBuf, CharPtrTy);
+    
+    Type *StartBufTy = ArrayType::get(Int64Ty, 1);
+    Value *StartBuf = Builder.CreateAlloca(StartBufTy, nullptr, "start");
+    Value *StartPtr = Builder.CreateBitCast(StartBuf, CharPtrTy);
+    
+    Type *EndBufTy = ArrayType::get(Int64Ty, 1);
+    Value *EndBuf = Builder.CreateAlloca(EndBufTy, nullptr, "end");
+    Value *EndPtr = Builder.CreateBitCast(EndBuf, CharPtrTy);
+    
+    Type *PermBufTy = ArrayType::get(Int8Ty, 8);
+    Value *PermBuf = Builder.CreateAlloca(PermBufTy, nullptr, "perm");
+    Value *PermPtr = Builder.CreateBitCast(PermBuf, CharPtrTy);
+    
+    Type *OffsetBufTy = ArrayType::get(Int64Ty, 1);
+    Value *OffsetBuf = Builder.CreateAlloca(OffsetBufTy, nullptr, "offset");
+    Value *OffsetPtr = Builder.CreateBitCast(OffsetBuf, CharPtrTy);
+    
+    Builder.CreateBr(LoopBB);
+    
+    Builder.SetInsertPoint(LoopBB);
+    
+    Value *Line = Builder.CreateCall(FgetsFunc, {LineBufPtr, ConstantInt::get(Int32Ty, 512), Fp});
+    Value *LineNotNull = Builder.CreateICmpNE(Line, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(LineNotNull, CheckLineBB, ExitBB);
+    
+    Builder.SetInsertPoint(CheckLineBB);
+    
+    Builder.CreateCall(SscanfFunc, {LineBufPtr, SscanfFmt, StartPtr, EndPtr, PermPtr, OffsetPtr});
+    
+    Value *Start = Builder.CreateLoad(Int64Ty, StartPtr);
+    Value *End = Builder.CreateLoad(Int64Ty, EndPtr);
+    
+    Value *PermChar2 = Builder.CreateGEP(Int8Ty, PermBuf, {ConstantInt::get(Int64Ty, 0), ConstantInt::get(Int64Ty, 2)});
+    Value *ExecFlag = Builder.CreateLoad(Int8Ty, PermChar2);
+    Value *IsExecutable = Builder.CreateICmpEQ(ExecFlag, ConstantInt::get(Int8Ty, 'x'));
+    
+    Value *Offset = Builder.CreateLoad(Int64Ty, OffsetPtr);
+    Value *IsText = Builder.CreateICmpEQ(Offset, ConstantInt::get(Int64Ty, 0));
+    
+    Value *ShouldProtect = Builder.CreateAnd(IsExecutable, IsText);
+    Builder.CreateCondBr(ShouldProtect, ProtectBB, LoopBB);
+    
+    Builder.SetInsertPoint(ProtectBB);
+    
+    Value *Size = Builder.CreateSub(End, Start);
+    Value *Addr = Builder.CreateIntToPtr(Start, CharPtrTy);
+    
+    // PROT_READ = 1
+    Builder.CreateCall(MprotectFunc, {Addr, Size, ConstantInt::get(Int32Ty, 1)});
+    
+    Builder.CreateBr(LoopBB);
+    
+    Builder.SetInsertPoint(ExitBB);
+    Builder.CreateCall(FcloseFunc, {Fp});
     Builder.CreateRetVoid();
     
     return Func;
@@ -110,40 +192,20 @@ bool MemProtect::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[DEBUG] MemProtect: Injecting memory protection\n";
     }
+
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 创建保护函数
+    Function *ProtectFunc = createMemProtectFunc(M);
     
-    Function *ProtectFunc = createProtectFunc(M);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
     
-    LLVMContext &Ctx = M.getContext();
-    
-    if (isIRObfuscationDebugEnabled()) {
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] MemProtect: Applying memory protection...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".memprotect.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-    
-    Builder.CreateCall(ProtectFunc);
-
-    return true;
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, ProtectFunc, opts);
 }
 
 ModulePass *llvm::createMemProtectPass() {

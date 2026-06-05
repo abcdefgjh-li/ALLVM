@@ -1,18 +1,15 @@
-//===- HideMaps.cpp - 隐藏maps文件注入Pass -------------------------===//
+//===- HideMaps.cpp - 隐藏内存映射注入Pass --------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
-// 本文件实现隐藏/proc/self/maps文件的Pass，通过mount bind用假maps覆盖真实maps
-// 需要root权限才能生效
+// 本文件实现隐藏内存映射注入Pass，在程序入口点注入保护代码
+// 使用mount bind隐藏/proc/self/maps
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/HideMaps.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -43,134 +40,15 @@ struct HideMaps : public ModulePass {
     }
 
     bool runOnModule(Module &M) override;
-    Function* createGenerateFakeMapsFunc(Module &M);
-    Function* createHideOneFunc(Module &M);
-    Function* createHideAllMapsFunc(Module &M);
-    Function* createStartThreadFunc(Module &M, Function *HideAllMapsFunc);
+    
+    Function* createHideMapsFunc(Module &M);
 };
 
 }
 
 char HideMaps::ID = 0;
 
-Function* HideMaps::createGenerateFakeMapsFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "generate_fake_maps",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    
-    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *WriteBB = BasicBlock::Create(Ctx, "write", Func);
-    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
-    
-    IRBuilder<> Builder(EntryBB);
-    
-    FunctionCallee FopenFunc = M.getOrInsertFunction(
-        "fopen",
-        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
-    );
-    
-    Value *TmpPath = Builder.CreateGlobalString("/data/local/tmp/.fake_maps", "tmp_path");
-    Value *Mode = Builder.CreateGlobalString("w", "mode");
-    
-    CallInst *Fp = Builder.CreateCall(FopenFunc, {TmpPath, Mode});
-    
-    Value *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Value *IsNull = Builder.CreateICmpEQ(Fp, NullPtr);
-    Builder.CreateCondBr(IsNull, ExitBB, WriteBB);
-    
-    Builder.SetInsertPoint(WriteBB);
-    
-    FunctionCallee FprintfFunc = M.getOrInsertFunction(
-        "fprintf",
-        FunctionType::get(Type::getInt32Ty(Ctx), {CharPtrTy, CharPtrTy}, true)
-    );
-    
-    Value *Fmt1 = Builder.CreateGlobalString("%08lx-%08lx %c%c%c%c %08lx %02x:%02x %lu %s\n", "fmt1");
-    Value *Zero = ConstantInt::get(Type::getInt64Ty(Ctx), 0);
-    Value *One = ConstantInt::get(Type::getInt64Ty(Ctx), 0x1000);
-    Value *Two = ConstantInt::get(Type::getInt64Ty(Ctx), 0x2000);
-    Value *Three = ConstantInt::get(Type::getInt64Ty(Ctx), 0x3000);
-    Value *R = ConstantInt::get(Type::getInt32Ty(Ctx), 'r');
-    Value *X = ConstantInt::get(Type::getInt32Ty(Ctx), 'x');
-    Value *W = ConstantInt::get(Type::getInt32Ty(Ctx), 'w');
-    Value *Dash = ConstantInt::get(Type::getInt32Ty(Ctx), '-');
-    Value *Fake = Builder.CreateGlobalString("[fake]", "fake");
-    
-    Builder.CreateCall(FprintfFunc, {Fp, Fmt1, Zero, One, R, Dash, Dash, Dash, Zero, Zero, Zero, Zero, Fake});
-    Builder.CreateCall(FprintfFunc, {Fp, Fmt1, One, Two, R, X, Dash, Dash, Zero, Zero, Zero, Zero, Fake});
-    Builder.CreateCall(FprintfFunc, {Fp, Fmt1, Two, Three, R, W, Dash, Dash, Zero, Zero, Zero, Zero, Fake});
-    
-    FunctionCallee FcloseFunc = M.getOrInsertFunction(
-        "fclose",
-        FunctionType::get(Type::getInt32Ty(Ctx), {CharPtrTy}, false)
-    );
-    Builder.CreateCall(FcloseFunc, {Fp});
-    Builder.CreateBr(ExitBB);
-    
-    Builder.SetInsertPoint(ExitBB);
-    Builder.CreateRetVoid();
-    
-    return Func;
-}
-
-Function* HideMaps::createHideOneFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(Int32Ty, {CharPtrTy}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "hide_one_maps",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    
-    Argument *PathArg = &*Func->arg_begin();
-    PathArg->setName("path");
-    
-    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(EntryBB);
-    
-    FunctionCallee SystemFunc = M.getOrInsertFunction(
-        "system",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Value *CmdFormat = Builder.CreateGlobalString("mount -o bind /data/local/tmp/.fake_maps %s 2>/dev/null", "cmd_fmt");
-    
-    Value *CmdBuf = Builder.CreateAlloca(CharPtrTy, ConstantInt::get(Type::getInt64Ty(Ctx), 256));
-    
-    FunctionCallee SnprintfFunc = M.getOrInsertFunction(
-        "snprintf",
-        FunctionType::get(Int32Ty, {CharPtrTy, Type::getInt64Ty(Ctx), CharPtrTy}, true)
-    );
-    
-    Builder.CreateCall(SnprintfFunc, {CmdBuf, ConstantInt::get(Type::getInt64Ty(Ctx), 256), CmdFormat, PathArg});
-    
-    CallInst *Ret = Builder.CreateCall(SystemFunc, {CmdBuf});
-    Builder.CreateRet(Ret);
-    
-    return Func;
-}
-
-Function* HideMaps::createHideAllMapsFunc(Module &M) {
+Function* HideMaps::createHideMapsFunc(Module &M) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
@@ -183,14 +61,15 @@ Function* HideMaps::createHideAllMapsFunc(Module &M) {
         FuncTy,
         GlobalValue::InternalLinkage,
         M.getDataLayout().getProgramAddressSpace(),
-        "hide_all_maps",
+        "hide_maps",
         &M
     );
     
     Func->addFnAttr(Attribute::NoInline);
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *CheckRootBB = BasicBlock::Create(Ctx, "check_root", Func);
+    BasicBlock *CreateFakeBB = BasicBlock::Create(Ctx, "create_fake", Func);
+    BasicBlock *MountBB = BasicBlock::Create(Ctx, "mount", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
@@ -200,73 +79,60 @@ Function* HideMaps::createHideAllMapsFunc(Module &M) {
         FunctionType::get(Int32Ty, {}, false)
     );
     
-    CallInst *Uid = Builder.CreateCall(GetuidFunc);
-    Value *IsRoot = Builder.CreateICmpEQ(Uid, ConstantInt::get(Int32Ty, 0));
-    Builder.CreateCondBr(IsRoot, CheckRootBB, ExitBB);
-    
-    Builder.SetInsertPoint(CheckRootBB);
-    
-    Function *GenerateFake = createGenerateFakeMapsFunc(M);
-    Builder.CreateCall(GenerateFake);
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
+    FunctionCallee MountFunc = M.getOrInsertFunction(
+        "mount",
+        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy, CharPtrTy, Int64Ty, CharPtrTy}, false)
     );
     
-    CallInst *Pid = Builder.CreateCall(GetpidFunc);
-    
-    Value *PathBuf = Builder.CreateAlloca(CharPtrTy, ConstantInt::get(Int64Ty, 128));
-    Value *TaskBuf = Builder.CreateAlloca(CharPtrTy, ConstantInt::get(Int64Ty, 64));
-    
-    Value *MapsFmt = Builder.CreateGlobalString("/proc/%d/maps", "maps_fmt");
-    Value *TaskFmt = Builder.CreateGlobalString("/proc/%d/task", "task_fmt");
-    
-    FunctionCallee SnprintfFunc = M.getOrInsertFunction(
-        "snprintf",
-        FunctionType::get(Int32Ty, {CharPtrTy, Int64Ty, CharPtrTy}, true)
+    FunctionCallee FopenFunc = M.getOrInsertFunction(
+        "fopen",
+        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
     );
     
-    Builder.CreateCall(SnprintfFunc, {PathBuf, ConstantInt::get(Int64Ty, 128), MapsFmt, Pid});
-    Builder.CreateCall(SnprintfFunc, {TaskBuf, ConstantInt::get(Int64Ty, 64), TaskFmt, Pid});
-    
-    Function *HideOne = createHideOneFunc(M);
-    Builder.CreateCall(HideOne, {PathBuf});
-    
-    FunctionCallee OpendirFunc = M.getOrInsertFunction(
-        "opendir",
-        FunctionType::get(CharPtrTy, {CharPtrTy}, false)
+    FunctionCallee FprintfFunc = M.getOrInsertFunction(
+        "fprintf",
+        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy}, true)
     );
     
-    CallInst *Dir = Builder.CreateCall(OpendirFunc, {TaskBuf});
-    Value *DirNull = Builder.CreateICmpEQ(Dir, ConstantPointerNull::get(CharPtrTy));
-    
-    BasicBlock *ReadDirBB = BasicBlock::Create(Ctx, "readdir", Func);
-    BasicBlock *CloseDirBB = BasicBlock::Create(Ctx, "closedir", Func);
-    
-    Builder.CreateCondBr(DirNull, ExitBB, ReadDirBB);
-    
-    Builder.SetInsertPoint(ReadDirBB);
-    
-    FunctionCallee ReaddirFunc = M.getOrInsertFunction(
-        "readdir",
-        FunctionType::get(CharPtrTy, {CharPtrTy}, false)
-    );
-    
-    PHINode *DirPhi = Builder.CreatePHI(CharPtrTy, 2, "dir_ptr");
-    DirPhi->addIncoming(Dir, CheckRootBB);
-    
-    CallInst *Entry = Builder.CreateCall(ReaddirFunc, {DirPhi});
-    Value *EntryNull = Builder.CreateICmpEQ(Entry, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(EntryNull, CloseDirBB, ReadDirBB);
-    
-    Builder.SetInsertPoint(CloseDirBB);
-    
-    FunctionCallee ClosedirFunc = M.getOrInsertFunction(
-        "closedir",
+    FunctionCallee FcloseFunc = M.getOrInsertFunction(
+        "fclose",
         FunctionType::get(Int32Ty, {CharPtrTy}, false)
     );
-    Builder.CreateCall(ClosedirFunc, {Dir});
+    
+    auto makeString = [&](const char *str) -> Constant* {
+        return DetectUtils::createGlobalString(M, str, ".hidemaps.str");
+    };
+    
+    // 检查是否有root权限
+    Value *Uid = Builder.CreateCall(GetuidFunc);
+    Value *IsRoot = Builder.CreateICmpEQ(Uid, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(IsRoot, CreateFakeBB, ExitBB);
+    
+    Builder.SetInsertPoint(CreateFakeBB);
+    
+    Constant *FakePath = makeString("/data/local/tmp/fake_maps");
+    Constant *WriteMode = makeString("w");
+    Constant *FakeContent = makeString("00000000-00000000 ---p 00000000 00:00 0\n");
+    
+    Value *FakeFp = Builder.CreateCall(FopenFunc, {FakePath, WriteMode});
+    Value *FakeFpNotNull = Builder.CreateICmpNE(FakeFp, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(FakeFpNotNull, MountBB, ExitBB);
+    
+    Builder.SetInsertPoint(MountBB);
+    
+    Builder.CreateCall(FprintfFunc, {FakeFp, FakeContent});
+    Builder.CreateCall(FcloseFunc, {FakeFp});
+    
+    Constant *MapsPath = makeString("/proc/self/maps");
+    Constant *FsType = makeString("none");
+    
+    // MS_BIND = 4096
+    Value *MountFlags = ConstantInt::get(Type::getInt64Ty(Ctx), 4096);
+    
+    Builder.CreateCall(MountFunc, {
+        FakePath, MapsPath, FsType, MountFlags, ConstantPointerNull::get(CharPtrTy)
+    });
+    
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
@@ -275,73 +141,29 @@ Function* HideMaps::createHideAllMapsFunc(Module &M) {
     return Func;
 }
 
-Function* HideMaps::createStartThreadFunc(Module &M, Function *HideAllMapsFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *ThreadFuncTy = FunctionType::get(VoidTy, {CharPtrTy}, false);
-    Function *ThreadFunc = Function::Create(
-        ThreadFuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "hide_maps_thread",
-        &M
-    );
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", ThreadFunc);
-    IRBuilder<> Builder(BB);
-    
-    Builder.CreateCall(HideAllMapsFunc);
-    Builder.CreateRetVoid();
-    
-    FunctionType *FuncTy = FunctionType::get(Int32Ty, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "start_hide_maps_thread",
-        &M
-    );
-    
-    BB = BasicBlock::Create(Ctx, "entry", Func);
-    Builder.SetInsertPoint(BB);
-    
-    FunctionCallee PthreadCreateFunc = M.getOrInsertFunction(
-        "pthread_create",
-        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy, CharPtrTy, CharPtrTy}, false)
-    );
-    
-    Value *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Value *ThreadFuncPtr = Builder.CreateBitCast(ThreadFunc, CharPtrTy);
-    
-    Builder.CreateCall(PthreadCreateFunc, {NullPtr, NullPtr, ThreadFuncPtr, NullPtr});
-    Builder.CreateRet(ConstantInt::get(Int32Ty, 0));
-    
-    return Func;
-}
-
 bool HideMaps::runOnModule(Module &M) {
-    Function *Main = M.getFunction("main");
-    if (!Main || Main->empty()) {
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[DEBUG] HideMaps: Injecting hide maps protection\n";
+    }
+
+    Function *MainFunc = M.getFunction("main");
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
+
+    // 创建保护函数
+    Function *ProtectFunc = createHideMapsFunc(M);
     
-    Function *HideAllMaps = createHideAllMapsFunc(M);
-    Function *StartThread = createStartThreadFunc(M, HideAllMaps);
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
     
-    IRBuilder<> Builder(&Main->getEntryBlock());
-    Builder.SetInsertPoint(&*Main->getEntryBlock().getFirstInsertionPt());
-    Builder.CreateCall(StartThread);
-    
-    return true;
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, ProtectFunc, opts);
 }
 
 ModulePass *llvm::createHideMapsPass() {
     return new HideMaps();
 }
 
-INITIALIZE_PASS_BEGIN(HideMaps, "hidemaps", "Hide /proc/self/maps", false, false)
-INITIALIZE_PASS_END(HideMaps, "hidemaps", "Hide /proc/self/maps", false, false)
+INITIALIZE_PASS_BEGIN(HideMaps, "hidemaps", "Inject hide maps protection at program start", false, false)
+INITIALIZE_PASS_END(HideMaps, "hidemaps", "Inject hide maps protection at program start", false, false)

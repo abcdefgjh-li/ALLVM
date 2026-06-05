@@ -268,9 +268,10 @@ void createPageTable(const CreatePageTableArgs &args) {
     auto GVNameObjects(args.GVNamePrefix + "_objects");
     auto ATy = ArrayType::get(GVObjects[0]->getType(), GVObjects.size());
     auto CA = ConstantArray::get(ATy, ArrayRef(GVObjects));
-    auto GV = new GlobalVariable(*args.M, ATy, false, 
+    auto GV = new GlobalVariable(*args.M, ATy, false,
                                  GlobalValue::LinkageTypes::InternalLinkage,
                                  CA, GVNameObjects);
+    GV->setSection(".AProtect.data");
     GV->addMetadata("noobf", *MDNode::get(args.M->getContext(), {}));
     args.OutPageTable->push_back(GV);
   }
@@ -303,6 +304,7 @@ void createPageTable(const CreatePageTableArgs &args) {
       auto GV = new GlobalVariable(*args.M, IATy, false,
                                    GlobalValue::LinkageTypes::InternalLinkage,
                                    IA, GVNameObjPageTable);
+      GV->setSection(".AProtect.data");
       GV->addMetadata("noobf", *MDNode::get(args.M->getContext(), {}));
       args.OutPageTable->push_back(GV);
     }
@@ -347,6 +349,7 @@ void enhancedPageTable(const CreatePageTableArgs &args, std::unordered_map<Const
       auto IA = ConstantArray::get(IATy, ArrayRef(ConstantObjectIndex));
       auto GV = new GlobalVariable(*args.M, IATy, false, GlobalValue::LinkageTypes::PrivateLinkage,
         IA, GVNameObjPage);
+      GV->setSection(".AProtect.data");
       GV->addMetadata("noobf", *MDNode::get(args.M->getContext(), {}));
       args.OutPageTable->push_back(GV);
     }
@@ -372,9 +375,10 @@ Value * buildPageTableDecryptIR(const BuildDecryptArgs &args) {
   Value *NextIndex = args.NextIndexValue;
   if (!NextIndex) {
     auto GVInitIndex = new GlobalVariable(*M, Int32Ty, false, GlobalValue::PrivateLinkage,
-      ConstantInt::get(Int32Ty, args.NextIndex), 
+      ConstantInt::get(Int32Ty, args.NextIndex),
       M->getName() + args.Fn->getName() + "_InitIndex" +
       std::to_string(args.NextIndex));
+    GVInitIndex->setSection(".AProtect.data");
     GVInitIndex->addMetadata("noobf", *MDNode::get(Ctx, {}));
     NextIndex = IRB.CreateAlignedLoad(Int32Ty, GVInitIndex, Align{1}, true);
   }
@@ -494,6 +498,7 @@ Value * encryptConstant(Constant *plainConstant, Instruction *insertBefore, Cryp
   }
   auto EncGV = new GlobalVariable(*insertBefore->getModule(), Enc->getType(), false,
                                   GlobalValue::InternalLinkage, Enc);
+  EncGV->setSection(".AProtect.data");
   EncGV->addMetadata("noobf", *MDNode::get(Ctx, {}));
   IRBuilder<NoFolder> IRB(insertBefore);
   Value *Load = IRB.CreateAlignedLoad(Enc->getType(), EncGV, Align{1}, true);

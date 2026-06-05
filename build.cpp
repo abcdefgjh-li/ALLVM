@@ -108,7 +108,7 @@ static bool compile_interpreter(const std::string& target_triple) {
         return false;
     }
     
-    std::string cmd = "\"" + clang_path + "\" -O2 -emit-llvm -c \"" + src_file + "\" -o \"" + bc_file + "\" -target " + target_triple;
+    std::string cmd = "\"" + clang_path + "\" -O2 -emit-llvm -c \"" + src_file + "\" -o \"" + bc_file + "\" -target " + target_triple + " -DGOVM_CPP_DEBUG";
     printf("Running: %s\n", cmd.c_str());
     
     int ret = run_cmd(cmd);

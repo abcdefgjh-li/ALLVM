@@ -2,17 +2,14 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
 // 本文件实现时间差调试检测注入Pass，在程序入口点注入检测代码
 // 通过测量代码执行时间检测调试器（调试时执行会变慢）
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/TimeDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -24,7 +21,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 
 #define DEBUG_TYPE "timedetect"
 
@@ -45,84 +41,12 @@ struct TimeDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
     Function* createTimeCheckFunc(Module &M, Function *ReportAndKillFunc);
 };
 
 }
 
 char TimeDetect::ID = 0;
-
-Function* TimeDetect::createReportAndKillFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "time_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到调试器(时间差)!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".time.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionCallee AsmExitFunc = M.getOrInsertFunction("exit",
-        FunctionType::get(Type::getVoidTy(M.getContext()), {Int32Ty}, false));
-    Builder.CreateCall(AsmExitFunc, {ConstantInt::get(Int32Ty, 0)});
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
 
 Function* TimeDetect::createTimeCheckFunc(Module &M, Function *ReportAndKillFunc) {
     LLVMContext &Ctx = M.getContext();
@@ -196,6 +120,7 @@ Function* TimeDetect::createTimeCheckFunc(Module &M, Function *ReportAndKillFunc
     Value *SecToUsec = Builder.CreateMul(SecDiff, ConstantInt::get(Int64Ty, 1000000));
     Value *Elapsed = Builder.CreateAdd(SecToUsec, UsecDiff);
     
+    // 阈值100000微秒（100ms），超过则认为被调试
     Value *TooSlow = Builder.CreateICmpSGT(Elapsed, ConstantInt::get(Int64Ty, 100000));
     Builder.CreateCondBr(TooSlow, FoundBB, ExitBB);
     
@@ -215,39 +140,21 @@ bool TimeDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 使用公共模块创建报告函数
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M);
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
+    // 创建时间检测函数
     Function *CheckFunc = createTimeCheckFunc(M, ReportAndKillFunc);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
-
-    if (isIRObfuscationDebugEnabled()) {
-        LLVMContext &Ctx = M.getContext();
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] TimeDetect: Checking time difference...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".time.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
-    Builder.CreateCall(CheckFunc);
-
-    return true;
+    
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
+    
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
 ModulePass *llvm::createTimeDetectPass() {

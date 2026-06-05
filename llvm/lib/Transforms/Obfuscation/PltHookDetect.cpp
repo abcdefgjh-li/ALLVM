@@ -2,18 +2,14 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
 // 本文件实现PLT Hook检测注入Pass，在程序入口点注入检测代码
 // 检测GOT表中函数指针是否指向合法地址
-// 创建后台线程持续检测（随机5-8秒间隔）
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/PltHookDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -26,7 +22,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 
 #define DEBUG_TYPE "plthookdetect"
 
@@ -47,89 +42,14 @@ struct PltHookDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
-    Function* createCheckPltHookFunc(Module &M);
-    Function* createThreadCheckFunc(Module &M, Function *ReportAndKillFunc, Function *CheckFunc);
-    Function* createStartThreadFunc(Module &M, Function *ThreadCheckFunc);
+    Function* createCheckPltHookFunc(Module &M, Function *ReportAndKillFunc);
 };
 
 }
 
 char PltHookDetect::ID = 0;
 
-Function* PltHookDetect::createReportAndKillFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "plthook_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到PLT Hook!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".plthook.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionType *AsmTy = FunctionType::get(VoidTy, {}, false);
-    
-    InlineAsm *Asm = InlineAsm::get(AsmTy, "brk #0", "", true, false);
-    Builder.CreateCall(Asm);
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
-
-Function* PltHookDetect::createCheckPltHookFunc(Module &M) {
+Function* PltHookDetect::createCheckPltHookFunc(Module &M, Function *ReportAndKillFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *Int8Ty = Type::getInt8Ty(Ctx);
@@ -197,13 +117,7 @@ Function* PltHookDetect::createCheckPltHookFunc(Module &M) {
     );
     
     auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".plthook.str." + Twine(str)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
+        return DetectUtils::createGlobalString(M, str, ".plthook.str");
     };
     
     Constant *MapsPath = makeString("/proc/self/maps");
@@ -305,138 +219,11 @@ Function* PltHookDetect::createCheckPltHookFunc(Module &M) {
     Builder.CreateCondBr(InLibcRange, ExitBB, HookedBB);
     
     Builder.SetInsertPoint(HookedBB);
+    Builder.CreateCall(ReportAndKillFunc);
     Builder.CreateRet(ConstantInt::get(Int32Ty, 1));
     
     Builder.SetInsertPoint(ExitBB);
     Builder.CreateRet(ConstantInt::get(Int32Ty, 0));
-    
-    return Func;
-}
-
-Function* PltHookDetect::createThreadCheckFunc(Module &M, Function *ReportAndKillFunc, Function *CheckFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    Type *Int64Ty = Type::getInt64Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {CharPtrTy}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "plthook_thread_check",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    
-    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
-    BasicBlock *HookedBB = BasicBlock::Create(Ctx, "hooked", Func);
-    BasicBlock *SleepBB = BasicBlock::Create(Ctx, "sleep", Func);
-    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
-    
-    IRBuilder<> Builder(EntryBB);
-    
-    FunctionCallee SrandFunc = M.getOrInsertFunction(
-        "srand",
-        FunctionType::get(VoidTy, {Int32Ty}, false)
-    );
-    
-    FunctionCallee TimeFunc = M.getOrInsertFunction(
-        "time",
-        FunctionType::get(Int64Ty, {CharPtrTy}, false)
-    );
-    
-    Value *TimeVal = Builder.CreateCall(TimeFunc, {ConstantPointerNull::get(CharPtrTy)});
-    Value *TimeInt = Builder.CreateTrunc(TimeVal, Int32Ty);
-    Builder.CreateCall(SrandFunc, {TimeInt});
-    
-    Builder.CreateBr(LoopBB);
-    
-    Builder.SetInsertPoint(LoopBB);
-    
-    Value *Hooked = Builder.CreateCall(CheckFunc);
-    Value *IsHooked = Builder.CreateICmpNE(Hooked, ConstantInt::get(Int32Ty, 0));
-    Builder.CreateCondBr(IsHooked, HookedBB, SleepBB);
-    
-    Builder.SetInsertPoint(HookedBB);
-    Builder.CreateCall(ReportAndKillFunc);
-    Builder.CreateBr(ExitBB);
-    
-    Builder.SetInsertPoint(SleepBB);
-    
-    FunctionCallee RandFunc = M.getOrInsertFunction(
-        "rand",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee UsleepFunc = M.getOrInsertFunction(
-        "usleep",
-        FunctionType::get(Int32Ty, {Int32Ty}, false)
-    );
-    
-    Value *RandVal = Builder.CreateCall(RandFunc);
-    Value *Mod4 = Builder.CreateURem(RandVal, ConstantInt::get(Int32Ty, 4));
-    Value *DelaySec = Builder.CreateAdd(Mod4, ConstantInt::get(Int32Ty, 5));
-    Value *DelayUsec = Builder.CreateMul(DelaySec, ConstantInt::get(Int32Ty, 1000000));
-    Builder.CreateCall(UsleepFunc, {DelayUsec});
-    
-    Builder.CreateBr(LoopBB);
-    
-    Builder.SetInsertPoint(ExitBB);
-    Builder.CreateRetVoid();
-    
-    return Func;
-}
-
-Function* PltHookDetect::createStartThreadFunc(Module &M, Function *ThreadCheckFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "plthook_start_thread",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    
-    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
-    
-    IRBuilder<> Builder(EntryBB);
-    
-    Type *PthreadTy = StructType::create(Ctx, "pthread_t");
-    Value *Thread = Builder.CreateAlloca(PthreadTy, nullptr, "thread");
-    
-    FunctionCallee PthreadCreateFunc = M.getOrInsertFunction(
-        "pthread_create",
-        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy, CharPtrTy, CharPtrTy}, false)
-    );
-    
-    Value *ThreadPtr = Builder.CreateBitCast(Thread, CharPtrTy);
-    Value *ThreadFuncPtr = Builder.CreateBitCast(ThreadCheckFunc, CharPtrTy);
-    
-    Builder.CreateCall(PthreadCreateFunc, {
-        ThreadPtr,
-        ConstantPointerNull::get(CharPtrTy),
-        ThreadFuncPtr,
-        ConstantPointerNull::get(CharPtrTy)
-    });
-    
-    Builder.CreateBr(ExitBB);
-    
-    Builder.SetInsertPoint(ExitBB);
-    Builder.CreateRetVoid();
     
     return Func;
 }
@@ -447,39 +234,21 @@ bool PltHookDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
+    // 使用公共模块创建报告函数
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M);
+    
+    // 创建检测函数
+    Function *CheckFunc = createCheckPltHookFunc(M, ReportAndKillFunc);
 
     BasicBlock &EntryBB = MainFunc->getEntryBlock();
-    
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
-    Function *CheckFunc = createCheckPltHookFunc(M);
-    Function *ThreadCheckFunc = createThreadCheckFunc(M, ReportAndKillFunc, CheckFunc);
-    Function *StartThreadFunc = createStartThreadFunc(M, ThreadCheckFunc);
-
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
 
-    if (isIRObfuscationDebugEnabled()) {
-        LLVMContext &Ctx = M.getContext();
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] PltHookDetect: Starting PLT hook detection thread...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".plthook.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
-    Builder.CreateCall(StartThreadFunc);
+    // 注入检测调用
+    Builder.CreateCall(CheckFunc);
 
     return true;
 }

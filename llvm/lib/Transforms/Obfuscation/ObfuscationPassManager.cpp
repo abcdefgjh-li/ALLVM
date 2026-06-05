@@ -142,6 +142,15 @@ EnableVMProtect("irobf-vmp", cl::init(false), cl::NotHidden,
                 cl::ZeroOrMore);
 
 static cl::opt<bool>
+ForceNoInline("irobf-vmp-noinline", cl::init(false), cl::NotHidden,
+              cl::desc("Force disable inlining for all functions in VMP."),
+              cl::ZeroOrMore);
+
+bool llvm::isForceNoInlineEnabled() {
+    return ForceNoInline;
+}
+
+static cl::opt<bool>
 EnableLdPreloadProtect("irobf-ldpreload", cl::init(false), cl::NotHidden,
                        cl::desc("Enable LD_PRELOAD injection detection."),
                        cl::ZeroOrMore);
@@ -507,18 +516,34 @@ namespace llvm {
 				add(llvm::createBanDumpPass());
 			}
 
-		add(llvm::createConstantIntEncryptionPass(Options.get()));
-		add(llvm::createConstantFPEncryptionPass(Options.get()));
+		// 只有启用对应选项时才添加混淆Pass
+		if (EnableIRConstantIntEncryption || Options->cieOpt()->isEnabled()) {
+			add(llvm::createConstantIntEncryptionPass(Options.get()));
+		}
+
+		if (EnableIRConstantFPEncryption || Options->cfeOpt()->isEnabled()) {
+			add(llvm::createConstantFPEncryptionPass(Options.get()));
+		}
 
 		if (EnableIRStringEncryption || Options->cseOpt()->isEnabled()) {
 			add(llvm::createStringEncryptionPass(Options.get()));
 		}
 
-		add(llvm::createIndirectGlobalVariablePass(Options.get()));
+		if (EnableIndirectGV || Options->indGvOpt()->isEnabled()) {
+			add(llvm::createIndirectGlobalVariablePass(Options.get()));
+		}
 
+		if (EnableIndirectCall || Options->iCallOpt()->isEnabled()) {
 			add(llvm::createIndirectCallPass(Options.get()));
+		}
+
+		if (EnableIRFlattening || Options->flaOpt()->isEnabled()) {
 			add(llvm::createFlatteningPass(pointerSize, Options.get()));
+		}
+
+		if (EnableIndirectBr || Options->indBrOpt()->isEnabled()) {
 			add(llvm::createIndirectBranchPass(Options.get()));
+		}
 
 			if (EnableRttiEraser || Options->rttiOpt()->isEnabled()) {
 				add(llvm::createMsRttiEraserPass(Options.get()));

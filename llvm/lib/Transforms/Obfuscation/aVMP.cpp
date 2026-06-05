@@ -197,6 +197,7 @@ class GOVMTranslator {
         GlobalVariable *exception_selector_global;
         GlobalVariable *last_br_from_bb_id;
         GlobalVariable *current_bb_id;
+        GlobalVariable *vmp_debug_enabled_gv;  // Debug mode control
 
         // construct callinst_handler to interprete callinst 
         Function * callinst_handler;
@@ -460,6 +461,22 @@ class GOVMTranslator {
                 handled = true;
             }
 
+            // Handle function pointer constants (like std::endl)
+            // Function pointers are stored as addresses, we pack 0 as placeholder
+            // The actual address will be resolved at runtime
+            if (!handled && isa<Function>(const_value)) {
+                // Function pointer - pack as 0, actual address resolved at runtime
+                value = 0;
+                handled = true;
+            }
+
+            // Handle GlobalValue pointers (functions, global variables)
+            if (!handled && isa<GlobalValue>(const_value)) {
+                // Global value pointer - pack as 0, actual address resolved at runtime
+                value = 0;
+                handled = true;
+            }
+
             if (!handled) {
                 if (isIRObfuscationDebugEnabled()) {
                     errs() << "Unsport const value: " << *const_value << "\n";
@@ -526,13 +543,32 @@ class GOVMTranslator {
                         int res_size = modDataLayout->getTypeAllocSize(gv->getValueType());
                         curr_data_offset += res_size;
                     }
+                    // Handle Function* (like std::endl) - function pointer constants
+                    else if (Function *func = dyn_cast<Function>(value)) {
+                        // Function pointer - pack as 0 (placeholder)
+                        // The actual function address will be resolved at runtime
+                        packed = pack(0, pointer_size);
+                        packType[1] = 0;
+                        res.insert(res.end(), packType.begin(), packType.end());
+                        res.insert(res.end(), packed.begin(), packed.end());
+                        return res;
+                    }
+                    // Handle other GlobalValue types (like GlobalAlias)
+                    else if (GlobalValue *gv = dyn_cast<GlobalValue>(value)) {
+                        // Other global value - pack as 0 (placeholder)
+                        packed = pack(0, pointer_size);
+                        packType[1] = 0;
+                        res.insert(res.end(), packType.begin(), packType.end());
+                        res.insert(res.end(), packed.begin(), packed.end());
+                        return res;
+                    }
                     else {
                         assert(value_map->find(value) != value_map->end());
                     }
                 }
 
                 packed = pack((*value_map)[value], pointer_size);
-                // variableï¼Œpacktype->TypeID=0
+                // variable，packtype->TypeID=0
                 packType[1] = 0;
             }
 
@@ -576,6 +612,8 @@ void GOVMTranslator::construct_gv() {
                                                     /*Initializer=*/code_seg_init, // has initializer, specified
                                                                                     // below
                                                     /*Name=*/"gv_code_seg_"+F->getName());
+    // 设置段名为 .AProtect.data
+    gv_code_seg->setSection(".AProtect.data");
     
 
 
@@ -595,54 +633,71 @@ void GOVMTranslator::construct_gv() {
                                                     /*Initializer=*/data_seg_init, // has initializer, specified
                                                                                     // below
                                                     /*Name=*/"gv_data_seg_"+F->getName());
+    // 设置段名为 .AProtect.bss
+    gv_data_seg->setSection(".AProtect.bss");
 
 
     // ip
     Constant *ip_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    ip = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()), 
-                false,  GlobalValue::InternalLinkage, 
+    ip = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
+                false,  GlobalValue::InternalLinkage,
                 ip_initGV, "ip_"+F->getName());
+    ip->setSection(".AProtect.data");
 
     // data_seg_addr
     Constant *data_seg_addr_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    data_seg_addr = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()), 
-                false,  GlobalValue::InternalLinkage, 
+    data_seg_addr = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
+                false,  GlobalValue::InternalLinkage,
                 data_seg_addr_initGV, "data_seg_addr_"+F->getName());
+    data_seg_addr->setSection(".AProtect.data");
 
     // code_seg_addr
     Constant *code_seg_addr_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    code_seg_addr = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()), 
-                false,  GlobalValue::InternalLinkage, 
+    code_seg_addr = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
+                false,  GlobalValue::InternalLinkage,
                 code_seg_addr_initGV, "code_seg_addr_"+F->getName());
+    code_seg_addr->setSection(".AProtect.data");
 
     // exception_thrown
     Constant *exc_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0);
     exception_thrown = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
         false, GlobalValue::InternalLinkage, exc_init, "exception_thrown_"+F->getName());
+    exception_thrown->setSection(".AProtect.data");
 
     // exception_ptr_global (void*)
     Constant *exc_ptr_init = Constant::getNullValue(Type::getInt64Ty(Mod->getContext()));
     exception_ptr_global = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
         false, GlobalValue::InternalLinkage, exc_ptr_init, "exception_ptr_"+F->getName());
+    exception_ptr_global->setSection(".AProtect.data");
 
     // exception_selector_global
     Constant *exc_sel_init = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
     exception_selector_global = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
         false, GlobalValue::InternalLinkage, exc_sel_init, "exception_selector_"+F->getName());
+    exception_selector_global->setSection(".AProtect.data");
 
     // last_br_from_bb_id
     Constant *last_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
     last_br_from_bb_id = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
         false, GlobalValue::InternalLinkage, last_bb_init, "last_br_from_bb_id_"+F->getName());
+    last_br_from_bb_id->setSection(".AProtect.data");
 
     // current_bb_id
     Constant *curr_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
     current_bb_id = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
         false, GlobalValue::InternalLinkage, curr_bb_init, "current_bb_id_"+F->getName());
+    current_bb_id->setSection(".AProtect.data");
+
+    // vmp_debug_enabled - set to 1 if -irobf-debug is enabled, 0 otherwise
+    uint8_t debug_enabled = isIRObfuscationDebugEnabled() ? 1 : 0;
+    Constant *debug_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), debug_enabled);
+    vmp_debug_enabled_gv = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
+        false, GlobalValue::InternalLinkage, debug_init, "vmp_debug_enabled_"+F->getName());
+    vmp_debug_enabled_gv->setSection(".AProtect.data");
 }
 
 void GOVMTranslator::setup_callinst_handler() {
-    // collect dispatch function args type 
+    // collect dispatch function args type
     std::vector<Type*> FuncTy_args;
     // param: targetfunc_id_value
     FuncTy_args.push_back(Type::getInt64Ty(Mod->getContext()));
@@ -650,12 +705,15 @@ void GOVMTranslator::setup_callinst_handler() {
     // get dispatch function type
     FunctionType* FuncTy = FunctionType::get(
         /*Result=*/Type::getVoidTy(this->Mod->getContext()),  // returning void
-        /*Params=*/FuncTy_args,  
+        /*Params=*/FuncTy_args,
         /*isVarArg=*/false);
     // Constant *tmp = Mod->getOrInsertFunction("",FuncTy);
     Constant *tmp = Function::Create(FuncTy, llvm::GlobalValue::LinkageTypes::InternalLinkage, "vm_interpreter_callinst_dispatch_"+F->getName(), Mod);
     Function *func =  cast<Function>(tmp);
     // func->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
+
+    // 设置段名为 .AProtect.text
+    func->setSection(".AProtect.text");
 
     // create entry BasicBlock
     BasicBlock *entryBB = BasicBlock::Create(func->getContext(), "entryBB", func);
@@ -694,8 +752,16 @@ void GOVMTranslator::finish_callinst_handler() {
 
 void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
 
+    // Check if this is an InvokeInst
+    // 跳过异常处理，将InvokeInst当作普通CallInst处理
+    bool isInvoke = false;  // 强制禁用Invoke处理
+    InvokeInst *invokeInst = dyn_cast<InvokeInst>(inst);
+
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[handle_callinst] Processing callinst #" << curr_func_id << "\n";
+        if (isa<InvokeInst>(inst)) {
+            errs() << "[handle_callinst]   This is an InvokeInst (treating as CallInst)\n";
+        }
         Function *callee = inst->getCalledFunction();
         if (callee) {
             errs() << "[handle_callinst]   Callee: " << callee->getName() << "\n";
@@ -723,6 +789,25 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         // if value is a constant, use it directly
         if(isa<Constant>(currarg)){
             // errs() << "[handle_callinst] Arg " << idx << " is constant\n";
+            // Handle ConstantExpr (e.g., BitCast of function pointer like std::endl)
+            if (ConstantExpr *CE = dyn_cast<ConstantExpr>(currarg)) {
+                if (CE->getOpcode() == Instruction::BitCast) {
+                    // For BitCast, get the underlying value
+                    Value *underlyingValue = CE->getOperand(0);
+                    if (isa<Function>(underlyingValue) || isa<GlobalValue>(underlyingValue)) {
+                        // It's a function pointer or global value being bitcast
+                        // Use the BitCast result directly - LLVM will handle the address
+                        target_func_args.push_back(currarg);
+                        continue;
+                    }
+                }
+            }
+            // Handle Function* directly (like std::endl)
+            if (isa<Function>(currarg)) {
+                // It's a direct function pointer (like std::endl)
+                target_func_args.push_back(currarg);
+                continue;
+            }
             target_func_args.push_back(currarg);
             continue;
         }
@@ -740,13 +825,34 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), curroffset);
         Value * gepinst = IRBcon.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
 
-        // 对于指针类型，gepinst就是指向data_seg中存储指针值的位置
-        // 需要加载这个指针值（实际地址）
+        // 对于指针类型参数，需要判断是真正的指针还是引用
+        // 检查 value_map 中存储的值的类型
+        // 如果原始值是数组或结构体，而参数类型是指针，说明是引用传递，应该传递地址
         if (currarg->getType()->isPointerTy()) {
-            // 从data_seg加载指针值（实际地址）
-            Value * ptr_addr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
-            Value * actual_ptr = IRBcon.CreateLoad(PointerType::get(Mod->getContext(), 0), ptr_addr);
-            target_func_args.push_back(actual_ptr);
+            // 查找这个参数在 value_map 中对应的原始值
+            // 通过遍历 value_map 找到对应的值
+            Value *originalValue = nullptr;
+            for (auto &pair : value_map) {
+                if (pair.second == (int)curroffset) {
+                    originalValue = pair.first;
+                    break;
+                }
+            }
+            
+            // 如果原始值是数组或结构体，说明这是引用传递，直接传递地址
+            if (originalValue && (originalValue->getType()->isArrayTy() || originalValue->getType()->isStructTy())) {
+                // 引用传递：直接传递 data_seg 中的地址
+                Value * ptr_addr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+                target_func_args.push_back(ptr_addr);
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[handle_callinst] Arg " << idx << " is a reference to array/struct, passing address\n";
+                }
+            } else {
+                // 真正的指针：从 data_seg 加载指针值
+                Value * ptr_addr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+                Value * actual_ptr = IRBcon.CreateLoad(PointerType::get(Mod->getContext(), 0), ptr_addr);
+                target_func_args.push_back(actual_ptr);
+            }
         } else {
             // 非指针类型，从data_seg加载值
             Value * ptr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
@@ -780,6 +886,13 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             calledValue = inst->getCalledOperand();
         } else {
             // errs() << "[handle_callinst] Callee: " << callee->getName() << "\n";
+            // Force disable inlining for the callee if -irobf-vmp-noinline is enabled
+            if (isForceNoInlineEnabled() && callee->hasName()) {
+                callee->addFnAttr(Attribute::NoInline);
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[handle_callinst] Added NoInline attribute to: " << callee->getName() << "\n";
+                }
+            }
         }
     }
 
@@ -892,13 +1005,85 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             
             if (is_stdlib) {
                 // 标准库函数，直接调用
-                resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
-                            ArrayRef<Value *>(target_func_args));
+                if (isInvoke && invokeInst) {
+                    // For InvokeInst, use CreateInvoke with normal and unwind destinations
+                    BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
+                    BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
+                    
+                    resultValue = IRBcallFunction.CreateInvoke(callee->getFunctionType(), callee,
+                                normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
+                    
+                    // Normal destination: store result and return
+                    IRBuilder<> IRBNormal(normalDest);
+                    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+                        if (value_map.find(inst) != value_map.end()) {
+                            unsigned result_value_offset = value_map[inst];
+                            ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                            Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
+                            Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                            Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
+                            IRBNormal.CreateStore(resultValue, ptr2);
+                        }
+                    }
+                    IRBNormal.CreateRetVoid();
+                    
+                    // Unwind destination: catch exception and store to global variables
+                    IRBuilder<> IRBUnwind(unwindDest);
+                    // Create a landingpad to catch the exception
+                    Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
+                    LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
+                    lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
+                    
+                    // Store exception pointer to global variable
+                    Value *exc_ptr = IRBUnwind.CreateExtractValue(lp, {0});
+                    Value *exc_ptr_cast = IRBUnwind.CreatePtrToInt(exc_ptr, Type::getInt64Ty(Mod->getContext()));
+                    IRBUnwind.CreateStore(exc_ptr_cast, exception_ptr_global);
+                    
+                    // Store exception selector to global variable
+                    Value *exc_sel = IRBUnwind.CreateExtractValue(lp, {1});
+                    IRBUnwind.CreateStore(exc_sel, exception_selector_global);
+                    
+                    // Set exception_thrown to 1
+                    IRBUnwind.CreateStore(ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 1), exception_thrown);
+                    
+                    // Return to VM interpreter (it will check exception_thrown and branch accordingly)
+                    IRBUnwind.CreateRetVoid();
+                } else {
+                    resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
+                                ArrayRef<Value *>(target_func_args));
+                }
             } else {
                 // 用户函数，调用wrapper函数（原函数名）
                 // wrapper函数会设置VM环境并调用vm_interpreter
-                resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
-                            ArrayRef<Value *>(target_func_args));
+                if (isInvoke && invokeInst) {
+                    BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
+                    BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
+                    
+                    resultValue = IRBcallFunction.CreateInvoke(callee->getFunctionType(), callee,
+                                normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
+                    
+                    IRBuilder<> IRBNormal(normalDest);
+                    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+                        if (value_map.find(inst) != value_map.end()) {
+                            unsigned result_value_offset = value_map[inst];
+                            ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                            Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
+                            Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                            Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
+                            IRBNormal.CreateStore(resultValue, ptr2);
+                        }
+                    }
+                    IRBNormal.CreateRetVoid();
+                    
+                    IRBuilder<> IRBUnwind(unwindDest);
+                    Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
+                    LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
+                    lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
+                    IRBUnwind.CreateResume(lp);
+                } else {
+                    resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
+                                ArrayRef<Value *>(target_func_args));
+                }
             }
     }
     else {
@@ -911,7 +1096,34 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // fallback: use a direct call approach by calling the function directly
             FunctionType *funcType = inst->getFunctionType();
             Value *funcPtr = IRBcallFunction.CreatePointerCast(calledValue, PointerType::get(Mod->getContext(), 0));
-            resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
+            if (isInvoke && invokeInst) {
+                BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
+                BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
+                
+                resultValue = IRBcallFunction.CreateInvoke(funcType, funcPtr,
+                            normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
+                
+                IRBuilder<> IRBNormal(normalDest);
+                if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+                    if (value_map.find(inst) != value_map.end()) {
+                        unsigned result_value_offset = value_map[inst];
+                        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                        Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
+                        Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                        Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
+                        IRBNormal.CreateStore(resultValue, ptr2);
+                    }
+                }
+                IRBNormal.CreateRetVoid();
+                
+                IRBuilder<> IRBUnwind(unwindDest);
+                Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
+                LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
+                lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
+                IRBUnwind.CreateResume(lp);
+            } else {
+                resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
+            }
         } else {
             unsigned called_value_offset = value_map[calledValue];
 
@@ -930,33 +1142,63 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // indirect call - need to cast the function pointer
             FunctionType *funcType = inst->getFunctionType();
             Value *funcPtr = IRBcallFunction.CreatePointerCast(value, PointerType::get(Mod->getContext(), 0));
-            resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
+            if (isInvoke && invokeInst) {
+                BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
+                BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
+                
+                resultValue = IRBcallFunction.CreateInvoke(funcType, funcPtr,
+                            normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
+                
+                IRBuilder<> IRBNormal(normalDest);
+                if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+                    if (value_map.find(inst) != value_map.end()) {
+                        unsigned result_value_offset = value_map[inst];
+                        ConstantInt *Zero2 = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                        Value * offset_value2 = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
+                        Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero2, offset_value2}, "");
+                        Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
+                        IRBNormal.CreateStore(resultValue, ptr2);
+                    }
+                }
+                IRBNormal.CreateRetVoid();
+                
+                IRBuilder<> IRBUnwind(unwindDest);
+                Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
+                LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
+                lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
+                IRBUnwind.CreateResume(lp);
+            } else {
+                resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
+            }
         }
     }
 
-    // if return not void, store it to gv_data_seg
-    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-        if (value_map.find(inst) == value_map.end()) {
-            // errs() << "[VMP] ERROR: call result not found in value_map: " << *inst << "\n";
-        } else {
-            unsigned result_value_offset = value_map[inst];
+    // For non-invoke calls, store result and create return
+    if (!isInvoke) {
+        // if return not void, store it to gv_data_seg
+        if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+            if (value_map.find(inst) == value_map.end()) {
+                // errs() << "[VMP] ERROR: call result not found in value_map: " << *inst << "\n";
+            } else {
+                unsigned result_value_offset = value_map[inst];
 
-            // load value from gv_data_seg
-            ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-            Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-            Value * gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                // load value from gv_data_seg
+                ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
+                Value * gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
 
-            // convert gep from i8* to value->getType() *
-            Value * ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+                // convert gep from i8* to value->getType() *
+                Value * ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
 
-            // store
-            IRBcallFunction.CreateStore(resultValue, ptr);
+                // store
+                IRBcallFunction.CreateStore(resultValue, ptr);
+            }
         }
-    }
 
-    
-    // Create Return
-    IRBcallFunction.CreateRetVoid();
+        
+        // Create Return
+        IRBcallFunction.CreateRetVoid();
+    }
     
 
     // compare and jmp
@@ -1099,15 +1341,13 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         ins_to_hex(hex_code, pack_op(CMP_OP), packed_predicate, packed_res, packed_op0, packed_op1);
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
 
-        #ifdef GOVTRANSLATOR_DEBUG
-        // errs() << "[*] CmpInst: " << *inst << "\n";
-        // errs() << "\t Predicate: " << inst->getPredicate() << "\n";
-        // errs() << "\t res_size: " << res_size << "\n";
-        // errs() << "\t Op 0 Type: " << *inst->getOperand(0)->getType() << "\t Op 0 Size: " << modDataLayout->getTypeAllocSize(inst->getOperand(0)->getType()) << "\n";
-        // errs() << "\t Op 1 Type: " << *inst->getOperand(1)->getType() << "\t Op 1 Size: " << modDataLayout->getTypeAllocSize(inst->getOperand(1)->getType()) << "\n";
-        // errs() << "\t current code_pos: " << vm_code.size() - hex_code.size() << "\n";
-        // errs() << "\n";
-        #endif
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CMP] pred=" << predicate_val 
+                   << " op0_type=" << *inst->getOperand(0)->getType()
+                   << " op1_type=" << *inst->getOperand(1)->getType()
+                   << " res_offset=" << (curr_data_offset - res_size)
+                   << "\n";
+        }
     }
 
     else if(GetElementPtrInst * inst = dyn_cast<GetElementPtrInst>(ins)){
@@ -1276,6 +1516,8 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
     }
 
     else if(InvokeInst * inst = dyn_cast<InvokeInst>(ins)) {
+        // 跳过异常处理，将InvokeInst当作普通CallInst处理
+        // 只处理normal目标，忽略unwind目标
         long long curr_func_id = this->callinst_handler_curr_idx++;
         std::vector<uint8_t> packed_funcid = pack(curr_func_id, pointer_size);
 
@@ -1285,39 +1527,30 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
             int res_size = modDataLayout->getTypeAllocSize(inst->getType());
             curr_data_offset += res_size;
             packed_res = GET_PACK_VALUE(inst);
+        } else {
+            // void return - generate a placeholder packed_res (type_size=0, type_id=0, offset=0)
+            packed_res = {0, 0}; // type_size=0, type_id=VoidTyID
+            std::vector<uint8_t> zero_offset = pack(0, pointer_size);
+            packed_res.insert(packed_res.end(), zero_offset.begin(), zero_offset.end());
         }
 
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(Call_OP), packed_funcid);
+        ins_to_hex(hex_code, pack_op(Call_OP), packed_funcid, packed_res);
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
 
         callinst_map.insert(std::pair<CallBase *, long long>(cast<CallBase>(inst), curr_func_id));
 
+        // 无条件跳转到normal目标（忽略异常处理）
         std::vector<uint8_t> br_hex;
         br_hex = pack_op(BR_OP);
-        br_hex.push_back(1); // conditional
+        br_hex.push_back(0); // unconditional
 
         int current_bb_offset = vm_code.size();
         std::vector<uint8_t> packed_src_bb = pack(current_bb_offset, pointer_size);
         br_hex.insert(br_hex.end(), packed_src_bb.begin(), packed_src_bb.end());
 
-        std::vector<uint8_t> packed_cond;
-        if (exception_thrown) {
-            auto it = value_map.find(exception_thrown);
-            if (it != value_map.end()) {
-                packed_cond.push_back(1);
-                packed_cond.push_back(0);
-                std::vector<uint8_t> off = pack(it->second, pointer_size);
-                packed_cond.insert(packed_cond.end(), off.begin(), off.end());
-            }
-        }
-
-        br_hex.insert(br_hex.end(), packed_cond.begin(), packed_cond.end());
-
         std::vector<uint8_t> padding = pack(0, pointer_size);
         br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+br_hex.size(), inst->getNormalDest()));
-        br_hex.insert(br_hex.end(), padding.begin(), padding.end());
-        br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+br_hex.size(), inst->getUnwindDest()));
         br_hex.insert(br_hex.end(), padding.begin(), padding.end());
 
         vm_code.insert(vm_code.end(), br_hex.begin(), br_hex.end());
@@ -1343,16 +1576,38 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         std::vector<uint8_t> packed_res;
         if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
             // return a value
+            Type *retType = inst->getType();
+            int res_size = modDataLayout->getTypeAllocSize(retType);
+            
+            if (isIRObfuscationDebugEnabled()) {
+                errs() << "[Translator]   Return type: " << *retType << "\n";
+                errs() << "[Translator]   Return type size: " << res_size << " bytes\n";
+                errs() << "[Translator]   Is struct: " << retType->isStructTy() << "\n";
+                if (retType->isStructTy()) {
+                    StructType *ST = cast<StructType>(retType);
+                    errs() << "[Translator]   Struct name: " << (ST->hasName() ? ST->getName() : "<anonymous>") << "\n";
+                    errs() << "[Translator]   Num elements: " << ST->getNumElements() << "\n";
+                    for (unsigned i = 0; i < ST->getNumElements(); i++) {
+                        errs() << "[Translator]     Element " << i << ": " << *ST->getElementType(i) 
+                               << " (size=" << modDataLayout->getTypeAllocSize(ST->getElementType(i)) << ")\n";
+                    }
+                }
+            }
+            
             insert_to_value_map(&value_map, inst, curr_data_offset);
-            int res_size = modDataLayout->getTypeAllocSize(inst->getType());
             curr_data_offset += res_size;
 
             packed_res = GET_PACK_VALUE(inst);
+        } else {
+            // void return - generate a placeholder packed_res (type_size=0, type_id=0, offset=0)
+            packed_res = {0, 0}; // type_size=0, type_id=VoidTyID
+            std::vector<uint8_t> zero_offset = pack(0, pointer_size);
+            packed_res.insert(packed_res.end(), zero_offset.begin(), zero_offset.end());
         }
 
         // construct hex code
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(Call_OP), packed_funcid);
+        ins_to_hex(hex_code, pack_op(Call_OP), packed_funcid, packed_res);
 
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
 
@@ -1503,27 +1758,25 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
     }
 
-    // C++ 异常处理指令
+    // C++ 异常处理指令 - 跳过异常处理，转换为nop
     // landingpad: 异常处理入口，返回异常对象和类型
     else if(LandingPadInst * inst = dyn_cast<LandingPadInst>(ins)) {
+        // 跳过异常处理：仍然分配空间但生成nop指令
         insert_to_value_map(&value_map, inst, curr_data_offset);
         int res_size = modDataLayout->getTypeAllocSize(inst->getType());
         curr_data_offset += res_size;
 
-        std::vector<uint8_t> packed_res = GET_PACK_VALUE(inst);
-
+        // 生成nop指令（不执行任何操作）
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(LANDINGPAD_OP), packed_res);
+        hex_code = pack_op(NOP_OP);
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
     }
 
-    // resume: 恢复异常传播
+    // resume: 恢复异常传播 - 跳过
     else if(ResumeInst * inst = dyn_cast<ResumeInst>(ins)) {
-        Value *exc_value = inst->getValue();
-        std::vector<uint8_t> packed_exc = GET_PACK_VALUE(exc_value);
-
+        // 跳过异常处理：生成nop指令
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(RESUME_OP), packed_exc);
+        hex_code = pack_op(NOP_OP);
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
     }
 
@@ -1908,6 +2161,58 @@ bool GOVMTranslator::run(){
     // errs() << "[Translator] Finishing callinst_handler...\n";
     // callinst_handler fini
     finish_callinst_handler();
+
+    // 跳过异常处理：清理callinst_handler中的landingpad、resume指令，将InvokeInst转换为CallInst
+    if (this->callinst_handler) {
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[Translator] Cleaning exception handling in callinst_handler...\n";
+        }
+        std::vector<Instruction*> toRemove;
+        int landingpadCount = 0, resumeCount = 0, invokeCount = 0;
+        for (BasicBlock &BB : *this->callinst_handler) {
+            for (Instruction &I : BB) {
+                if (isa<LandingPadInst>(&I)) {
+                    toRemove.push_back(&I);
+                    landingpadCount++;
+                    if (isIRObfuscationDebugEnabled()) {
+                        errs() << "[Translator]   Found LandingPadInst in BB: " << BB.getName() << "\n";
+                    }
+                } else if (isa<ResumeInst>(&I)) {
+                    toRemove.push_back(&I);
+                    resumeCount++;
+                    if (isIRObfuscationDebugEnabled()) {
+                        errs() << "[Translator]   Found ResumeInst in BB: " << BB.getName() << "\n";
+                    }
+                } else if (InvokeInst *Invoke = dyn_cast<InvokeInst>(&I)) {
+                    // 将InvokeInst转换为CallInst
+                    IRBuilder<> Builder(Invoke);
+                    SmallVector<Value*, 8> Args;
+                    for (unsigned i = 0; i < Invoke->arg_size(); ++i) {
+                        Args.push_back(Invoke->getArgOperand(i));
+                    }
+                    CallInst *Call = Builder.CreateCall(Invoke->getFunctionType(),
+                        Invoke->getCalledOperand(), Args);
+                    Call->copyMetadata(*Invoke);
+                    if (!Invoke->getType()->isVoidTy()) {
+                        Invoke->replaceAllUsesWith(Call);
+                    }
+                    toRemove.push_back(Invoke);
+                    invokeCount++;
+                    if (isIRObfuscationDebugEnabled()) {
+                        errs() << "[Translator]   Converting InvokeInst to CallInst in BB: " << BB.getName() << "\n";
+                        errs() << "[Translator]     Callee: " << (Invoke->getCalledFunction() ? Invoke->getCalledFunction()->getName() : "indirect") << "\n";
+                    }
+                }
+            }
+        }
+        for (Instruction *I : toRemove) {
+            I->eraseFromParent();
+        }
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[Translator] Cleaned " << landingpadCount << " landingpad, "
+                   << resumeCount << " resume, " << invokeCount << " invoke instructions\n";
+        }
+    }
     
     // errs() << "[Translator] Done!\n";
     return true;  // 返回 true 表示成功处理
@@ -2144,6 +2449,7 @@ class GOVMInterpreter {
         GlobalVariable *exc_sel_gv;
         GlobalVariable *last_bb_gv;
         GlobalVariable *curr_bb_gv;
+        GlobalVariable *vmp_debug_enabled_gv;  // Debug mode control
 
         virtual void run ();
         virtual void construct_gv ();
@@ -2253,46 +2559,61 @@ void GOVMInterpreter::construct_gv() {
     // pointer_size - 根据目标架构动态设置（必须是可修改的，因为解释器会设置它）
     unsigned ptr_size = modDataLayout->getPointerSize();
     Constant *pointer_size_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), ptr_size);
-    pointer_size_gv = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()), 
-                false,  GlobalValue::InternalLinkage, 
+    pointer_size_gv = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
+                false,  GlobalValue::InternalLinkage,
                 pointer_size_initGV, "pointer_size_"+F->getName());
+    pointer_size_gv->setSection(".AProtect.data");
 
     // opcode_xorshift32_state      32bit
     Constant *opcode_xorshift32_state_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    opcode_xorshift32_state = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()), 
-                false,  GlobalValue::InternalLinkage, 
+    opcode_xorshift32_state = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
+                false,  GlobalValue::InternalLinkage,
                 opcode_xorshift32_state_initGV, "opcode_xorshift32_state_"+F->getName());
+    opcode_xorshift32_state->setSection(".AProtect.data");
 
     // vm_code_state                32bit
     Constant *vm_code_state_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    vm_code_state = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()), 
-                false,  GlobalValue::InternalLinkage, 
+    vm_code_state = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
+                false,  GlobalValue::InternalLinkage,
                 vm_code_state_initGV, "vm_code_state_"+F->getName());
+    vm_code_state->setSection(".AProtect.data");
 
-    // exception_thrown
+    // exception_thrown - 添加函数名后缀避免多函数冲突
     Constant *exc_thrown_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0);
     exc_thrown_gv = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, exc_thrown_init, "exception_thrown");
+        false, GlobalValue::InternalLinkage, exc_thrown_init, "exception_thrown_"+F->getName());
+    exc_thrown_gv->setSection(".AProtect.data");
 
-    // exception_ptr
+    // exception_ptr - 添加函数名后缀避免多函数冲突
     Constant *exc_ptr_init = Constant::getNullValue(PointerType::get(Mod->getContext(), 0));
     exc_ptr_gv = new GlobalVariable(*Mod, PointerType::get(Mod->getContext(), 0),
-        false, GlobalValue::InternalLinkage, exc_ptr_init, "exception_ptr");
+        false, GlobalValue::InternalLinkage, exc_ptr_init, "exception_ptr_"+F->getName());
+    exc_ptr_gv->setSection(".AProtect.data");
 
-    // exception_selector
+    // exception_selector - 添加函数名后缀避免多函数冲突
     Constant *exc_sel_init = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
     exc_sel_gv = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, exc_sel_init, "exception_selector");
+        false, GlobalValue::InternalLinkage, exc_sel_init, "exception_selector_"+F->getName());
+    exc_sel_gv->setSection(".AProtect.data");
 
-    // last_br_from_bb_id
+    // last_br_from_bb_id - 添加函数名后缀避免多函数冲突
     Constant *last_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
     last_bb_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, last_bb_init, "last_br_from_bb_id");
+        false, GlobalValue::InternalLinkage, last_bb_init, "last_br_from_bb_id_"+F->getName());
+    last_bb_gv->setSection(".AProtect.data");
 
-    // current_bb_id
+    // current_bb_id - 添加函数名后缀避免多函数冲突
     Constant *curr_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
     curr_bb_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, curr_bb_init, "current_bb_id");
+        false, GlobalValue::InternalLinkage, curr_bb_init, "current_bb_id_"+F->getName());
+    curr_bb_gv->setSection(".AProtect.data");
+
+    // vmp_debug_enabled - set to 1 if -irobf-debug is enabled, 0 otherwise
+    uint8_t debug_enabled = isIRObfuscationDebugEnabled() ? 1 : 0;
+    Constant *debug_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), debug_enabled);
+    vmp_debug_enabled_gv = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
+        false, GlobalValue::InternalLinkage, debug_init, "vmp_debug_enabled_"+F->getName());
+    vmp_debug_enabled_gv->setSection(".AProtect.data");
 }
 
 // Function *govm_interpreter;
@@ -2433,8 +2754,8 @@ void GOVMInterpreter::run() {
         errs() << "[GOVMInterpreter]   code_seg_addr = " << (void*)code_seg_addr << "\n";
     }
     
-    std::vector<std::string> gv_list = {"gv_data_seg", "gv_code_seg", "ip", "data_seg_addr", "code_seg_addr", "pointer_size", "opcode_xorshift32_state", "vm_code_state", "exception_thrown", "exception_ptr", "exception_selector", "last_br_from_bb_id", "current_bb_id"};
-    std::vector<GlobalVariable *> new_gv_list = {gv_data_seg, gv_code_seg, ip, data_seg_addr, code_seg_addr, pointer_size_gv, opcode_xorshift32_state, vm_code_state, exc_thrown_gv, exc_ptr_gv, exc_sel_gv, last_bb_gv, curr_bb_gv};
+    std::vector<std::string> gv_list = {"gv_data_seg", "gv_code_seg", "ip", "data_seg_addr", "code_seg_addr", "pointer_size", "opcode_xorshift32_state", "vm_code_state", "exception_thrown", "exception_ptr", "exception_selector", "last_br_from_bb_id", "current_bb_id", "vmp_debug_enabled"};
+    std::vector<GlobalVariable *> new_gv_list = {gv_data_seg, gv_code_seg, ip, data_seg_addr, code_seg_addr, pointer_size_gv, opcode_xorshift32_state, vm_code_state, exc_thrown_gv, exc_ptr_gv, exc_sel_gv, last_bb_gv, curr_bb_gv, vmp_debug_enabled_gv};
     
     std::map<GlobalVariable*, GlobalVariable*> gv_remap;
     for (unsigned i = 0; i < gv_list.size(); i++) {
@@ -2491,7 +2812,29 @@ void GOVMInterpreter::run() {
     }
     
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[GOVMInterpreter] Step 7: Cloning interpreter functions...\n";
+        errs() << "[GOVMInterpreter] Step 7: Creating interpreter function declarations...\n";
+    }
+    
+    // 步骤7a: 先创建所有解释器函数的声明，避免克隆时找不到目标函数
+    std::map<Function*, Function*> interpreter_func_map;  // 原函数 -> 新函数
+    for(auto Func = interpreter_module->begin(); Func != interpreter_module->end(); ++Func) {
+        Function *fun = &*Func;
+        if(is_interpreter_function(fun)) {
+            std::string newFuncName = fun->getName().str() + "_" + F->getName().str();
+            
+            // 检查是否已存在
+            Function *NewF = Mod->getFunction(newFuncName);
+            if (!NewF) {
+                NewF = Function::Create(fun->getFunctionType(), 
+                    llvm::GlobalValue::LinkageTypes::InternalLinkage, 
+                    newFuncName, Mod);
+            }
+            interpreter_func_map[fun] = NewF;
+        }
+    }
+    
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[GOVMInterpreter] Step 8: Cloning interpreter functions...\n";
     }
     int func_idx = 0;
     for(auto Func = interpreter_module->begin();Func!=interpreter_module->end();++Func)
@@ -2500,13 +2843,15 @@ void GOVMInterpreter::run() {
             Function *fun = &*Func;
 
             if(is_interpreter_function(fun)) {
+                // 使用带函数名后缀的名称，避免多个VMP函数之间的冲突
+                std::string newFuncName = fun->getName().str() + "_" + F->getName().str();
+                
                 if (isIRObfuscationDebugEnabled()) {
-                    errs() << "[GOVMInterpreter]   Cloning function: " << fun->getName() << " (idx=" << func_idx++ << ")\n";
+                    errs() << "[GOVMInterpreter]   Cloning function: " << fun->getName() << " -> " << newFuncName << " (idx=" << func_idx++ << ")\n";
                 }
-                FunctionCallee FC = Mod->getOrInsertFunction(fun->getName().str(), fun->getFunctionType());
-                Function *NewF = cast<Function>(FC.getCallee());
-                NewF->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
-
+                
+                // 获取之前创建的函数
+                Function *NewF = interpreter_func_map[fun];
 
                 ValueToValueMapTy VMap;
                 SmallVector<ReturnInst*, 8> returns;
@@ -2526,14 +2871,24 @@ void GOVMInterpreter::run() {
                     if (CallBase *CB = dyn_cast<CallBase>(&I)) {
                         Function *Callee = CB->getCalledFunction();
                         if (Callee && Callee != fun) {
-                            Function *TargetCallee = Mod->getFunction(Callee->getName());
-                            if (!TargetCallee && Callee->isDeclaration()) {
-                                FunctionCallee FC2 = Mod->getOrInsertFunction(Callee->getName().str(), Callee->getFunctionType());
-                                TargetCallee = cast<Function>(FC2.getCallee());
-                                TargetCallee->setLinkage(Callee->getLinkage());
-                            }
-                            if (TargetCallee) {
-                                VMap[Callee] = TargetCallee;
+                            // 首先检查是否是解释器函数
+                            auto it = interpreter_func_map.find(Callee);
+                            if (it != interpreter_func_map.end()) {
+                                // 是解释器函数，使用映射的新函数
+                                VMap[Callee] = it->second;
+                            } else {
+                                // 不是解释器函数，查找或创建声明
+                                std::string calleeNewName = Callee->getName().str() + "_" + F->getName().str();
+                                Function *TargetCallee = Mod->getFunction(calleeNewName);
+                                
+                                if (!TargetCallee && Callee->isDeclaration()) {
+                                    TargetCallee = Function::Create(Callee->getFunctionType(), 
+                                        Callee->getLinkage(), calleeNewName, Mod);
+                                }
+                                
+                                if (TargetCallee) {
+                                    VMap[Callee] = TargetCallee;
+                                }
                             }
                         }
                     }
@@ -2558,7 +2913,50 @@ void GOVMInterpreter::run() {
                     errs() << "[GOVMInterpreter]     CloneFunctionInto completed\n";
                 }
 
-                NewF->setName(fun->getName()+"_"+F->getName());
+                // 跳过异常处理：移除landingpad、resume指令，将InvokeInst转换为CallInst
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[GOVMInterpreter]     Cleaning exception handling instructions...\n";
+                }
+                std::vector<Instruction*> toRemove;
+                int lpCount = 0, resCount = 0, invCount = 0;
+                for (BasicBlock &BB : *NewF) {
+                    for (Instruction &I : BB) {
+                        if (isa<LandingPadInst>(&I)) {
+                            toRemove.push_back(&I);
+                            lpCount++;
+                        } else if (isa<ResumeInst>(&I)) {
+                            toRemove.push_back(&I);
+                            resCount++;
+                        } else if (InvokeInst *Invoke = dyn_cast<InvokeInst>(&I)) {
+                            // 将InvokeInst转换为CallInst
+                            IRBuilder<> Builder(Invoke);
+                            SmallVector<Value*, 8> Args;
+                            for (unsigned i = 0; i < Invoke->arg_size(); ++i) {
+                                Args.push_back(Invoke->getArgOperand(i));
+                            }
+                            CallInst *Call = Builder.CreateCall(Invoke->getFunctionType(), 
+                                Invoke->getCalledOperand(), Args);
+                            Call->copyMetadata(*Invoke);
+                            if (!Invoke->getType()->isVoidTy()) {
+                                Invoke->replaceAllUsesWith(Call);
+                            }
+                            toRemove.push_back(Invoke);
+                            invCount++;
+                        }
+                    }
+                }
+                for (Instruction *I : toRemove) {
+                    I->eraseFromParent();
+                }
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[GOVMInterpreter]     Cleaned " << lpCount << " landingpad, "
+                           << resCount << " resume, " << invCount << " invoke in " << NewF->getName() << "\n";
+                }
+
+                // 设置段名为 .AProtect.text
+                NewF->setSection(".AProtect.text");
+
+                // 函数名已经在创建时设置，这里不需要再设置
 
                 std::vector<CallInst *> F_users;
                 for (User *U : fun->users()) {

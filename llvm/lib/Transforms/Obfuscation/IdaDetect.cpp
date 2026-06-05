@@ -8,12 +8,12 @@
 //===----------------------------------------------------------------------===//
 //
 // 本文件实现IDA调试器检测注入Pass，在程序入口点注入检测代码
-// 通过读取 /proc/self/status 检测 IDA 调试器特征
-// 检测到则强制终止进程
+// 检测IDA调试器的默认端口23946
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/IdaDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -46,19 +46,19 @@ struct IdaDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
-    Function* createIdaCheckFunc(Module &M, Function *ReportAndKillFunc);
+    Function* createIdaCheckFunc(Module &M, Function *reportFunc);
 };
 
 }
 
 char IdaDetect::ID = 0;
 
-Function* IdaDetect::createReportAndKillFunc(Module &M) {
+Function* IdaDetect::createIdaCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int16Ty = Type::getInt16Ty(Ctx);
     PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
@@ -66,160 +66,122 @@ Function* IdaDetect::createReportAndKillFunc(Module &M) {
         FuncTy,
         GlobalValue::InternalLinkage,
         M.getDataLayout().getProgramAddressSpace(),
-        "ida_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到IDA调试器!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".ida.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionCallee AsmExitFunc = M.getOrInsertFunction("exit",
-        FunctionType::get(Type::getVoidTy(M.getContext()), {Int32Ty}, false));
-    Builder.CreateCall(AsmExitFunc, {ConstantInt::get(Int32Ty, 0)});
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
-
-Function* IdaDetect::createIdaCheckFunc(Module &M, Function *ReportAndKillFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    Type *Int64Ty = Type::getInt64Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "ida_check",
+        "check_ida",
         &M
     );
     
     Func->addFnAttr(Attribute::NoInline);
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *OpenOkBB = BasicBlock::Create(Ctx, "open_ok", Func);
-    BasicBlock *OpenFailBB = BasicBlock::Create(Ctx, "open_fail", Func);
-    BasicBlock *ReadOkBB = BasicBlock::Create(Ctx, "read_ok", Func);
+    BasicBlock *CheckPortBB = BasicBlock::Create(Ctx, "check_port", Func);
     BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
     
-    FunctionCallee OpenFunc = M.getOrInsertFunction(
-        "open",
-        FunctionType::get(Int32Ty, {CharPtrTy, Int32Ty}, false)
+    // 创建socket
+    FunctionCallee SocketFunc = M.getOrInsertFunction(
+        "socket",
+        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty, Int32Ty}, false)
     );
     
-    auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".ida.str." + Twine(str)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
-    };
+    // AF_INET = 2, SOCK_STREAM = 1
+    Value *SockFd = Builder.CreateCall(SocketFunc, {
+        ConstantInt::get(Int32Ty, 2),
+        ConstantInt::get(Int32Ty, 1),
+        ConstantInt::get(Int32Ty, 0)
+    });
     
-    Constant *StatusPath = makeString("/proc/self/status");
-    Value *O_RDONLY = ConstantInt::get(Int32Ty, 0);
+    Value *SockValid = Builder.CreateICmpSGE(SockFd, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(SockValid, CheckPortBB, ExitBB);
     
-    Value *Fd = Builder.CreateCall(OpenFunc, {StatusPath, O_RDONLY});
-    Value *FdValid = Builder.CreateICmpNE(Fd, ConstantInt::get(Int32Ty, -1));
-    Builder.CreateCondBr(FdValid, OpenOkBB, OpenFailBB);
+    Builder.SetInsertPoint(CheckPortBB);
     
-    Builder.SetInsertPoint(OpenFailBB);
-    Builder.CreateBr(ExitBB);
+    // 创建sockaddr_in结构
+    Type *SockaddrInTy = StructType::create(Ctx, "sockaddr_in");
+    StructType *SockaddrInStruct = cast<StructType>(SockaddrInTy);
+    SockaddrInStruct->setBody({
+        Int16Ty,      // sin_family
+        Int16Ty,      // sin_port
+        Int32Ty,      // sin_addr
+        ArrayType::get(Type::getInt8Ty(Ctx), 8)  // sin_zero
+    });
     
-    Builder.SetInsertPoint(OpenOkBB);
+    Value *Addr = Builder.CreateAlloca(SockaddrInStruct, nullptr, "addr");
     
-    FunctionCallee ReadFunc = M.getOrInsertFunction(
-        "read",
-        FunctionType::get(Int64Ty, {Int32Ty, CharPtrTy, Int64Ty}, false)
+    // 设置sin_family = AF_INET
+    Value *FamilyPtr = Builder.CreateGEP(SockaddrInStruct, Addr, {
+        ConstantInt::get(Int32Ty, 0),
+        ConstantInt::get(Int32Ty, 0)
+    });
+    Builder.CreateStore(ConstantInt::get(Int16Ty, 2), FamilyPtr);
+    
+    // 设置sin_port = htons(23946)
+    FunctionCallee HtonsFunc = M.getOrInsertFunction(
+        "htons",
+        FunctionType::get(Int16Ty, {Int16Ty}, false)
+    );
+    Value *Port = Builder.CreateCall(HtonsFunc, {ConstantInt::get(Int16Ty, 23946)});
+    Value *PortPtr = Builder.CreateGEP(SockaddrInStruct, Addr, {
+        ConstantInt::get(Int32Ty, 0),
+        ConstantInt::get(Int32Ty, 1)
+    });
+    Builder.CreateStore(Port, PortPtr);
+    
+    // 设置sin_addr = inet_addr("127.0.0.1")
+    FunctionCallee InetAddrFunc = M.getOrInsertFunction(
+        "inet_addr",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
     );
     
+    Constant *LocalhostStr = ConstantDataArray::getString(Ctx, "127.0.0.1");
+    GlobalVariable *LocalhostGV = new GlobalVariable(
+        M, LocalhostStr->getType(), true,
+        GlobalValue::PrivateLinkage, LocalhostStr,
+        ".ida.localhost"
+    );
+    
+    Value *AddrVal = Builder.CreateCall(InetAddrFunc, {
+        ConstantExpr::getBitCast(LocalhostGV, CharPtrTy)
+    });
+    Value *AddrPtr = Builder.CreateGEP(SockaddrInStruct, Addr, {
+        ConstantInt::get(Int32Ty, 0),
+        ConstantInt::get(Int32Ty, 2)
+    });
+    Builder.CreateStore(AddrVal, AddrPtr);
+    
+    // 尝试连接
+    FunctionCallee ConnectFunc = M.getOrInsertFunction(
+        "connect",
+        FunctionType::get(Int32Ty, {Int32Ty, CharPtrTy, Int32Ty}, false)
+    );
+    
+    Value *AddrCast = Builder.CreateBitCast(Addr, CharPtrTy);
+    Value *ConnectRet = Builder.CreateCall(ConnectFunc, {
+        SockFd, AddrCast, ConstantInt::get(Int32Ty, 16)
+    });
+    
+    // connect返回0表示成功连接（IDA正在监听）
+    Value *IdaFound = Builder.CreateICmpEQ(ConnectRet, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(IdaFound, FoundBB, ExitBB);
+    
+    Builder.SetInsertPoint(FoundBB);
+    
+    // 关闭socket
     FunctionCallee CloseFunc = M.getOrInsertFunction(
         "close",
         FunctionType::get(Int32Ty, {Int32Ty}, false)
     );
+    Builder.CreateCall(CloseFunc, {SockFd});
     
-    Type *BufTy = ArrayType::get(Type::getInt8Ty(Ctx), 1024);
-    Value *Buf = Builder.CreateAlloca(BufTy, nullptr, "buf");
-    Value *BufPtr = Builder.CreateBitCast(Buf, CharPtrTy);
-    
-    Value *BytesRead = Builder.CreateCall(ReadFunc, {Fd, BufPtr, ConstantInt::get(Int64Ty, 1024)});
-    Builder.CreateCall(CloseFunc, {Fd});
-    
-    Value *ReadValid = Builder.CreateICmpSGT(BytesRead, ConstantInt::get(Int64Ty, 0));
-    Builder.CreateCondBr(ReadValid, ReadOkBB, ExitBB);
-    
-    Builder.SetInsertPoint(ReadOkBB);
-    
-    Constant *IdaSignature = makeString("IDA");
-    
-    FunctionCallee MemmemFunc = M.getOrInsertFunction(
-        "memmem",
-        FunctionType::get(CharPtrTy, {CharPtrTy, Int64Ty, CharPtrTy, Int64Ty}, false)
-    );
-    
-    Value *IdaLen = ConstantInt::get(Int64Ty, 3);
-    Value *Found = Builder.CreateCall(MemmemFunc, {BufPtr, BytesRead, IdaSignature, IdaLen});
-    
-    Value *FoundNotNull = Builder.CreateICmpNE(Found, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(FoundNotNull, FoundBB, ExitBB);
-    
-    Builder.SetInsertPoint(FoundBB);
-    Builder.CreateCall(ReportAndKillFunc);
+    // 调用报告函数
+    Builder.CreateCall(reportFunc);
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
+    
+    // 关闭socket（如果还没关闭）
+    Builder.CreateCall(CloseFunc, {SockFd});
     Builder.CreateRetVoid();
     
     return Func;
@@ -231,39 +193,21 @@ bool IdaDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 使用公共模块创建报告函数
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
-    Function *CheckFunc = createIdaCheckFunc(M, ReportAndKillFunc);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
-
-    if (isIRObfuscationDebugEnabled()) {
-        LLVMContext &Ctx = M.getContext();
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] IdaDetect: Checking IDA debugger...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".ida.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
-    Builder.CreateCall(CheckFunc);
-
-    return true;
+    // 创建IDA检测函数
+    Function *CheckFunc = createIdaCheckFunc(M, ReportFunc);
+    
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);  // 不使用线程
+    
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
 ModulePass *llvm::createIdaDetectPass() {

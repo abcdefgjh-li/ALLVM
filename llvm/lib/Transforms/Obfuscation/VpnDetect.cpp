@@ -1,19 +1,14 @@
-//===- VpnDetect.cpp - VPN连接检测注入Pass ---------------------===//
+//===- VpnDetect.cpp - VPN检测注入Pass ------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
-// 本文件实现VPN连接检测注入Pass，在程序入口点注入检测代码
-// 通过读取 /proc/net/dev 检测 VPN 接口 (tun0/tun1/tun2/ppp0/pppp0)
-// 检测到则强制终止进程
+// 本文件实现VPN检测注入Pass，在程序入口点注入检测代码
+// 检测VPN连接状态
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/VpnDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -46,89 +41,18 @@ struct VpnDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
-    Function* createVpnCheckFunc(Module &M, Function *ReportAndKillFunc);
+    Function* createVpnCheckFunc(Module &M, Function *reportFunc);
 };
 
 }
 
 char VpnDetect::ID = 0;
 
-Function* VpnDetect::createReportAndKillFunc(Module &M) {
+Function* VpnDetect::createVpnCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "vpn_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到VPN连接!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".vpn.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionCallee AsmExitFunc = M.getOrInsertFunction("exit",
-        FunctionType::get(Type::getVoidTy(M.getContext()), {Int32Ty}, false));
-    Builder.CreateCall(AsmExitFunc, {ConstantInt::get(Int32Ty, 0)});
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
-
-Function* VpnDetect::createVpnCheckFunc(Module &M, Function *ReportAndKillFunc) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
+    Type *Int8Ty = Type::getInt8Ty(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
     PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
@@ -148,6 +72,7 @@ Function* VpnDetect::createVpnCheckFunc(Module &M, Function *ReportAndKillFunc) 
     BasicBlock *OpenFailBB = BasicBlock::Create(Ctx, "open_fail", Func);
     BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
     BasicBlock *CheckLineBB = BasicBlock::Create(Ctx, "check_line", Func);
+    BasicBlock *FoundVpnBB = BasicBlock::Create(Ctx, "found_vpn", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
@@ -173,19 +98,14 @@ Function* VpnDetect::createVpnCheckFunc(Module &M, Function *ReportAndKillFunc) 
     );
     
     auto makeString = [&](const char *str) -> Constant* {
-        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
-        GlobalVariable *StrGV = new GlobalVariable(
-            M, StrConst->getType(), true,
-            GlobalValue::PrivateLinkage, StrConst,
-            ".vpn.str." + Twine(str)
-        );
-        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
+        return DetectUtils::createGlobalString(M, str, ".vpn.str");
     };
     
-    Constant *DevPath = makeString("/proc/net/dev");
+    Constant *NetDevPath = makeString("/proc/net/dev");
     Constant *ReadMode = makeString("r");
+    Constant *TunNeedle = makeString("tun");
     
-    Value *Fp = Builder.CreateCall(FopenFunc, {DevPath, ReadMode});
+    Value *Fp = Builder.CreateCall(FopenFunc, {NetDevPath, ReadMode});
     Value *FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
     Builder.CreateCondBr(FpNotNull, OpenOkBB, OpenFailBB);
     
@@ -194,7 +114,7 @@ Function* VpnDetect::createVpnCheckFunc(Module &M, Function *ReportAndKillFunc) 
     
     Builder.SetInsertPoint(OpenOkBB);
     
-    Type *LineBufTy = ArrayType::get(Type::getInt8Ty(Ctx), 512);
+    Type *LineBufTy = ArrayType::get(Int8Ty, 512);
     Value *LineBuf = Builder.CreateAlloca(LineBufTy, nullptr, "linebuf");
     Value *LineBufPtr = Builder.CreateBitCast(LineBuf, CharPtrTy);
     
@@ -208,38 +128,13 @@ Function* VpnDetect::createVpnCheckFunc(Module &M, Function *ReportAndKillFunc) 
     
     Builder.SetInsertPoint(CheckLineBB);
     
-    Constant *Tun0 = makeString("tun0");
-    Constant *Tun1 = makeString("tun1");
-    Constant *Tun2 = makeString("tun2");
-    Constant *Ppp0 = makeString("ppp0");
-    Constant *Pppp0 = makeString("pppp0");
+    Value *FoundTun = Builder.CreateCall(StrstrFunc, {LineBufPtr, TunNeedle});
+    Value *FoundTunNotNull = Builder.CreateICmpNE(FoundTun, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(FoundTunNotNull, FoundVpnBB, LoopBB);
     
-    Value *Found0 = Builder.CreateCall(StrstrFunc, {LineBufPtr, Tun0});
-    Value *Found0NotNull = Builder.CreateICmpNE(Found0, ConstantPointerNull::get(CharPtrTy));
-    
-    Value *Found1 = Builder.CreateCall(StrstrFunc, {LineBufPtr, Tun1});
-    Value *Found1NotNull = Builder.CreateICmpNE(Found1, ConstantPointerNull::get(CharPtrTy));
-    
-    Value *Found2 = Builder.CreateCall(StrstrFunc, {LineBufPtr, Tun2});
-    Value *Found2NotNull = Builder.CreateICmpNE(Found2, ConstantPointerNull::get(CharPtrTy));
-    
-    Value *Found3 = Builder.CreateCall(StrstrFunc, {LineBufPtr, Ppp0});
-    Value *Found3NotNull = Builder.CreateICmpNE(Found3, ConstantPointerNull::get(CharPtrTy));
-    
-    Value *Found4 = Builder.CreateCall(StrstrFunc, {LineBufPtr, Pppp0});
-    Value *Found4NotNull = Builder.CreateICmpNE(Found4, ConstantPointerNull::get(CharPtrTy));
-    
-    Value *AnyFound = Builder.CreateOr(Found0NotNull, Found1NotNull);
-    AnyFound = Builder.CreateOr(AnyFound, Found2NotNull);
-    AnyFound = Builder.CreateOr(AnyFound, Found3NotNull);
-    AnyFound = Builder.CreateOr(AnyFound, Found4NotNull);
-    
-    BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
-    Builder.CreateCondBr(AnyFound, FoundBB, LoopBB);
-    
-    Builder.SetInsertPoint(FoundBB);
+    Builder.SetInsertPoint(FoundVpnBB);
     Builder.CreateCall(FcloseFunc, {Fp});
-    Builder.CreateCall(ReportAndKillFunc);
+    Builder.CreateCall(reportFunc);
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
@@ -254,39 +149,21 @@ bool VpnDetect::runOnModule(Module &M) {
     }
 
     Function *MainFunc = M.getFunction("main");
-    if (!MainFunc || MainFunc->isDeclaration()) {
+    if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
 
-    if (MainFunc->empty()) {
-        return false;
-    }
-
-    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    // 使用公共模块创建报告函数
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
-    Function *CheckFunc = createVpnCheckFunc(M, ReportAndKillFunc);
-
-    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
-
-    if (isIRObfuscationDebugEnabled()) {
-        LLVMContext &Ctx = M.getContext();
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Type::getInt32Ty(Ctx), {PointerType::get(Ctx, 0)}, true)
-        );
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] VpnDetect: Checking VPN connection...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".vpn.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, PointerType::get(Ctx, 0))});
-    }
-
-    Builder.CreateCall(CheckFunc);
-
-    return true;
+    // 创建检测函数
+    Function *CheckFunc = createVpnCheckFunc(M, ReportFunc);
+    
+    // 配置选项
+    DetectOptions opts = DetectOptions::create(false);
+    
+    // 注入到main函数
+    return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
 ModulePass *llvm::createVpnDetectPass() {

@@ -241,6 +241,8 @@ bool StringEncryption::runOnModule(Module &M) {
 				    ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
 				GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
 				    Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+				DecGV->setSection(".AProtect.data");
+				DecStatus->setSection(".AProtect.data");
 				DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
 				DecGV->setMetadata("noobf", MDNode::get(Ctx, {}));
 				DecStatus->setMetadata("noobf", MDNode::get(Ctx, {}));
@@ -266,6 +268,8 @@ bool StringEncryption::runOnModule(Module &M) {
 					    ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
 					GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
 					    Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+					DecGV->setSection(".AProtect.data");
+					DecStatus->setSection(".AProtect.data");
 					DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
 					DecGV->setMetadata("noobf", MDNode::get(Ctx, {}));
 					DecStatus->setMetadata("noobf", MDNode::get(Ctx, {}));
@@ -332,10 +336,12 @@ bool StringEncryption::runOnModule(Module &M) {
 			Constant *ZeroInit = Constant::getNullValue(EltType);
 			GlobalVariable *DecGV = new GlobalVariable(M, EltType, false, GlobalValue::PrivateLinkage,
 			    ZeroInit, "dec_" + GV->getName());
+			DecGV->setSection(".AProtect.data");
 			DecGV->setAlignment(MaybeAlign(GV->getAlignment()));
 			DecGV->setMetadata("noobf", MDNode::get(Ctx, {}));
 			GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
 			    Zero, "dec_status_" + GV->getName());
+			DecStatus->setSection(".AProtect.data");
 			DecStatus->setMetadata("noobf", MDNode::get(Ctx, {}));
 			CSUser *User = new CSUser(EltType, GV, DecGV);
 			User->DecStatus = DecStatus;
@@ -376,6 +382,7 @@ bool StringEncryption::runOnModule(Module &M) {
 	Constant *CDA = ConstantDataArray::get(M.getContext(), ArrayRef<uint8_t>(Data));
 	EncryptedStringTable = new GlobalVariable(M, CDA->getType(), false, GlobalValue::PrivateLinkage,
 	    CDA, "EncryptedStringTable");
+	EncryptedStringTable->setSection(".AProtect.rodata");
 	EncryptedStringTable->setMetadata("noobf", MDNode::get(Ctx, {}));
 
 	for (GlobalVariable &GV : M.globals()) {
