@@ -178,12 +178,29 @@ int VMP_PROTECT main(int argc, char **argv) {
 2. VMProtect (虚拟机保护)
 3. 检测注入 (反调试等)
    └─ LdPreloadProtect
+   └─ VmProtectDetect
+   └─ UsbProtect
+   └─ IdaDetect
+   └─ VpnDetect
+   └─ ProxyDetect
+   └─ TimeDetect
+   └─ HostsDetect
+   └─ MemDetect
+   └─ PtraceDetect
+   └─ InlineHookDetect
+   └─ PltHookDetect
+   └─ HideMaps
+   └─ FakeMaps
+   └─ MemProtect
+   └─ RootDetect
+   └─ NoRootDetect
+   └─ AProtect
    └─ BanDump
 4. ALLVM混淆 (代码混淆保护)
    └─ ConstantIntEncryption
-   └─ IndirectGlobalVariable
    └─ ConstantFPEncryption
    └─ StringEncryption
+   └─ IndirectGlobalVariable
    └─ IndirectCall
    └─ Flattening
    └─ IndirectBranch
