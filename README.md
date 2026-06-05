@@ -155,9 +155,10 @@ int VMP_PROTECT main(int argc, char **argv) {
 | `-mllvm -irobf-plthook` | PLT Hook检测 |
 | `-mllvm -irobf-memprotect` | 内存Dump保护 |
 | `-mllvm -irobf-bandump` | 禁用内存Dump (移除读权限) |
-| `-mllvm -irobf-root` | Root检测(有root退出) |
-| `-mllvm -irobf-noroot` | 无Root检测(无root退出) |
-| `-mllvm -irobf-hidemaps` | 隐藏Maps文件(需Root) |
+| `-mllvm -irobf-aprotect` | AProtect启动输出 |
+| `-mllvm -irobf-root` | Root检测 (有root退出) |
+| `-mllvm -irobf-noroot` | 无Root检测 (无root退出) |
+| `-mllvm -irobf-hidemaps` | 隐藏Maps文件 (需Root) |
 | `-mllvm -irobf-fakemaps` | 伪造Maps内容 |
 
 ### 系统调用保护 (Syscall Protect)
