@@ -306,6 +306,9 @@ include $(BUILD_EXECUTABLE)
 
 **abcdefgjh**
 
+- **QQ**: 3986612313
+- **TG**: [@abcdefgjha](https://t.me/abcdefgjha)
+
 ## License
 
 本项目的 ALLVM 扩展部分（ObTransforms）以 GPL v3 协议发布，详见 [LICENSE](LICENSE)。
