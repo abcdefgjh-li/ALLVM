@@ -256,31 +256,6 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 include $(BUILD_EXECUTABLE)
 ```
 
-## 开发说明
-
-### 新增 Pass 步骤
-
-1. 在 `llvm\lib\Transforms\Obfuscation\` 创建 `NewPass.cpp`
-2. 在 `llvm\include\llvm\Transforms\Obfuscation\` 创建 `NewPass.h`
-3. 在 `llvm\lib\Transforms\Obfuscation\CMakeLists.txt` 添加源文件
-4. 在 `ObfuscationPassManager.cpp` 中注册 Pass
-
-### SyscallProtect 实现原理
-
-使用内联汇编直接调用 ARM64 的 `svc #0` 指令：
-
-```cpp
-InlineAsm *Asm = InlineAsm::get(AsmTy,
-    "svc #0",
-    "={x0},{x0},{x1},{x2},{x3},{x4},{x5},{x8},~{memory},~{cc}",
-    true, false);
-```
-
-参数通过寄存器传递：
-- x0-x5: 系统调用参数
-- x8: 系统调用号
-- 返回值在 x0
-
 ## 引用库
 
 | 库 | 地址 |
