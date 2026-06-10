@@ -176,7 +176,6 @@ Function* VmProtectDetect::createVMCheckFunc(Module &M, Function *ReportAndKillF
     Builder.SetInsertPoint(ContinueBB);
     Value *NextCounter = Builder.CreateAdd(LoopCounter, ConstantInt::get(Int32Ty, 1), "", true, true);
     LoopCounter->addIncoming(NextCounter, ContinueBB);
-    LoopCounter->addIncoming(NextCounter, FoundBB);
     Builder.CreateBr(LoopCondBB);
 
     Builder.SetInsertPoint(ExitBB);

@@ -231,7 +231,8 @@ Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc)
     Builder.SetInsertPoint(CheckEnableBB);
     Fp = Builder.CreateCall(FopenFunc, {EnablePath, ReadMode});
     FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(FpNotNull, CheckEnableOkBB, CheckEnableFailBB);
+    // 如果文件不存在，跳过检测（模拟器可能没有这些文件）
+    Builder.CreateCondBr(FpNotNull, CheckEnableOkBB, CheckFuncsBB);
     
     Builder.SetInsertPoint(CheckEnableOkBB);
     Type *Buf16Ty = ArrayType::get(Type::getInt8Ty(Ctx), 16);

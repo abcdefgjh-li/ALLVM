@@ -136,6 +136,27 @@ namespace {
 		static bool isValidToEncrypt(GlobalVariable *GV);
 		
 		/**
+		 * @brief 获取全局变量指向的解密后的全局变量
+		 * @param GV 全局变量（指针类型）
+		 * @return 如果该全局变量的初始化器指向加密的字符串，返回对应的解密后全局变量；否则返回nullptr
+		 */
+		GlobalVariable *getPointedDecryptedGlobal(GlobalVariable *GV);
+		
+		/**
+		 * @brief 获取全局变量指向的CSPEntry
+		 * @param GV 全局变量（指针类型）
+		 * @return 如果该全局变量的初始化器指向加密的字符串，返回对应的CSPEntry；否则返回nullptr
+		 */
+		CSPEntry *getPointedCSPEntry(GlobalVariable *GV);
+		
+		/**
+		 * @brief 获取全局变量指向的CSUser
+		 * @param GV 全局变量（指针类型）
+		 * @return 如果该全局变量的初始化器指向加密的字符串，返回对应的CSUser；否则返回nullptr
+		 */
+		CSUser *getPointedCSUser(GlobalVariable *GV);
+		
+		/**
 		 * @brief 处理函数中的常量字符串使用
 		 * @param F 要处理的函数
 		 * @return 如果函数被修改返回true
@@ -218,7 +239,8 @@ bool StringEncryption::runOnModule(Module &M) {
 	ConstantInt *Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
 	
 	for (GlobalVariable &GV : M.globals()) {
-		if (!GV.isConstant() || !GV.hasInitializer() ||
+		// 跳过没有初始化器的全局变量
+		if (!GV.hasInitializer() ||
 		    GV.hasDLLExportStorageClass() || GV.isDLLImportDependent()) {
 			continue;
 		}
@@ -226,6 +248,37 @@ bool StringEncryption::runOnModule(Module &M) {
 		if (Init == nullptr)
 			continue;
 		
+		if (isIRObfuscationDebugEnabled()) {
+			errs() << "[DEBUG] CSE: Checking global: " << GV.getName() 
+			       << " isConstant=" << GV.isConstant()
+			       << " type=" << *GV.getType() 
+			       << " initType=" << *Init->getType() << "\n";
+			
+			// 打印初始化器的具体类型
+			errs() << "[DEBUG] CSE:   Init->getValueID() = " << Init->getValueID() << "\n";
+			errs() << "[DEBUG] CSE:   Init->getName() = " << Init->getName() << "\n";
+			
+			// 检查是否是 dso_local_equivalent
+			if (auto *DSO = dyn_cast<DSOLocalEquivalent>(Init)) {
+				errs() << "[DEBUG] CSE:   Init is DSOLocalEquivalent\n";
+			}
+			
+			// 检查是否是 GlobalObject
+			if (isa<GlobalObject>(Init)) {
+				errs() << "[DEBUG] CSE:   Init is GlobalObject\n";
+			}
+			
+			// 检查是否是 GlobalValue
+			if (isa<GlobalValue>(Init)) {
+				errs() << "[DEBUG] CSE:   Init is GlobalValue\n";
+			}
+			
+			if (GlobalVariable *InnerGV = dyn_cast<GlobalVariable>(Init)) {
+				errs() << "[DEBUG] CSE:   Inner GlobalVariable name: " << InnerGV->getName() << "\n";
+			}
+		}
+		
+		// 处理字符串常量（数组类型）
 		if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(Init)) {
 			if (CDS->isString()) {
 				CSPEntry *Entry = new CSPEntry();
@@ -393,11 +446,86 @@ bool StringEncryption::runOnModule(Module &M) {
 		if (!Init)
 			continue;
 		
+		// 处理初始化器直接是另一个全局变量（字符串）的情况
 		if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
 			auto Iter = CSPEntryMap.find(StrGV);
 			if (Iter != CSPEntryMap.end()) {
 				GV.setInitializer(Iter->second->DecGV);
 				MaybeDeadGlobalVars.insert(StrGV);
+			}
+		}
+		
+		// 处理初始化器是GlobalVariable的情况（如 const char* ptr = &str）
+		// 在 LLVM 21 中，初始化器可能是 GlobalValue 类型
+		if (GlobalValue *GVInit = dyn_cast<GlobalValue>(Init)) {
+			if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(GVInit)) {
+				if (isIRObfuscationDebugEnabled()) {
+					errs() << "[DEBUG] CSE: Init is GlobalVariable: " << StrGV->getName() << "\n";
+					errs() << "[DEBUG] CSE: CSPEntryMap size = " << CSPEntryMap.size() << "\n";
+					errs() << "[DEBUG] CSE: Looking for " << StrGV->getName() << " in CSPEntryMap\n";
+				}
+				auto Iter = CSPEntryMap.find(StrGV);
+				if (Iter != CSPEntryMap.end()) {
+					if (isIRObfuscationDebugEnabled()) {
+						errs() << "[DEBUG] CSE: Found in CSPEntryMap, replacing with DecGV\n";
+						errs() << "[DEBUG] CSE: DecGV name = " << Iter->second->DecGV->getName() << "\n";
+					}
+					GV.setInitializer(Iter->second->DecGV);
+					MaybeDeadGlobalVars.insert(StrGV);
+				} else {
+					if (isIRObfuscationDebugEnabled()) {
+						errs() << "[DEBUG] CSE: NOT found in CSPEntryMap!\n";
+						// 打印 CSPEntryMap 中的所有键
+						errs() << "[DEBUG] CSE: CSPEntryMap keys:\n";
+						for (auto &Entry : CSPEntryMap) {
+							errs() << "[DEBUG] CSE:   - " << Entry.first->getName() << "\n";
+						}
+					}
+				}
+			}
+		}
+		
+		// 处理初始化器是ConstantExpr的情况（如 const char* ptr = &str[0]）
+		if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Init)) {
+			if (isIRObfuscationDebugEnabled()) {
+				errs() << "[DEBUG] CSE: Found ConstantExpr global: " << GV.getName() 
+				       << " opcode=" << CE->getOpcodeName() << "\n";
+			}
+			if (CE->getOpcode() == Instruction::GetElementPtr || 
+			    CE->getOpcode() == Instruction::BitCast) {
+				if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(CE->getOperand(0))) {
+					if (isIRObfuscationDebugEnabled()) {
+						errs() << "[DEBUG] CSE: ConstantExpr points to: " << StrGV->getName() << "\n";
+					}
+					auto Iter = CSPEntryMap.find(StrGV);
+					if (Iter != CSPEntryMap.end()) {
+						if (isIRObfuscationDebugEnabled()) {
+							errs() << "[DEBUG] CSE: Found in CSPEntryMap, replacing...\n";
+						}
+						// 创建新的ConstantExpr指向解密后的全局变量
+						if (CE->getOpcode() == Instruction::GetElementPtr) {
+							SmallVector<Constant *, 4> NewIndices;
+							for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
+								NewIndices.push_back(CE->getOperand(i));
+							}
+							Constant *NewCE = ConstantExpr::getGetElementPtr(
+								Iter->second->DecGV->getValueType(),
+								Iter->second->DecGV,
+								NewIndices);
+							GV.setInitializer(NewCE);
+						} else {
+							Constant *NewCE = ConstantExpr::getBitCast(
+								Iter->second->DecGV,
+								CE->getType());
+							GV.setInitializer(NewCE);
+						}
+						MaybeDeadGlobalVars.insert(StrGV);
+					} else {
+						if (isIRObfuscationDebugEnabled()) {
+							errs() << "[DEBUG] CSE: NOT found in CSPEntryMap\n";
+						}
+					}
+				}
 			}
 		}
 		
@@ -887,6 +1015,47 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 								DecryptedGV.insert(GV);
 							}
 							Changed = true;
+						} else {
+							// 检查全局变量的初始化器是否指向加密的字符串
+							// 这是处理 const char* ptr = "string" 的情况
+							if (CSPEntry *PointedEntry = getPointedCSPEntry(GV)) {
+								if (isIRObfuscationDebugEnabled()) {
+									errs() << "[DEBUG] CSE: Found pointer to encrypted string: " << GV->getName() 
+									       << " -> " << PointedEntry->DecGV->getName() << "\n";
+								}
+								if (DecryptedGV.count(GV) > 0) {
+									// 已经解密过，不需要再解密
+								} else {
+									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
+									Value *OutBuf = IRB.CreateBitCast(PointedEntry->DecGV, PointerType::get(Ctx, 0));
+									Value *Data = IRB.CreateInBoundsGEP(
+										EncryptedStringTable->getValueType(),
+										EncryptedStringTable,
+										{IRB.getInt32(0), IRB.getInt32(PointedEntry->Offset)});
+									fixEH(IRB.CreateCall(PointedEntry->DecFunc, {OutBuf, Data}));
+									DecryptedGV.insert(GV);
+									if (isIRObfuscationDebugEnabled()) {
+										errs() << "[DEBUG] CSE: Inserted decrypt call for " << GV->getName() << "\n";
+									}
+								}
+								Changed = true;
+							} else if (CSUser *PointedUser = getPointedCSUser(GV)) {
+								if (isIRObfuscationDebugEnabled()) {
+									errs() << "[DEBUG] CSE: Found pointer to CSUser string: " << GV->getName() 
+									       << " -> " << PointedUser->DecGV->getName() << "\n";
+								}
+								if (DecryptedGV.count(GV) > 0) {
+									// 已经解密过，不需要再解密
+								} else {
+									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
+									fixEH(IRB.CreateCall(PointedUser->InitFunc, {PointedUser->DecGV}));
+									DecryptedGV.insert(GV);
+									if (isIRObfuscationDebugEnabled()) {
+										errs() << "[DEBUG] CSE: Inserted init call for " << GV->getName() << "\n";
+									}
+								}
+								Changed = true;
+							}
 						}
 					} else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(*op)) {
 						if (GlobalVariable *GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
@@ -957,6 +1126,96 @@ void StringEncryption::collectConstantStringUser(GlobalVariable *CString, std::s
 			}
 		}
 	}
+}
+
+/**
+ * @brief 获取全局变量指向的解密后的全局变量
+ * @param GV 全局变量（指针类型）
+ * @return 如果该全局变量的初始化器指向加密的字符串，返回对应的解密后全局变量；否则返回nullptr
+ */
+GlobalVariable *StringEncryption::getPointedDecryptedGlobal(GlobalVariable *GV) {
+	if (!GV->hasInitializer())
+		return nullptr;
+	
+	Constant *Init = GV->getInitializer();
+	if (!Init)
+		return nullptr;
+	
+	// 检查初始化器是否是 GlobalVariable（指向字符串）
+	if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
+		auto Iter = CSPEntryMap.find(StrGV);
+		if (Iter != CSPEntryMap.end()) {
+			return Iter->second->DecGV;
+		}
+		auto Iter2 = CSUserMap.find(StrGV);
+		if (Iter2 != CSUserMap.end()) {
+			return Iter2->second->DecGV;
+		}
+	}
+	
+	return nullptr;
+}
+
+/**
+ * @brief 获取全局变量指向的CSPEntry
+ * @param GV 全局变量（指针类型）
+ * @return 如果该全局变量的初始化器指向加密的字符串，返回对应的CSPEntry；否则返回nullptr
+ */
+StringEncryption::CSPEntry *StringEncryption::getPointedCSPEntry(GlobalVariable *GV) {
+	if (!GV->hasInitializer())
+		return nullptr;
+	
+	Constant *Init = GV->getInitializer();
+	if (!Init)
+		return nullptr;
+	
+	// 检查初始化器是否是 GlobalVariable（指向字符串）
+	if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
+		// 首先直接查找
+		auto Iter = CSPEntryMap.find(StrGV);
+		if (Iter != CSPEntryMap.end()) {
+			return Iter->second;
+		}
+		// 如果没找到，检查是否是解密后的全局变量（dec_xxx）
+		// 解密后的全局变量名称格式为 "dec_" + 原始名称
+		StringRef Name = StrGV->getName();
+		if (Name.starts_with("dec")) {
+			// 尝试从名称中提取原始名称
+			// 格式: decXX.original_name 或 dec_status_XX.original_name
+			// 我们需要找到对应的原始字符串
+			for (auto &Entry : CSPEntryMap) {
+				if (Entry.second->DecGV == StrGV) {
+					return Entry.second;
+				}
+			}
+		}
+	}
+	
+	return nullptr;
+}
+
+/**
+ * @brief 获取全局变量指向的CSUser
+ * @param GV 全局变量（指针类型）
+ * @return 如果该全局变量的初始化器指向加密的字符串，返回对应的CSUser；否则返回nullptr
+ */
+StringEncryption::CSUser *StringEncryption::getPointedCSUser(GlobalVariable *GV) {
+	if (!GV->hasInitializer())
+		return nullptr;
+	
+	Constant *Init = GV->getInitializer();
+	if (!Init)
+		return nullptr;
+	
+	// 检查初始化器是否是 GlobalVariable（指向字符串）
+	if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
+		auto Iter = CSUserMap.find(StrGV);
+		if (Iter != CSUserMap.end()) {
+			return Iter->second;
+		}
+	}
+	
+	return nullptr;
 }
 
 /**

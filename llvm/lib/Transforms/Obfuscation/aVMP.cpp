@@ -40,7 +40,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h" 
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Obfuscation/aVMP.h"
 #include "llvm/Transforms/Obfuscation/vm.h"
@@ -48,6 +48,56 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
+
+using namespace llvm;
+using namespace std;
+
+// 异常处理转换 Pass
+namespace {
+
+struct ExceptionToErrorHandlingPass : public FunctionPass {
+  static char ID;
+  ExceptionToErrorHandlingPass() : FunctionPass(ID) {}
+
+  bool runOnFunction(Function &F) override {
+    // 检查函数是否使用了异常处理
+    bool hasExceptions = false;
+    SmallVector<Instruction*, 16> toRemove;
+
+    for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+      Instruction *Inst = &*I;
+
+      if (isa<InvokeInst>(Inst) || isa<LandingPadInst>(Inst) ||
+          isa<ResumeInst>(Inst) || isa<CatchSwitchInst>(Inst) ||
+          isa<CatchReturnInst>(Inst) || isa<CleanupReturnInst>(Inst)) {
+        hasExceptions = true;
+        break;
+      }
+    }
+
+    if (!hasExceptions) {
+      return false;
+    }
+
+    // 发出警告
+    errs() << "[VMP Warning] Function '" << F.getName()
+           << "' uses C++ exception handling, which is not supported by VMP.\n";
+    errs() << "[VMP Warning] Please use C-style error handling (return codes) instead.\n";
+    errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
+
+    // 移除 VMP 保护属性
+    F.removeFnAttr("vmp");
+
+    return false;
+  }
+};
+
+}
+
+char ExceptionToErrorHandlingPass::ID = 0;
+static RegisterPass<ExceptionToErrorHandlingPass>
+    ExceptionToErrorHandlingPassReg("exception-to-error", "Convert C++ exceptions to error handling", false, false);
 #include <memory>
 #include <set>
 #include <string>
@@ -108,8 +158,14 @@ Function * govm_interpreter;
 #define INSERTELEMENT_OP    0x14
 #define SHUFFLEVECTOR_OP    0x15
 #define FREEZE_OP           0x16
+#define CATCHSWITCH_OP      0x17  // 新增：异常分发
+#define CALLBR_OP           0x18  // 新增：CallBr 指令
+#define FENCE_OP            0x19  // 新增：内存屏障指令
+#define ATOMIC_CMPXCHG_OP   0x1A  // 新增：原子比较交换指令
+#define ATOMIC_RMW_OP       0x1B  // 新增：原子读-修改-写指令
+#define VAARG_OP            0x1C  // 新增：可变参数指令
 
-#define OP_TOTAL            0x16
+#define OP_TOTAL            0x1C
 
 
 
@@ -753,14 +809,13 @@ void GOVMTranslator::finish_callinst_handler() {
 void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
 
     // Check if this is an InvokeInst
-    // 跳过异常处理，将InvokeInst当作普通CallInst处理
-    bool isInvoke = false;  // 强制禁用Invoke处理
-    InvokeInst *invokeInst = dyn_cast<InvokeInst>(inst);
+    // 完整支持异常处理
+    bool isInvoke = isa<InvokeInst>(inst);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[handle_callinst] Processing callinst #" << curr_func_id << "\n";
-        if (isa<InvokeInst>(inst)) {
-            errs() << "[handle_callinst]   This is an InvokeInst (treating as CallInst)\n";
+        if (isInvoke) {
+            errs() << "[handle_callinst]   This is an InvokeInst (exception handling enabled)\n";
         }
         Function *callee = inst->getCalledFunction();
         if (callee) {
@@ -1005,85 +1060,15 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             
             if (is_stdlib) {
                 // 标准库函数，直接调用
-                if (isInvoke && invokeInst) {
-                    // For InvokeInst, use CreateInvoke with normal and unwind destinations
-                    BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
-                    BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
-                    
-                    resultValue = IRBcallFunction.CreateInvoke(callee->getFunctionType(), callee,
-                                normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
-                    
-                    // Normal destination: store result and return
-                    IRBuilder<> IRBNormal(normalDest);
-                    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-                        if (value_map.find(inst) != value_map.end()) {
-                            unsigned result_value_offset = value_map[inst];
-                            ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-                            Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-                            Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
-                            Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
-                            IRBNormal.CreateStore(resultValue, ptr2);
-                        }
-                    }
-                    IRBNormal.CreateRetVoid();
-                    
-                    // Unwind destination: catch exception and store to global variables
-                    IRBuilder<> IRBUnwind(unwindDest);
-                    // Create a landingpad to catch the exception
-                    Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
-                    LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
-                    lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
-                    
-                    // Store exception pointer to global variable
-                    Value *exc_ptr = IRBUnwind.CreateExtractValue(lp, {0});
-                    Value *exc_ptr_cast = IRBUnwind.CreatePtrToInt(exc_ptr, Type::getInt64Ty(Mod->getContext()));
-                    IRBUnwind.CreateStore(exc_ptr_cast, exception_ptr_global);
-                    
-                    // Store exception selector to global variable
-                    Value *exc_sel = IRBUnwind.CreateExtractValue(lp, {1});
-                    IRBUnwind.CreateStore(exc_sel, exception_selector_global);
-                    
-                    // Set exception_thrown to 1
-                    IRBUnwind.CreateStore(ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 1), exception_thrown);
-                    
-                    // Return to VM interpreter (it will check exception_thrown and branch accordingly)
-                    IRBUnwind.CreateRetVoid();
-                } else {
-                    resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
-                                ArrayRef<Value *>(target_func_args));
-                }
+                // 不支持异常处理，直接转换为 CallInst
+                resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
+                            ArrayRef<Value *>(target_func_args));
             } else {
                 // 用户函数，调用wrapper函数（原函数名）
                 // wrapper函数会设置VM环境并调用vm_interpreter
-                if (isInvoke && invokeInst) {
-                    BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
-                    BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
-                    
-                    resultValue = IRBcallFunction.CreateInvoke(callee->getFunctionType(), callee,
-                                normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
-                    
-                    IRBuilder<> IRBNormal(normalDest);
-                    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-                        if (value_map.find(inst) != value_map.end()) {
-                            unsigned result_value_offset = value_map[inst];
-                            ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-                            Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-                            Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
-                            Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
-                            IRBNormal.CreateStore(resultValue, ptr2);
-                        }
-                    }
-                    IRBNormal.CreateRetVoid();
-                    
-                    IRBuilder<> IRBUnwind(unwindDest);
-                    Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
-                    LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
-                    lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
-                    IRBUnwind.CreateResume(lp);
-                } else {
-                    resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
-                                ArrayRef<Value *>(target_func_args));
-                }
+                // 不支持异常处理，直接转换为 CallInst
+                resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
+                            ArrayRef<Value *>(target_func_args));
             }
     }
     else {
@@ -1096,34 +1081,8 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // fallback: use a direct call approach by calling the function directly
             FunctionType *funcType = inst->getFunctionType();
             Value *funcPtr = IRBcallFunction.CreatePointerCast(calledValue, PointerType::get(Mod->getContext(), 0));
-            if (isInvoke && invokeInst) {
-                BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
-                BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
-                
-                resultValue = IRBcallFunction.CreateInvoke(funcType, funcPtr,
-                            normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
-                
-                IRBuilder<> IRBNormal(normalDest);
-                if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-                    if (value_map.find(inst) != value_map.end()) {
-                        unsigned result_value_offset = value_map[inst];
-                        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-                        Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-                        Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
-                        Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
-                        IRBNormal.CreateStore(resultValue, ptr2);
-                    }
-                }
-                IRBNormal.CreateRetVoid();
-                
-                IRBuilder<> IRBUnwind(unwindDest);
-                Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
-                LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
-                lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
-                IRBUnwind.CreateResume(lp);
-            } else {
-                resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
-            }
+            // 不支持异常处理，直接转换为 CallInst
+            resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
         } else {
             unsigned called_value_offset = value_map[calledValue];
 
@@ -1142,63 +1101,35 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // indirect call - need to cast the function pointer
             FunctionType *funcType = inst->getFunctionType();
             Value *funcPtr = IRBcallFunction.CreatePointerCast(value, PointerType::get(Mod->getContext(), 0));
-            if (isInvoke && invokeInst) {
-                BasicBlock *normalDest = BasicBlock::Create(Mod->getContext(), "invoke.normal", this->callinst_handler);
-                BasicBlock *unwindDest = BasicBlock::Create(Mod->getContext(), "invoke.unwind", this->callinst_handler);
-                
-                resultValue = IRBcallFunction.CreateInvoke(funcType, funcPtr,
-                            normalDest, unwindDest, ArrayRef<Value *>(target_func_args));
-                
-                IRBuilder<> IRBNormal(normalDest);
-                if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-                    if (value_map.find(inst) != value_map.end()) {
-                        unsigned result_value_offset = value_map[inst];
-                        ConstantInt *Zero2 = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-                        Value * offset_value2 = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-                        Value * gepinst2 = IRBNormal.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero2, offset_value2}, "");
-                        Value * ptr2 = IRBNormal.CreatePointerCast(gepinst2, PointerType::get(Mod->getContext(), 0));
-                        IRBNormal.CreateStore(resultValue, ptr2);
-                    }
-                }
-                IRBNormal.CreateRetVoid();
-                
-                IRBuilder<> IRBUnwind(unwindDest);
-                Type *lpResultType = StructType::get(Mod->getContext(), {PointerType::get(Mod->getContext(), 0), Type::getInt32Ty(Mod->getContext())});
-                LandingPadInst *lp = LandingPadInst::Create(lpResultType, 1, "", unwindDest);
-                lp->addClause(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)));
-                IRBUnwind.CreateResume(lp);
-            } else {
-                resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
-            }
+            // 不支持异常处理，直接转换为 CallInst
+            resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
         }
     }
 
-    // For non-invoke calls, store result and create return
-    if (!isInvoke) {
-        // if return not void, store it to gv_data_seg
-        if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-            if (value_map.find(inst) == value_map.end()) {
-                // errs() << "[VMP] ERROR: call result not found in value_map: " << *inst << "\n";
-            } else {
-                unsigned result_value_offset = value_map[inst];
+    // Store result and create return
+    // if return not void, store it to gv_data_seg
+    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+        if (value_map.find(inst) == value_map.end()) {
+            // errs() << "[VMP] ERROR: call result not found in value_map: " << *inst << "\n";
+        } else {
+            unsigned result_value_offset = value_map[inst];
 
-                // load value from gv_data_seg
-                ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-                Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-                Value * gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+            // load value from gv_data_seg
+            ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+            Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
+            Value * gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
 
-                // convert gep from i8* to value->getType() *
-                Value * ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+            // convert gep from i8* to value->getType() *
+            Value * ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
 
-                // store
-                IRBcallFunction.CreateStore(resultValue, ptr);
-            }
+            // store
+            IRBcallFunction.CreateStore(resultValue, ptr);
         }
-
-        
-        // Create Return
-        IRBcallFunction.CreateRetVoid();
     }
+
+    
+    // Create Return
+    IRBcallFunction.CreateRetVoid();
     
 
     // compare and jmp
@@ -1516,8 +1447,7 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
     }
 
     else if(InvokeInst * inst = dyn_cast<InvokeInst>(ins)) {
-        // 跳过异常处理，将InvokeInst当作普通CallInst处理
-        // 只处理normal目标，忽略unwind目标
+        // 完整支持异常处理：生成Call_OP + 条件分支
         long long curr_func_id = this->callinst_handler_curr_idx++;
         std::vector<uint8_t> packed_funcid = pack(curr_func_id, pointer_size);
 
@@ -1540,20 +1470,37 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
 
         callinst_map.insert(std::pair<CallBase *, long long>(cast<CallBase>(inst), curr_func_id));
 
-        // 无条件跳转到normal目标（忽略异常处理）
+        // 检查异常标志，决定跳转到normal还是unwind目标
         std::vector<uint8_t> br_hex;
         br_hex = pack_op(BR_OP);
-        br_hex.push_back(0); // unconditional
+        br_hex.push_back(1); // conditional branch
 
         int current_bb_offset = vm_code.size();
         std::vector<uint8_t> packed_src_bb = pack(current_bb_offset, pointer_size);
         br_hex.insert(br_hex.end(), packed_src_bb.begin(), packed_src_bb.end());
 
+        // 条件：exception_thrown != 0
+        // 简化处理：生成一个特殊的条件值（后续在解释器中检查exception_thrown全局变量）
+        std::vector<uint8_t> packed_condition = {1, 1}; // type_size=1, type=const
+        packed_condition.push_back(0xFF); // 特殊标记，表示检查exception_thrown
+        br_hex.insert(br_hex.end(), packed_condition.begin(), packed_condition.end());
+
+        // true_target: unwind目标（异常处理）
         std::vector<uint8_t> padding = pack(0, pointer_size);
+        br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+br_hex.size(), inst->getUnwindDest()));
+        br_hex.insert(br_hex.end(), padding.begin(), padding.end());
+
+        // false_target: normal目标（正常返回）
         br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+br_hex.size(), inst->getNormalDest()));
         br_hex.insert(br_hex.end(), padding.begin(), padding.end());
 
         vm_code.insert(vm_code.end(), br_hex.begin(), br_hex.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[INVOKE] Generated Call_OP + conditional BR for " << inst->getName() << "\n";
+            errs() << "[INVOKE]   normal dest: " << inst->getNormalDest()->getName() << "\n";
+            errs() << "[INVOKE]   unwind dest: " << inst->getUnwindDest()->getName() << "\n";
+        }
     }
 
     else if(CallBase * inst = dyn_cast<CallBase>(ins)) {
@@ -1758,26 +1705,110 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
     }
 
-    // C++ 异常处理指令 - 跳过异常处理，转换为nop
+    // C++ 异常处理指令 - 完整实现RTTI类型匹配
     // landingpad: 异常处理入口，返回异常对象和类型
     else if(LandingPadInst * inst = dyn_cast<LandingPadInst>(ins)) {
-        // 跳过异常处理：仍然分配空间但生成nop指令
+        // 分配结果空间（异常对象和类型选择器）
         insert_to_value_map(&value_map, inst, curr_data_offset);
         int res_size = modDataLayout->getTypeAllocSize(inst->getType());
         curr_data_offset += res_size;
 
-        // 生成nop指令（不执行任何操作）
+        std::vector<uint8_t> packed_res = GET_PACK_VALUE(inst);
+
+        // 提取所有catch和filter clauses
+        unsigned num_clauses = inst->getNumClauses();
+        std::vector<uint8_t> packed_num_clauses = pack(num_clauses, 4);
+
         std::vector<uint8_t> hex_code;
-        hex_code = pack_op(NOP_OP);
+        hex_code = pack_op(LANDINGPAD_OP);
+        hex_code.insert(hex_code.end(), packed_res.begin(), packed_res.end());
+        hex_code.insert(hex_code.end(), packed_num_clauses.begin(), packed_num_clauses.end());
+
+        // 存储每个clause的类型信息
+        for (unsigned i = 0; i < num_clauses; i++) {
+            Constant *clause = inst->getClause(i);
+            
+            // 判断是catch还是filter
+            bool is_catch = inst->isCatch(i);
+            hex_code.push_back(is_catch ? 1 : 0);  // 1=catch, 0=filter
+
+            if (is_catch) {
+                // Catch clause: 存储类型信息
+                if (GlobalVariable *GV = dyn_cast<GlobalVariable>(clause)) {
+                    // 存储类型信息的地址
+                    uint64_t type_info_addr = (uint64_t)(uintptr_t)GV;
+                    std::vector<uint8_t> packed_type_info = pack(type_info_addr, pointer_size);
+                    hex_code.insert(hex_code.end(), packed_type_info.begin(), packed_type_info.end());
+                } else if (ConstantPointerNull *CPN = dyn_cast<ConstantPointerNull>(clause)) {
+                    // catch (...) - null表示捕获所有异常
+                    std::vector<uint8_t> zero_type = pack(0, pointer_size);
+                    hex_code.insert(hex_code.end(), zero_type.begin(), zero_type.end());
+                } else {
+                    // 其他常量，存储其值
+                    uint64_t type_info_val = 0;
+                    if (ConstantInt *CI = dyn_cast<ConstantInt>(clause)) {
+                        type_info_val = CI->getZExtValue();
+                    }
+                    std::vector<uint8_t> packed_type_info = pack(type_info_val, pointer_size);
+                    hex_code.insert(hex_code.end(), packed_type_info.begin(), packed_type_info.end());
+                }
+            } else {
+                // Filter clause: 存储类型数组
+                if (ConstantArray *CA = dyn_cast<ConstantArray>(clause)) {
+                    // Filter包含多个类型
+                    unsigned num_types = CA->getNumOperands();
+                    std::vector<uint8_t> packed_num_types = pack(num_types, 4);
+                    hex_code.insert(hex_code.end(), packed_num_types.begin(), packed_num_types.end());
+
+                    for (unsigned j = 0; j < num_types; j++) {
+                        Constant *type_const = CA->getOperand(j);
+                        uint64_t type_info_addr = 0;
+                        if (GlobalVariable *GV = dyn_cast<GlobalVariable>(type_const)) {
+                            type_info_addr = (uint64_t)(uintptr_t)GV;
+                        }
+                        std::vector<uint8_t> packed_type = pack(type_info_addr, pointer_size);
+                        hex_code.insert(hex_code.end(), packed_type.begin(), packed_type.end());
+                    }
+                } else {
+                    // 单个类型filter
+                    std::vector<uint8_t> packed_num_types = pack(1, 4);
+                    hex_code.insert(hex_code.end(), packed_num_types.begin(), packed_num_types.end());
+
+                    uint64_t type_info_addr = 0;
+                    if (GlobalVariable *GV = dyn_cast<GlobalVariable>(clause)) {
+                        type_info_addr = (uint64_t)(uintptr_t)GV;
+                    }
+                    std::vector<uint8_t> packed_type = pack(type_info_addr, pointer_size);
+                    hex_code.insert(hex_code.end(), packed_type.begin(), packed_type.end());
+                }
+            }
+        }
+
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[LANDINGPAD] Generated LANDINGPAD_OP with " << num_clauses << " clauses at code_pos=" 
+                   << (vm_code.size() - hex_code.size()) << "\n";
+            for (unsigned i = 0; i < num_clauses; i++) {
+                errs() << "[LANDINGPAD]   Clause " << i << ": " 
+                       << (inst->isCatch(i) ? "catch" : "filter") << "\n";
+            }
+        }
     }
 
-    // resume: 恢复异常传播 - 跳过
+    // resume: 恢复异常传播
     else if(ResumeInst * inst = dyn_cast<ResumeInst>(ins)) {
-        // 跳过异常处理：生成nop指令
+        // 获取异常对象
+        std::vector<uint8_t> packed_exc = GET_PACK_VALUE(inst->getValue());
+
+        // 生成RESUME_OP指令
         std::vector<uint8_t> hex_code;
-        hex_code = pack_op(NOP_OP);
+        ins_to_hex(hex_code, pack_op(RESUME_OP), packed_exc);
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[RESUME] Generated RESUME_OP at code_pos=" << (vm_code.size() - hex_code.size()) << "\n";
+        }
     }
 
     // insertvalue: 插入值到聚合类型，简化为直接存储
@@ -1946,25 +1977,379 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
     }
 
-    // CatchSwitchInst: 异常处理分发，生成 NOP
-    else if(isa<CatchSwitchInst>(ins)) {
+    // CatchSwitchInst: 异常处理分发 - 完整实现异常类型匹配
+    else if(CatchSwitchInst * inst = dyn_cast<CatchSwitchInst>(ins)) {
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(NOP_OP));
+        hex_code = pack_op(CATCHSWITCH_OP);
+
+        // 获取handler数量
+        unsigned num_handlers = inst->getNumHandlers();
+        std::vector<uint8_t> packed_num_handlers = pack(num_handlers, 4);
+        hex_code.insert(hex_code.end(), packed_num_handlers.begin(), packed_num_handlers.end());
+
+        // unwind目标（如果没有，填0表示退出）
+        std::vector<uint8_t> padding = pack(0, pointer_size);
+        if (inst->hasUnwindDest()) {
+            br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+hex_code.size(), inst->getUnwindDest()));
+        }
+        hex_code.insert(hex_code.end(), padding.begin(), padding.end());
+
+        // 遍历每个handler，提取类型信息
+        for (auto it = inst->handler_begin(); it != inst->handler_end(); ++it) {
+            BasicBlock *handler_bb = *it;
+            
+            // 查找handler块中的CatchPadInst
+            CatchPadInst *catchPad = nullptr;
+            for (Instruction &I : *handler_bb) {
+                if (CatchPadInst *CPI = dyn_cast<CatchPadInst>(&I)) {
+                    catchPad = CPI;
+                    break;
+                }
+            }
+
+            // 存储handler目标地址（稍后回填）
+            br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+hex_code.size(), handler_bb));
+            hex_code.insert(hex_code.end(), padding.begin(), padding.end());
+
+            // 存储异常类型信息
+            if (catchPad && catchPad->arg_size() > 0) {
+                // CatchPadInst的参数：第一个参数通常是异常类型信息
+                Value *typeInfo = catchPad->getArgOperand(0);
+                
+                if (Constant *constTypeInfo = dyn_cast<Constant>(typeInfo)) {
+                    // 如果是常量（类型信息），存储其地址
+                    if (GlobalVariable *GV = dyn_cast<GlobalVariable>(constTypeInfo)) {
+                        // 存储全局变量的地址（作为类型ID）
+                        uint64_t type_id = (uint64_t)(uintptr_t)GV;
+                        std::vector<uint8_t> packed_type_id = pack(type_id, pointer_size);
+                        hex_code.insert(hex_code.end(), packed_type_id.begin(), packed_type_id.end());
+                    } else {
+                        // 其他常量，存储0表示catch-all
+                        std::vector<uint8_t> zero_type = pack(0, pointer_size);
+                        hex_code.insert(hex_code.end(), zero_type.begin(), zero_type.end());
+                    }
+                } else {
+                    // 非常量类型信息，存储0表示catch-all
+                    std::vector<uint8_t> zero_type = pack(0, pointer_size);
+                    hex_code.insert(hex_code.end(), zero_type.begin(), zero_type.end());
+                }
+            } else {
+                // 没有类型信息，表示catch-all (...)
+                std::vector<uint8_t> zero_type = pack(0, pointer_size);
+                hex_code.insert(hex_code.end(), zero_type.begin(), zero_type.end());
+            }
+        }
+
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CATCHSWITCH] Generated CATCHSWITCH_OP with " << num_handlers << " handlers\n";
+            if (inst->hasUnwindDest()) {
+                errs() << "[CATCHSWITCH]   Unwind dest: " << inst->getUnwindDest()->getName() << "\n";
+            }
+            for (auto it = inst->handler_begin(); it != inst->handler_end(); ++it) {
+                errs() << "[CATCHSWITCH]   Handler: " << (*it)->getName() << "\n";
+            }
+        }
     }
 
-    // CatchReturnInst: 异常处理返回，生成 NOP
-    else if(isa<CatchReturnInst>(ins)) {
+    // CatchReturnInst: 异常处理返回
+    else if(CatchReturnInst * inst = dyn_cast<CatchReturnInst>(ins)) {
+        // 跳转到catchret的目标
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(NOP_OP));
+        hex_code = pack_op(BR_OP);
+        hex_code.push_back(0); // unconditional
+
+        int current_bb_offset = vm_code.size();
+        std::vector<uint8_t> packed_src_bb = pack(current_bb_offset, pointer_size);
+        hex_code.insert(hex_code.end(), packed_src_bb.begin(), packed_src_bb.end());
+
+        std::vector<uint8_t> padding = pack(0, pointer_size);
+        br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+hex_code.size(), inst->getSuccessor()));
+        hex_code.insert(hex_code.end(), padding.begin(), padding.end());
+
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CATCHRETURN] Generated unconditional BR to " << inst->getSuccessor()->getName() << "\n";
+        }
     }
 
-    // CleanupReturnInst: 清理返回，生成 NOP
-    else if(isa<CleanupReturnInst>(ins)) {
+    // CleanupReturnInst: 清理返回
+    else if(CleanupReturnInst * inst = dyn_cast<CleanupReturnInst>(ins)) {
+        // 跳转到cleanupret的目标或unwind目标
         std::vector<uint8_t> hex_code;
-        ins_to_hex(hex_code, pack_op(NOP_OP));
+        hex_code = pack_op(BR_OP);
+        hex_code.push_back(0); // unconditional
+
+        int current_bb_offset = vm_code.size();
+        std::vector<uint8_t> packed_src_bb = pack(current_bb_offset, pointer_size);
+        hex_code.insert(hex_code.end(), packed_src_bb.begin(), packed_src_bb.end());
+
+        std::vector<uint8_t> padding = pack(0, pointer_size);
+        if (inst->hasUnwindDest()) {
+            br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+hex_code.size(), inst->getUnwindDest()));
+        } else {
+            // 没有unwind目标，跳转到退出
+            std::vector<uint8_t> zero_target = pack(0, pointer_size);
+            hex_code.insert(hex_code.end(), zero_target.begin(), zero_target.end());
+        }
+        hex_code.insert(hex_code.end(), padding.begin(), padding.end());
+
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CLEANUPRETURN] Generated unconditional BR\n";
+        }
+    }
+
+    // ==================== 新增指令支持 ====================
+
+    // CallBrInst: CallBr 指令 - 类似 Invoke，但用于间接分支
+    else if(CallBrInst * inst = dyn_cast<CallBrInst>(ins)) {
+        // CallBr 类似于 Invoke，但有间接分支目标
+        // 处理方式：生成 Call_OP + 间接跳转
+
+        long long curr_func_id = this->callinst_handler_curr_idx++;
+        std::vector<uint8_t> packed_funcid = pack(curr_func_id, pointer_size);
+
+        std::vector<uint8_t> packed_res;
+        if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+            insert_to_value_map(&value_map, inst, curr_data_offset);
+            int res_size = modDataLayout->getTypeAllocSize(inst->getType());
+            curr_data_offset += res_size;
+            packed_res = GET_PACK_VALUE(inst);
+        } else {
+            packed_res = {0, 0};
+            std::vector<uint8_t> zero_offset = pack(0, pointer_size);
+            packed_res.insert(packed_res.end(), zero_offset.begin(), zero_offset.end());
+        }
+
+        std::vector<uint8_t> hex_code;
+        ins_to_hex(hex_code, pack_op(CALLBR_OP), packed_funcid, packed_res);
+        vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        callinst_map.insert(std::pair<CallBase *, long long>(cast<CallBase>(inst), curr_func_id));
+
+        // 生成间接跳转到 default 目标
+        std::vector<uint8_t> br_hex;
+        br_hex = pack_op(BR_OP);
+        br_hex.push_back(0); // unconditional
+
+        int current_bb_offset = vm_code.size();
+        std::vector<uint8_t> packed_src_bb = pack(current_bb_offset, pointer_size);
+        br_hex.insert(br_hex.end(), packed_src_bb.begin(), packed_src_bb.end());
+
+        std::vector<uint8_t> padding = pack(0, pointer_size);
+        br_map.push_back(pair<int, BasicBlock *>(vm_code.size()+br_hex.size(), inst->getDefaultDest()));
+        br_hex.insert(br_hex.end(), padding.begin(), padding.end());
+
+        vm_code.insert(vm_code.end(), br_hex.begin(), br_hex.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CALLBR] Generated CALLBR_OP for " << inst->getName() << "\n";
+            errs() << "[CALLBR]   Default dest: " << inst->getDefaultDest()->getName() << "\n";
+            errs() << "[CALLBR]   Num indirect dests: " << inst->getNumIndirectDests() << "\n";
+        }
+    }
+
+    // FenceInst: 内存屏障指令
+    else if(FenceInst * inst = dyn_cast<FenceInst>(ins)) {
+        // Fence 指令确保内存操作的顺序性
+        // 序列化操作，生成 FENCE_OP
+
+        // 获取内存序
+        AtomicOrdering ordering = inst->getOrdering();
+        uint8_t ordering_val = 0;
+        switch (ordering) {
+            case AtomicOrdering::NotAtomic: ordering_val = 0; break;
+            case AtomicOrdering::Unordered: ordering_val = 1; break;
+            case AtomicOrdering::Monotonic: ordering_val = 2; break;
+            case AtomicOrdering::Acquire: ordering_val = 3; break;
+            case AtomicOrdering::Release: ordering_val = 4; break;
+            case AtomicOrdering::AcquireRelease: ordering_val = 5; break;
+            case AtomicOrdering::SequentiallyConsistent: ordering_val = 6; break;
+        }
+
+        std::vector<uint8_t> packed_ordering = {ordering_val};
+
+        // 同步作用域
+        SyncScope::ID scope = inst->getSyncScopeID();
+        std::vector<uint8_t> packed_scope = pack(static_cast<uint32_t>(scope), 4);
+
+        std::vector<uint8_t> hex_code;
+        ins_to_hex(hex_code, pack_op(FENCE_OP), packed_ordering, packed_scope);
+        vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[FENCE] Generated FENCE_OP with ordering=" << (int)ordering_val
+                   << " scope=" << scope << "\n";
+        }
+    }
+
+    // AtomicCmpXchgInst: 原子比较交换指令
+    else if(AtomicCmpXchgInst * inst = dyn_cast<AtomicCmpXchgInst>(ins)) {
+        // 原子比较并交换操作
+        // 返回值是一个结构体：{原始值, 比较结果}
+
+        insert_to_value_map(&value_map, inst, curr_data_offset);
+        int res_size = modDataLayout->getTypeAllocSize(inst->getType());
+        curr_data_offset += res_size;
+
+        std::vector<uint8_t> packed_res = GET_PACK_VALUE(inst);
+
+        // 指针操作数
+        std::vector<uint8_t> packed_ptr = GET_PACK_VALUE(inst->getPointerOperand());
+
+        // 比较值
+        std::vector<uint8_t> packed_cmp = GET_PACK_VALUE(inst->getCompareOperand());
+
+        // 新值
+        std::vector<uint8_t> packed_new = GET_PACK_VALUE(inst->getNewValOperand());
+
+        // 内存序
+        AtomicOrdering success_ordering = inst->getSuccessOrdering();
+        AtomicOrdering failure_ordering = inst->getFailureOrdering();
+        uint8_t success_ordering_val = 0;
+        uint8_t failure_ordering_val = 0;
+
+        switch (success_ordering) {
+            case AtomicOrdering::Monotonic: success_ordering_val = 2; break;
+            case AtomicOrdering::Acquire: success_ordering_val = 3; break;
+            case AtomicOrdering::Release: success_ordering_val = 4; break;
+            case AtomicOrdering::AcquireRelease: success_ordering_val = 5; break;
+            case AtomicOrdering::SequentiallyConsistent: success_ordering_val = 6; break;
+            default: success_ordering_val = 6;
+        }
+
+        switch (failure_ordering) {
+            case AtomicOrdering::Monotonic: failure_ordering_val = 2; break;
+            case AtomicOrdering::Acquire: failure_ordering_val = 3; break;
+            case AtomicOrdering::SequentiallyConsistent: failure_ordering_val = 6; break;
+            default: failure_ordering_val = 6;
+        }
+
+        std::vector<uint8_t> packed_ordering = {success_ordering_val, failure_ordering_val};
+
+        // 值类型大小
+        int val_size = modDataLayout->getTypeAllocSize(inst->getCompareOperand()->getType());
+        std::vector<uint8_t> packed_val_size = pack(val_size, 4);
+
+        std::vector<uint8_t> hex_code;
+        ins_to_hex(hex_code, pack_op(ATOMIC_CMPXCHG_OP), packed_res, packed_ptr, packed_cmp, packed_new, packed_ordering, packed_val_size);
+        vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[ATOMIC_CMPXCHG] Generated ATOMIC_CMPXCHG_OP at code_pos=" << (vm_code.size() - hex_code.size())
+                   << " val_size=" << val_size << "\n";
+        }
+    }
+
+    // AtomicRMWInst: 原子读-修改-写指令
+    else if(AtomicRMWInst * inst = dyn_cast<AtomicRMWInst>(ins)) {
+        // 原子读-修改-写操作
+
+        insert_to_value_map(&value_map, inst, curr_data_offset);
+        int res_size = modDataLayout->getTypeAllocSize(inst->getType());
+        curr_data_offset += res_size;
+
+        std::vector<uint8_t> packed_res = GET_PACK_VALUE(inst);
+
+        // 操作类型
+        AtomicRMWInst::BinOp op = inst->getOperation();
+        uint8_t op_val = 0;
+        switch (op) {
+            case AtomicRMWInst::Xchg: op_val = 0; break;
+            case AtomicRMWInst::Add: op_val = 1; break;
+            case AtomicRMWInst::Sub: op_val = 2; break;
+            case AtomicRMWInst::And: op_val = 3; break;
+            case AtomicRMWInst::Nand: op_val = 4; break;
+            case AtomicRMWInst::Or: op_val = 5; break;
+            case AtomicRMWInst::Xor: op_val = 6; break;
+            case AtomicRMWInst::Max: op_val = 7; break;
+            case AtomicRMWInst::Min: op_val = 8; break;
+            case AtomicRMWInst::UMax: op_val = 9; break;
+            case AtomicRMWInst::UMin: op_val = 10; break;
+            case AtomicRMWInst::FAdd: op_val = 11; break;
+            case AtomicRMWInst::FSub: op_val = 12; break;
+            case AtomicRMWInst::FMax: op_val = 13; break;
+            case AtomicRMWInst::FMin: op_val = 14; break;
+            case AtomicRMWInst::FMaximum: op_val = 15; break;
+            case AtomicRMWInst::FMinimum: op_val = 16; break;
+            case AtomicRMWInst::UIncWrap: op_val = 17; break;
+            case AtomicRMWInst::UDecWrap: op_val = 18; break;
+            case AtomicRMWInst::USubCond: op_val = 19; break;
+            case AtomicRMWInst::USubSat: op_val = 20; break;
+            default:
+                // Handle any future operations
+                op_val = 0; break;
+        }
+
+        std::vector<uint8_t> packed_op = {op_val};
+
+        // 指针操作数
+        std::vector<uint8_t> packed_ptr = GET_PACK_VALUE(inst->getPointerOperand());
+
+        // 值操作数
+        std::vector<uint8_t> packed_val = GET_PACK_VALUE(inst->getValOperand());
+
+        // 内存序
+        AtomicOrdering ordering = inst->getOrdering();
+        uint8_t ordering_val = 0;
+        switch (ordering) {
+            case AtomicOrdering::Monotonic: ordering_val = 2; break;
+            case AtomicOrdering::Acquire: ordering_val = 3; break;
+            case AtomicOrdering::Release: ordering_val = 4; break;
+            case AtomicOrdering::AcquireRelease: ordering_val = 5; break;
+            case AtomicOrdering::SequentiallyConsistent: ordering_val = 6; break;
+            default: ordering_val = 6;
+        }
+
+        std::vector<uint8_t> packed_ordering = {ordering_val};
+
+        // 值类型大小
+        int val_size = modDataLayout->getTypeAllocSize(inst->getValOperand()->getType());
+        std::vector<uint8_t> packed_val_size = pack(val_size, 4);
+
+        std::vector<uint8_t> hex_code;
+        ins_to_hex(hex_code, pack_op(ATOMIC_RMW_OP), packed_op, packed_res, packed_ptr, packed_val, packed_ordering, packed_val_size);
+        vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[ATOMIC_RMW] Generated ATOMIC_RMW_OP with op=" << (int)op_val
+                   << " val_size=" << val_size << "\n";
+        }
+    }
+
+    // VAArgInst: 可变参数指令
+    else if(VAArgInst * inst = dyn_cast<VAArgInst>(ins)) {
+        // 访问可变参数函数的参数
+
+        insert_to_value_map(&value_map, inst, curr_data_offset);
+        int res_size = modDataLayout->getTypeAllocSize(inst->getType());
+        curr_data_offset += res_size;
+
+        std::vector<uint8_t> packed_res = GET_PACK_VALUE(inst);
+
+        // va_list 指针
+        std::vector<uint8_t> packed_va_list = GET_PACK_VALUE(inst->getPointerOperand());
+
+        // 参数类型大小
+        int arg_size = modDataLayout->getTypeAllocSize(inst->getType());
+        std::vector<uint8_t> packed_arg_size = pack(arg_size, 4);
+
+        // 参数类型信息
+        Type *argType = inst->getType();
+        std::vector<uint8_t> packed_type = type_to_hex(argType);
+
+        std::vector<uint8_t> hex_code;
+        ins_to_hex(hex_code, pack_op(VAARG_OP), packed_res, packed_va_list, packed_arg_size, packed_type);
+        vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[VAARG] Generated VAARG_OP at code_pos=" << (vm_code.size() - hex_code.size())
+                   << " arg_size=" << arg_size << "\n";
+        }
     }
 
     else{
@@ -2161,58 +2546,6 @@ bool GOVMTranslator::run(){
     // errs() << "[Translator] Finishing callinst_handler...\n";
     // callinst_handler fini
     finish_callinst_handler();
-
-    // 跳过异常处理：清理callinst_handler中的landingpad、resume指令，将InvokeInst转换为CallInst
-    if (this->callinst_handler) {
-        if (isIRObfuscationDebugEnabled()) {
-            errs() << "[Translator] Cleaning exception handling in callinst_handler...\n";
-        }
-        std::vector<Instruction*> toRemove;
-        int landingpadCount = 0, resumeCount = 0, invokeCount = 0;
-        for (BasicBlock &BB : *this->callinst_handler) {
-            for (Instruction &I : BB) {
-                if (isa<LandingPadInst>(&I)) {
-                    toRemove.push_back(&I);
-                    landingpadCount++;
-                    if (isIRObfuscationDebugEnabled()) {
-                        errs() << "[Translator]   Found LandingPadInst in BB: " << BB.getName() << "\n";
-                    }
-                } else if (isa<ResumeInst>(&I)) {
-                    toRemove.push_back(&I);
-                    resumeCount++;
-                    if (isIRObfuscationDebugEnabled()) {
-                        errs() << "[Translator]   Found ResumeInst in BB: " << BB.getName() << "\n";
-                    }
-                } else if (InvokeInst *Invoke = dyn_cast<InvokeInst>(&I)) {
-                    // 将InvokeInst转换为CallInst
-                    IRBuilder<> Builder(Invoke);
-                    SmallVector<Value*, 8> Args;
-                    for (unsigned i = 0; i < Invoke->arg_size(); ++i) {
-                        Args.push_back(Invoke->getArgOperand(i));
-                    }
-                    CallInst *Call = Builder.CreateCall(Invoke->getFunctionType(),
-                        Invoke->getCalledOperand(), Args);
-                    Call->copyMetadata(*Invoke);
-                    if (!Invoke->getType()->isVoidTy()) {
-                        Invoke->replaceAllUsesWith(Call);
-                    }
-                    toRemove.push_back(Invoke);
-                    invokeCount++;
-                    if (isIRObfuscationDebugEnabled()) {
-                        errs() << "[Translator]   Converting InvokeInst to CallInst in BB: " << BB.getName() << "\n";
-                        errs() << "[Translator]     Callee: " << (Invoke->getCalledFunction() ? Invoke->getCalledFunction()->getName() : "indirect") << "\n";
-                    }
-                }
-            }
-        }
-        for (Instruction *I : toRemove) {
-            I->eraseFromParent();
-        }
-        if (isIRObfuscationDebugEnabled()) {
-            errs() << "[Translator] Cleaned " << landingpadCount << " landingpad, "
-                   << resumeCount << " resume, " << invokeCount << " invoke instructions\n";
-        }
-    }
     
     // errs() << "[Translator] Done!\n";
     return true;  // 返回 true 表示成功处理
@@ -2524,6 +2857,10 @@ const std::set<std::string> interpreter_function_names{
                 for (const std::string &curr_func: interpreter_function_names) {
                     if (func_name.find(curr_func.c_str()) != std::string::npos) {
                     // if (targetFunction->getName().str() == curr_func.c_str()) {
+                        // 排除callinst_dispatch函数，因为它是在当前模块中创建的，不是解释器模块中的
+                        if (func_name.find("vm_interpreter_callinst_dispatch") != std::string::npos) {
+                            return false;
+                        }
                         return true;
                     }
                 }
@@ -2621,7 +2958,7 @@ void GOVMInterpreter::construct_gv() {
 // Create debug print function using IRBuilder (like IdaDetect does)
 // Uses integer ID instead of string to avoid string constant cloning issues
 // If debug is disabled, creates a no-op function
-static Function* createVmpDebugId(Module *M, bool debug_enabled) {
+static Function* createVmpDebugId(Module *M, bool debug_enabled, std::string funcName = "vmp_debug_id") {
     LLVMContext &Ctx = M->getContext();
     Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
@@ -2633,7 +2970,7 @@ static Function* createVmpDebugId(Module *M, bool debug_enabled) {
         FuncTy,
         GlobalValue::InternalLinkage,
         M->getDataLayout().getProgramAddressSpace(),
-        "vmp_debug_id",
+        funcName,
         M
     );
     
@@ -2730,9 +3067,11 @@ void GOVMInterpreter::run() {
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMInterpreter] Step 2: Creating debug function...\n";
     }
-    Function *DebugIdFunc = createVmpDebugId(Mod, isIRObfuscationDebugEnabled());
+    // 为每个VMP函数创建一个唯一的debug函数名
+    std::string debugFuncName = "vmp_debug_id_" + F->getName().str();
+    Function *DebugIdFunc = createVmpDebugId(Mod, isIRObfuscationDebugEnabled(), debugFuncName);
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[GOVMInterpreter] Step 2: Debug function created\n";
+        errs() << "[GOVMInterpreter] Step 2: Debug function created: " << debugFuncName << "\n";
     }
 
     if (isIRObfuscationDebugEnabled()) {
@@ -2820,7 +3159,17 @@ void GOVMInterpreter::run() {
     for(auto Func = interpreter_module->begin(); Func != interpreter_module->end(); ++Func) {
         Function *fun = &*Func;
         if(is_interpreter_function(fun)) {
-            std::string newFuncName = fun->getName().str() + "_" + F->getName().str();
+            std::string funcName = fun->getName().str();
+            std::string newFuncName;
+            
+            // 检查函数名是否已经包含当前VMP函数名
+            if (funcName.find(F->getName().str()) != std::string::npos) {
+                // 已经包含，直接使用原名
+                newFuncName = funcName;
+            } else {
+                // 不包含，添加后缀
+                newFuncName = funcName + "_" + F->getName().str();
+            }
             
             // 检查是否已存在
             Function *NewF = Mod->getFunction(newFuncName);
@@ -2844,7 +3193,18 @@ void GOVMInterpreter::run() {
 
             if(is_interpreter_function(fun)) {
                 // 使用带函数名后缀的名称，避免多个VMP函数之间的冲突
-                std::string newFuncName = fun->getName().str() + "_" + F->getName().str();
+                // 但是如果函数名已经包含了当前VMP函数名，就不要再添加后缀
+                std::string funcName = fun->getName().str();
+                std::string newFuncName;
+                
+                // 检查函数名是否已经包含当前VMP函数名
+                if (funcName.find(F->getName().str()) != std::string::npos) {
+                    // 已经包含，直接使用原名
+                    newFuncName = funcName;
+                } else {
+                    // 不包含，添加后缀
+                    newFuncName = funcName + "_" + F->getName().str();
+                }
                 
                 if (isIRObfuscationDebugEnabled()) {
                     errs() << "[GOVMInterpreter]   Cloning function: " << fun->getName() << " -> " << newFuncName << " (idx=" << func_idx++ << ")\n";
@@ -2864,6 +3224,36 @@ void GOVMInterpreter::run() {
                     VMap[gv_pair.first] = gv_pair.second;
                 }
 
+                // 处理所有全局变量（包括字符串常量）
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[GOVMInterpreter]     Processing global variables...\n";
+                }
+                for (auto it = interpreter_module->global_begin(); it != interpreter_module->global_end(); ++it) {
+                    GlobalVariable &GV = *it;
+                    if (VMap.find(&GV) == VMap.end()) {
+                        // 如果这个全局变量还没有被映射，创建一个新的
+                        if (GV.isConstant() && GV.hasInitializer()) {
+                            // 对于常量全局变量（如字符串常量），创建副本
+                            Constant *Init = GV.getInitializer();
+                            GlobalVariable *NewGV = new GlobalVariable(
+                                *Mod,
+                                GV.getValueType(),
+                                GV.isConstant(),
+                                GV.getLinkage(),
+                                Init,
+                                GV.getName().str() + "_" + F->getName().str()
+                            );
+                            NewGV->setAlignment(GV.getAlign());
+                            NewGV->setSection(GV.getSection());
+                            VMap[&GV] = NewGV;
+                            
+                            if (isIRObfuscationDebugEnabled()) {
+                                errs() << "[GOVMInterpreter]       Cloned global: " << GV.getName() << " -> " << NewGV->getName() << "\n";
+                            }
+                        }
+                    }
+                }
+
                 if (isIRObfuscationDebugEnabled()) {
                     errs() << "[GOVMInterpreter]     Processing instructions...\n";
                 }
@@ -2876,12 +3266,25 @@ void GOVMInterpreter::run() {
                             if (it != interpreter_func_map.end()) {
                                 // 是解释器函数，使用映射的新函数
                                 VMap[Callee] = it->second;
-                            } else {
-                                // 不是解释器函数，查找或创建声明
+                            } else if (!Callee->isDeclaration()) {
+                                // 不是解释器函数，也不是声明
+                                // 检查是否是callinst_dispatch函数，如果是，不要重命名
+                                if (Callee->getName().find("vm_interpreter_callinst_dispatch") != std::string::npos) {
+                                    // callinst_dispatch函数，不添加到VMap，保持原样
+                                    continue;
+                                }
+                                
+                                // 检查是否是vmp_debug_id函数，如果是，不要重命名
+                                if (Callee->getName().find("vmp_debug_id") != std::string::npos) {
+                                    // vmp_debug_id函数，不添加到VMap，保持原样
+                                    continue;
+                                }
+                                
+                                // 其他非声明函数，查找或创建声明
                                 std::string calleeNewName = Callee->getName().str() + "_" + F->getName().str();
                                 Function *TargetCallee = Mod->getFunction(calleeNewName);
                                 
-                                if (!TargetCallee && Callee->isDeclaration()) {
+                                if (!TargetCallee) {
                                     TargetCallee = Function::Create(Callee->getFunctionType(), 
                                         Callee->getLinkage(), calleeNewName, Mod);
                                 }
@@ -2890,6 +3293,7 @@ void GOVMInterpreter::run() {
                                     VMap[Callee] = TargetCallee;
                                 }
                             }
+                            // 如果是声明（外部函数），不添加到VMap，保持原样
                         }
                     }
                 }
@@ -2911,46 +3315,6 @@ void GOVMInterpreter::run() {
                 CloneFunctionInto(NewF, fun, VMap, CloneFunctionChangeType::DifferentModule, returns);
                 if (isIRObfuscationDebugEnabled()) {
                     errs() << "[GOVMInterpreter]     CloneFunctionInto completed\n";
-                }
-
-                // 跳过异常处理：移除landingpad、resume指令，将InvokeInst转换为CallInst
-                if (isIRObfuscationDebugEnabled()) {
-                    errs() << "[GOVMInterpreter]     Cleaning exception handling instructions...\n";
-                }
-                std::vector<Instruction*> toRemove;
-                int lpCount = 0, resCount = 0, invCount = 0;
-                for (BasicBlock &BB : *NewF) {
-                    for (Instruction &I : BB) {
-                        if (isa<LandingPadInst>(&I)) {
-                            toRemove.push_back(&I);
-                            lpCount++;
-                        } else if (isa<ResumeInst>(&I)) {
-                            toRemove.push_back(&I);
-                            resCount++;
-                        } else if (InvokeInst *Invoke = dyn_cast<InvokeInst>(&I)) {
-                            // 将InvokeInst转换为CallInst
-                            IRBuilder<> Builder(Invoke);
-                            SmallVector<Value*, 8> Args;
-                            for (unsigned i = 0; i < Invoke->arg_size(); ++i) {
-                                Args.push_back(Invoke->getArgOperand(i));
-                            }
-                            CallInst *Call = Builder.CreateCall(Invoke->getFunctionType(), 
-                                Invoke->getCalledOperand(), Args);
-                            Call->copyMetadata(*Invoke);
-                            if (!Invoke->getType()->isVoidTy()) {
-                                Invoke->replaceAllUsesWith(Call);
-                            }
-                            toRemove.push_back(Invoke);
-                            invCount++;
-                        }
-                    }
-                }
-                for (Instruction *I : toRemove) {
-                    I->eraseFromParent();
-                }
-                if (isIRObfuscationDebugEnabled()) {
-                    errs() << "[GOVMInterpreter]     Cleaned " << lpCount << " landingpad, "
-                           << resCount << " resume, " << invCount << " invoke in " << NewF->getName() << "\n";
                 }
 
                 // 设置段名为 .AProtect.text
@@ -3157,17 +3521,18 @@ struct VMProtect : public ModulePass {
           
           bool is_stdlib = false;
           
+          // 跳过 SyscallProtect 创建的 wrapper 函数（无论是否声明）
+          if(funcName.find("__syscall_") == 0) {
+            is_stdlib = true;
+          }
+          // 跳过 SyscallProtect 创建的 __real_ 函数（无论是否声明）
+          else if(funcName.find("__real_") == 0) {
+            is_stdlib = true;
+          }
+          
           if(F->isDeclaration()) {
             // 跳过以__开头（编译器内部函数）
             if(funcName.length() >= 2 && funcName[0] == '_' && funcName[1] == '_') {
-              is_stdlib = true;
-            }
-            // 跳过 SyscallProtect 创建的 wrapper 函数
-            else if(funcName.find("__syscall_") == 0) {
-              is_stdlib = true;
-            }
-            // 跳过 SyscallProtect 创建的 __real_ 函数
-            else if(funcName.find("__real_") == 0) {
               is_stdlib = true;
             }
             // 跳过C标准库函数
@@ -3213,6 +3578,44 @@ struct VMProtect : public ModulePass {
                funcName.find("sinh") != std::string::npos ||
                funcName.find("cosh") != std::string::npos ||
                funcName.find("tanh") != std::string::npos) {
+              is_stdlib = true;
+            }
+            // 跳过C++随机数库函数
+            else if(funcName.find("random_device") != std::string::npos ||
+               funcName.find("mt19937") != std::string::npos ||
+               funcName.find("mt19937_64") != std::string::npos ||
+               funcName.find("minstd_rand") != std::string::npos ||
+               funcName.find("minstd_rand0") != std::string::npos ||
+               funcName.find("ranlux24") != std::string::npos ||
+               funcName.find("ranlux48") != std::string::npos ||
+               funcName.find("knuth_b") != std::string::npos ||
+               funcName.find("linear_congruential_engine") != std::string::npos ||
+               funcName.find("mersenne_twister_engine") != std::string::npos ||
+               funcName.find("subtract_with_carry_engine") != std::string::npos ||
+               funcName.find("discard_block_engine") != std::string::npos ||
+               funcName.find("independent_bits_engine") != std::string::npos ||
+               funcName.find("shuffle_order_engine") != std::string::npos ||
+               funcName.find("uniform_int_distribution") != std::string::npos ||
+               funcName.find("uniform_real_distribution") != std::string::npos ||
+               funcName.find("bernoulli_distribution") != std::string::npos ||
+               funcName.find("binomial_distribution") != std::string::npos ||
+               funcName.find("geometric_distribution") != std::string::npos ||
+               funcName.find("negative_binomial_distribution") != std::string::npos ||
+               funcName.find("poisson_distribution") != std::string::npos ||
+               funcName.find("exponential_distribution") != std::string::npos ||
+               funcName.find("gamma_distribution") != std::string::npos ||
+               funcName.find("weibull_distribution") != std::string::npos ||
+               funcName.find("extreme_value_distribution") != std::string::npos ||
+               funcName.find("normal_distribution") != std::string::npos ||
+               funcName.find("lognormal_distribution") != std::string::npos ||
+               funcName.find("chi_squared_distribution") != std::string::npos ||
+               funcName.find("cauchy_distribution") != std::string::npos ||
+               funcName.find("fisher_f_distribution") != std::string::npos ||
+               funcName.find("student_t_distribution") != std::string::npos ||
+               funcName.find("discrete_distribution") != std::string::npos ||
+               funcName.find("piecewise_constant_distribution") != std::string::npos ||
+               funcName.find("piecewise_linear_distribution") != std::string::npos ||
+               funcName.find("seed_seq") != std::string::npos) {
               is_stdlib = true;
             }
             // 跳过C++标准库函数（检查std::命名空间）
@@ -3362,7 +3765,43 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
            funcName.find("free") != std::string::npos ||
            funcName.find("std::") != std::string::npos ||
            funcName.find("basic_ostream") != std::string::npos ||
-           funcName.find("basic_string") != std::string::npos) {
+           funcName.find("basic_string") != std::string::npos ||
+           // C++随机数库
+           funcName.find("random_device") != std::string::npos ||
+           funcName.find("mt19937") != std::string::npos ||
+           funcName.find("mt19937_64") != std::string::npos ||
+           funcName.find("minstd_rand") != std::string::npos ||
+           funcName.find("minstd_rand0") != std::string::npos ||
+           funcName.find("ranlux24") != std::string::npos ||
+           funcName.find("ranlux48") != std::string::npos ||
+           funcName.find("knuth_b") != std::string::npos ||
+           funcName.find("linear_congruential_engine") != std::string::npos ||
+           funcName.find("mersenne_twister_engine") != std::string::npos ||
+           funcName.find("subtract_with_carry_engine") != std::string::npos ||
+           funcName.find("discard_block_engine") != std::string::npos ||
+           funcName.find("independent_bits_engine") != std::string::npos ||
+           funcName.find("shuffle_order_engine") != std::string::npos ||
+           funcName.find("uniform_int_distribution") != std::string::npos ||
+           funcName.find("uniform_real_distribution") != std::string::npos ||
+           funcName.find("bernoulli_distribution") != std::string::npos ||
+           funcName.find("binomial_distribution") != std::string::npos ||
+           funcName.find("geometric_distribution") != std::string::npos ||
+           funcName.find("negative_binomial_distribution") != std::string::npos ||
+           funcName.find("poisson_distribution") != std::string::npos ||
+           funcName.find("exponential_distribution") != std::string::npos ||
+           funcName.find("gamma_distribution") != std::string::npos ||
+           funcName.find("weibull_distribution") != std::string::npos ||
+           funcName.find("extreme_value_distribution") != std::string::npos ||
+           funcName.find("normal_distribution") != std::string::npos ||
+           funcName.find("lognormal_distribution") != std::string::npos ||
+           funcName.find("chi_squared_distribution") != std::string::npos ||
+           funcName.find("cauchy_distribution") != std::string::npos ||
+           funcName.find("fisher_f_distribution") != std::string::npos ||
+           funcName.find("student_t_distribution") != std::string::npos ||
+           funcName.find("discrete_distribution") != std::string::npos ||
+           funcName.find("piecewise_constant_distribution") != std::string::npos ||
+           funcName.find("piecewise_linear_distribution") != std::string::npos ||
+           funcName.find("seed_seq") != std::string::npos) {
           is_stdlib = true;
         }
       }

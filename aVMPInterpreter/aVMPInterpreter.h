@@ -24,8 +24,14 @@
 #define INSERTELEMENT_OP    0x14
 #define SHUFFLEVECTOR_OP    0x15
 #define FREEZE_OP           0x16
+#define CATCHSWITCH_OP      0x17  // 新增：异常分发
+#define CALLBR_OP           0x18  // 新增：CallBr 指令
+#define FENCE_OP            0x19  // 新增：内存屏障指令
+#define ATOMIC_CMPXCHG_OP   0x1A  // 新增：原子比较交换指令
+#define ATOMIC_RMW_OP       0x1B  // 新增：原子读-修改-写指令
+#define VAARG_OP            0x1C  // 新增：可变参数指令
 
-#define OP_TOTAL            0x16
+#define OP_TOTAL            0x1C
 
 extern unsigned pointer_size;
 
@@ -130,6 +136,7 @@ void extractelement_handler();
 void insertelement_handler();
 void shufflevector_handler();
 void freeze_handler();
+void catchswitch_handler();  // 新增：异常分发handler
 extern void call_handler(uint64_t targetfunc_id);
 void vm_interpreter();
 void data_seg_clear();

@@ -57,7 +57,7 @@
 |------|------|
 | `-mllvm -irobf-vmp` | 启用 VMP 虚拟机保护 |
 
-> **重要依赖**: 必须同时开启 `-frtti -fno-exceptions`
+> **重要依赖**: 必须同时开启 `-fno-exceptions -frtti`（UI会自动注入）
 
 **启用方法**: 在需要保护的函数上添加注解：
 
@@ -96,11 +96,8 @@ int VMP_PROTECT main(int argc, char **argv) {
 | `-mllvm -irobf-hosts` | Hosts文件检测 |
 | `-mllvm -irobf-mem` | 内存驻留检测 |
 | `-mllvm -irobf-ptrace` | Ptrace调试器检测 |
-| `-mllvm -irobf-inlinehook` | Inline Hook检测 |
-| `-mllvm -irobf-plthook` | PLT Hook检测 |
-| `-mllvm -irobf-memprotect` | 内存Dump保护 |
 | `-mllvm -irobf-bandump` | 禁用内存Dump (移除读权限) |
-| `-mllvm -irobf-aprotect` | AProtect启动输出 |
+| `-mllvm -irobf-no-aprotect` | 禁用 AProtect 启动输出（默认启用） |
 | `-mllvm -irobf-root` | Root检测 (有root退出) |
 | `-mllvm -irobf-noroot` | 无Root检测 (无root退出) |
 | `-mllvm -irobf-hidemaps` | 隐藏Maps文件 (需Root) |
@@ -121,7 +118,20 @@ int VMP_PROTECT main(int argc, char **argv) {
 | `recv` / `recvfrom` | 207 | 接收数据 |
 | `read` | 63 | 读取数据 |
 | `write` | 64 | 写入数据 |
+| `exit` / `_exit` | 93 | 退出进程 |
+| `open` / `openat` | 56 | 打开文件 |
+| `unlink` / `unlinkat` | 87/35 | 删除文件 |
+| `truncate` / `ftruncate` | 45/46 | 截断文件 |
+| `ptrace` | 117 | 进程跟踪 |
+| `execve` | 221 | 执行程序 |
 | `clock_gettime` | 223 | 获取时间 |
+| `memcmp` | - | 内存比较 (手动实现) |
+| `getenv` | - | 环境变量获取 (手动实现) |
+| `getaddrinfo` | - | 地址信息获取 (手动实现) |
+| `popen` | - | 管道打开 (手动实现) |
+| `system` | - | 系统命令 (手动实现) |
+| `execvp` / `execvpe` | - | 执行程序 (手动实现) |
+| `remove` | - | 删除文件 (手动实现) |
 
 ## Pass 执行顺序
 
@@ -139,11 +149,8 @@ int VMP_PROTECT main(int argc, char **argv) {
    └─ HostsDetect
    └─ MemDetect
    └─ PtraceDetect
-   └─ InlineHookDetect
-   └─ PltHookDetect
    └─ HideMaps
    └─ FakeMaps
-   └─ MemProtect
    └─ RootDetect
    └─ NoRootDetect
    └─ AProtect
@@ -206,11 +213,8 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 # LOCAL_CFLAGS += -mllvm -irobf-hosts
 # LOCAL_CFLAGS += -mllvm -irobf-mem
 # LOCAL_CFLAGS += -mllvm -irobf-ptrace
-# LOCAL_CFLAGS += -mllvm -irobf-inlinehook
-# LOCAL_CFLAGS += -mllvm -irobf-plthook
-# LOCAL_CFLAGS += -mllvm -irobf-memprotect
 # LOCAL_CFLAGS += -mllvm -irobf-bandump
-# LOCAL_CFLAGS += -mllvm -irobf-aprotect
+# LOCAL_CFLAGS += -mllvm -irobf-no-aprotect  # 禁用 AProtect 输出（默认启用）
 # LOCAL_CFLAGS += -mllvm -irobf-root
 # LOCAL_CFLAGS += -mllvm -irobf-noroot
 # LOCAL_CFLAGS += -mllvm -irobf-hidemaps
@@ -239,9 +243,6 @@ include $(BUILD_EXECUTABLE)
 | `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
 | `llvm\lib\Transforms\Obfuscation\PtraceDetect.cpp` | Ptrace 反调试检测 |
 | `llvm\lib\Transforms\Obfuscation\MemDetect.cpp` | 内存检测 |
-| `llvm\lib\Transforms\Obfuscation\MemProtect.cpp` | 内存保护 |
-| `llvm\lib\Transforms\Obfuscation\InlineHookDetect.cpp` | Inline Hook 检测 |
-| `llvm\lib\Transforms\Obfuscation\PltHookDetect.cpp` | PLT Hook 检测 |
 | `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 maps 文件 |
 | `llvm\lib\Transforms\Obfuscation\FakeMaps.cpp` | 伪造 maps 文件 |
 | `llvm\lib\Transforms\Obfuscation\RootDetect.cpp` | Root 检测 |
@@ -253,7 +254,6 @@ include $(BUILD_EXECUTABLE)
 | `llvm\lib\Transforms\Obfuscation\TimeDetect.cpp` | 时间检测 |
 | `llvm\lib\Transforms\Obfuscation\HostsDetect.cpp` | Hosts 文件检测 |
 | `llvm\lib\Transforms\Obfuscation\UsbProtect.cpp` | USB 保护 |
-| `llvm\lib\Transforms\Obfuscation\DetectUtils.cpp` | 检测工具函数 |
 | `llvm\lib\Transforms\Obfuscation\Utils.cpp` | 通用工具函数 |
 | `llvm\lib\Transforms\Obfuscation\CryptoUtils.cpp` | 加密工具函数 |
 | `llvm\lib\Transforms\Obfuscation\ObfuscationOptions.cpp` | 混淆选项 |
@@ -270,6 +270,39 @@ include $(BUILD_EXECUTABLE)
 | **xVMP** | https://github.com/amunmv/xvmp |
 
 ## 更新日志
+
+### v1.6.0 (2026-06-09)
+- **VMP兼容性修复**:
+  - 修复VMP虚拟机保护与C++异常处理冲突导致崩溃的问题
+  - VMP现在要求使用 `-fno-exceptions -frtti` 编译选项
+  - UI自动注入VMP所需的编译选项
+- **VMP标准库支持增强**:
+  - 添加C++随机数库支持（std::random_device, std::mt19937等）
+  - 添加C++时间库支持（std::chrono）
+  - 跳过所有C++标准库模板实例化的虚拟化
+- **Pass注入顺序优化**:
+  - 检测类Pass优先注入
+  - AProtect打印在main之前执行（全局构造函数）
+  - SyscallProtect在VMProtect之前执行
+- **AProtect改进**:
+  - 改为注入到全局构造函数，避免与VMProtect冲突
+  - 移除禁用AProtect的选项，始终启用
+
+### v1.5.0 (2026-06-08)
+- **移除问题保护**:
+  - 移除 MemProtect（运行时崩溃）
+  - 移除 InlineHookDetect 和 PltHookDetect（检测逻辑问题）
+- **修复 SyscallProtect**:
+  - 修复无限递归问题，使用内联汇编直接调用 syscall
+  - 保留 read, write, exit 等核心函数的替换
+  - 移除 fopen 替换（无法避免递归）
+- **修复 PtraceDetect**:
+  - 修复双重 ptrace 调用导致的误报
+  - 改用检查 /proc/self/status 中的 TracerPid
+- **修复 UsbProtect**:
+  - 修复当系统文件不存在时的崩溃问题
+- **修复 VmProtectDetect**:
+  - 修复 PHI 节点使用错误
 
 ### v1.4.0 (2026-06-04)
 - **VMP 多函数虚拟化支持**:
@@ -299,7 +332,7 @@ include $(BUILD_EXECUTABLE)
 ### v1.1.0 (2026-05-25)
 - **新增 HideMaps Pass**: 通过 mount bind 隐藏 `/proc/self/maps` 文件，防止调试工具读取真实内存映射（需要root权限）
 - **新增 FakeMaps Pass**: 生成假的 `/proc/self/maps` 内容，欺骗调试工具显示虚假的内存映射信息
-- **新增 A-Protect 输出选项**: 增加 `-irobf-aprotect` 选项控制 A-Protect 打印，默认关闭
+- **AProtect 默认启用**: AProtect 输出现在默认启用，使用 `-irobf-no-aprotect` 禁用
 - **移除密钥验证**: 去掉卡密校验机制，无需注入 `-irobf-key`
 
 ## 作者

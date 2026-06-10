@@ -112,12 +112,27 @@ Function* DetectUtils::createReportAndKillFunc(Module &M) {
     Value *Pid = Builder.CreateCall(GetpidFunc);
     Value *Sigkill = ConstantInt::get(Int32Ty, 9);
     Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    // 使用内联汇编确保终止（ARM64）
+
+    // 使用内联汇编确保终止（根据架构选择正确的指令）
     FunctionType *AsmTy = FunctionType::get(VoidTy, {}, false);
-    InlineAsm *Asm = InlineAsm::get(AsmTy, "brk #0", "", true, false);
+    std::string Triple = M.getTargetTriple().getTriple();
+    std::string AsmInst;
+    if (Triple.find("aarch64") != std::string::npos || Triple.find("arm64") != std::string::npos) {
+        AsmInst = "brk #0";
+    } else if (Triple.find("arm") != std::string::npos) {
+        AsmInst = "bkpt #0";
+    } else if (Triple.find("x86_64") != std::string::npos || Triple.find("amd64") != std::string::npos) {
+        AsmInst = "int $3";
+    } else if (Triple.find("i386") != std::string::npos || Triple.find("i686") != std::string::npos || Triple.find("x86") != std::string::npos) {
+        AsmInst = "int $3";
+    } else {
+        // 默认使用空汇编，让 kill 函数处理终止
+        Builder.CreateUnreachable();
+        return Func;
+    }
+    InlineAsm *Asm = InlineAsm::get(AsmTy, AsmInst, "", true, false);
     Builder.CreateCall(Asm);
-    
+
     Builder.CreateUnreachable();
     
     return Func;

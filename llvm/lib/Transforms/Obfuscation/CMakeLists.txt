@@ -26,11 +26,8 @@ add_llvm_library(LLVMObfuscation
   HostsDetect.cpp
   MemDetect.cpp
   PtraceDetect.cpp
-  InlineHookDetect.cpp
-  PltHookDetect.cpp
   HideMaps.cpp
   FakeMaps.cpp
-  MemProtect.cpp
   RootDetect.cpp
   NoRootDetect.cpp
   SyscallProtect.cpp
