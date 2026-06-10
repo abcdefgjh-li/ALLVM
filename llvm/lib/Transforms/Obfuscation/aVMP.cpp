@@ -1314,10 +1314,9 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
                 Value* last_idx = indices.back();
                 if (ConstantInt* CI = dyn_cast<ConstantInt>(last_idx)) {
                     int element_idx = CI->getSExtValue();
-                    int curr_element_offset = 0;
-                    for (int i = 0; i < element_idx; i++) {
-                        curr_element_offset += modDataLayout->getTypeAllocSize(st->getElementType(i));
-                    }
+                    // Use proper struct layout to get correct offset with alignment
+                    const StructLayout *SL = modDataLayout->getStructLayout(st);
+                    int curr_element_offset = SL->getElementOffset(element_idx);
                     packed_value = pack(curr_element_offset, pointer_size);
                     packed_value.insert(packed_value.begin(), 1);
                     packed_value.insert(packed_value.begin(), pointer_size);
