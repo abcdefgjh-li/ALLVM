@@ -67,6 +67,35 @@ typedef struct {
 	bool search_done;
 } __dynamic_cast_info_t;
 
+// 异常对象结构（基于 __cxa_exception）
+typedef struct {
+	// __cxa_exception 头部
+	void *reserve;  // 64位系统的填充
+	size_t referenceCount;  // C++11 exception_ptr 支持
+
+	// 异常类型信息
+	const void *exceptionType;  // 指向 type_info 的指针
+	void (*exceptionDestructor)(void *);
+
+	// 异常处理器
+	void *unexpectedHandler;
+	void *terminateHandler;
+
+	// 异常链
+	void *nextException;
+	int handlerCount;
+
+	// 异常处理上下文
+	int handlerSwitchValue;
+	const unsigned char *actionRecord;
+	const unsigned char *languageSpecificData;
+	void *catchTemp;
+	void *adjustedPtr;
+
+	// Unwind 头部
+	void *unwindHeader[6];  // _Unwind_Exception
+} __cxa_exception_t;
+
 // 判断两个 type_info 是否相等
 static bool is_type_info_equal(const void *type1, const void *type2) {
 	if (type1 == type2) return true;
@@ -103,8 +132,144 @@ static int get_rtti_type(const void *type_info) {
 	return RTTI_CLASS_TYPE;
 }
 
+// 从异常对象中提取类型信息
+static const void* get_exception_type_info(void *exception_ptr) {
+	if (!exception_ptr) return NULL;
+
+	// 异常对象布局：__cxa_exception 头部 + 实际异常对象
+	// 异常对象的第一个字段通常是指向 type_info 的指针
+	__cxa_exception_t *exc_header = (__cxa_exception_t *)exception_ptr - 1;
+
+	// 从 __cxa_exception 中获取类型信息
+	if (exc_header->exceptionType) {
+		return exc_header->exceptionType;
+	}
+
+	// 备用方案：从异常对象本身读取
+	void **exc_obj = (void **)exception_ptr;
+	if (exc_obj[0]) {
+		// 第一个字段可能是指向 type_info 的指针
+		return exc_obj[0];
+	}
+
+	return NULL;
+}
+
+// 完整的类型层次遍历（支持所有继承类型）
+static bool traverse_type_hierarchy(
+	const __class_type_info_t *type,
+	bool (*visitor)(const __class_type_info_t *, void *, int, void *),
+	void *visitor_data,
+	void *object_ptr,
+	int depth,
+	void *vbase_cookie
+) {
+	if (!type || !visitor) return false;
+
+	// 访问当前类型
+	if (visitor(type, object_ptr, depth, visitor_data)) {
+		return true;  // 访问者返回 true 表示停止遍历
+	}
+
+	// 检查基类
+	int rtti_type = get_rtti_type(type);
+
+	if (rtti_type == RTTI_SI_CLASS_TYPE) {
+		// 单继承：递归遍历基类
+		const __si_class_type_info_t *si_type = (const __si_class_type_info_t *)type;
+		if (si_type->base_type) {
+			return traverse_type_hierarchy(
+				si_type->base_type,
+				visitor,
+				visitor_data,
+				object_ptr,  // 单继承，偏移量为 0
+				depth + 1,
+				vbase_cookie
+			);
+		}
+	} else if (rtti_type == RTTI_VMI_CLASS_TYPE) {
+		// 多重继承/虚拟继承：遍历所有基类
+		const __vmi_class_type_info_t *vmi_type = (const __vmi_class_type_info_t *)type;
+
+		for (unsigned int i = 0; i < vmi_type->base_count; i++) {
+			const __base_class_type_info_t *base_info = &vmi_type->base_info[i];
+
+			void *base_ptr = object_ptr;
+			void *new_vbase_cookie = vbase_cookie;
+
+			// 检查是否为虚拟基类
+			bool is_virtual = (base_info->offset_flags & BASE_VIRTUAL_MASK) != 0;
+
+			if (is_virtual) {
+				// 虚拟基类处理
+				const __type_info_t *base_ti = (const __type_info_t *)base_info->base_type;
+				if (base_ti && base_ti->name) {
+					// 检查是否已经访问过
+					if (vbase_cookie != NULL && vbase_cookie == (void *)base_ti->name) {
+						continue;  // 跳过已访问的虚拟基类
+					}
+					new_vbase_cookie = (void *)base_ti->name;
+				}
+
+				// 计算虚拟基类偏移量
+				long offset = base_info->offset_flags >> BASE_OFFSET_SHIFT;
+				if (object_ptr != NULL) {
+					base_ptr = (void *)((uintptr_t)object_ptr + offset);
+				} else {
+					base_ptr = NULL;
+				}
+			} else {
+				// 非虚拟基类
+				long offset = base_info->offset_flags >> BASE_OFFSET_SHIFT;
+				base_ptr = (void *)((uintptr_t)object_ptr + offset);
+			}
+
+			// 递归遍历基类
+			if (traverse_type_hierarchy(
+				base_info->base_type,
+				visitor,
+				visitor_data,
+				base_ptr,
+				depth + 1,
+				new_vbase_cookie
+			)) {
+				return true;  // 找到目标，停止遍历
+			}
+		}
+	}
+
+	return false;
+}
+
+// 类型匹配访问者函数
+typedef struct {
+	const __class_type_info_t *target_type;
+	void **result_ptr;
+	bool found;
+} type_match_visitor_data_t;
+
+static bool type_match_visitor(
+	const __class_type_info_t *type,
+	void *object_ptr,
+	int depth,
+	void *data
+) {
+	type_match_visitor_data_t *visitor_data = (type_match_visitor_data_t *)data;
+
+	if (is_type_info_equal(type, visitor_data->target_type)) {
+		if (visitor_data->result_ptr) {
+			*visitor_data->result_ptr = object_ptr;
+		}
+		visitor_data->found = true;
+		return true;  // 找到匹配，停止遍历
+	}
+
+	return false;  // 继续遍历
+}
+
 // 检查类型层次中的基类匹配（递归）
 // 支持：单继承、多重继承、虚拟继承
+// 使用完整的类型层次遍历
 static bool has_unambiguous_public_base(
 	const __class_type_info_t *thrown_type,
 	const __class_type_info_t *catch_type,
@@ -114,107 +279,28 @@ static bool has_unambiguous_public_base(
 ) {
 	if (!thrown_type || !catch_type) return false;
 
-	// 1. 直接匹配
-	if (is_type_info_equal(thrown_type, catch_type)) {
-		if (result_ptr) *result_ptr = adjusted_ptr;
-		return true;
-	}
+	// 使用访问者模式进行类型匹配
+	type_match_visitor_data_t visitor_data = {
+		.target_type = catch_type,
+		.result_ptr = result_ptr,
+		.found = false
+	};
 
-	// 2. 检查基类
-	int rtti_type = get_rtti_type(thrown_type);
+	// 遍历类型层次
+	traverse_type_hierarchy(
+		thrown_type,
+		type_match_visitor,
+		&visitor_data,
+		adjusted_ptr,
+		0,
+		vbase_cookie
+	);
 
-	if (rtti_type == RTTI_SI_CLASS_TYPE) {
-		// 单继承：递归检查基类
-		const __si_class_type_info_t *si_type = (const __si_class_type_info_t *)thrown_type;
-		if (si_type->base_type) {
-			// 单继承的基类偏移量总是 0
-			return has_unambiguous_public_base(
-				si_type->base_type,
-				catch_type,
-				adjusted_ptr,  // 单继承，偏移量为 0
-				result_ptr,
-				vbase_cookie
-			);
-		}
-	} else if (rtti_type == RTTI_VMI_CLASS_TYPE) {
-		// 多重继承/虚拟继承：遍历所有基类
-		const __vmi_class_type_info_t *vmi_type = (const __vmi_class_type_info_t *)thrown_type;
-
-		for (unsigned int i = 0; i < vmi_type->base_count; i++) {
-			const __base_class_type_info_t *base_info = &vmi_type->base_info[i];
-
-			// 只检查 public 基类
-			if (base_info->offset_flags & BASE_PUBLIC_MASK) {
-				// 检查是否为虚拟基类
-				bool is_virtual = (base_info->offset_flags & BASE_VIRTUAL_MASK) != 0;
-
-				void *base_ptr = adjusted_ptr;
-				void *new_vbase_cookie = vbase_cookie;
-
-				if (is_virtual) {
-					// 虚拟基类处理
-					// 在实际实现中，需要通过 vtable 查找虚拟基类的偏移量
-					// 这里简化处理：使用类型名称作为 cookie
-
-					// 获取基类类型名称
-					const __type_info_t *base_ti = (const __type_info_t *)base_info->base_type;
-					if (base_ti && base_ti->name) {
-						// 检查是否已经访问过这个虚拟基类
-						if (vbase_cookie != NULL && vbase_cookie == (void *)base_ti->name) {
-							// 已经访问过，跳过以避免无限递归
-							continue;
-						}
-						// 设置新的 vbase_cookie
-						new_vbase_cookie = (void *)base_ti->name;
-					}
-
-					// 虚拟基类的偏移量需要从 vtable 中获取
-					// 这里简化处理：假设虚拟基类偏移量存储在 offset_flags 中
-					// 实际实现需要读取对象的 vtable
-					long offset = base_info->offset_flags >> BASE_OFFSET_SHIFT;
-
-					// 如果有对象指针，尝试从 vtable 读取实际偏移量
-					if (adjusted_ptr != NULL) {
-						// 读取 vtable 指针（对象的第一个字段）
-						void **vtable_ptr = (void **)adjusted_ptr;
-						if (*vtable_ptr != NULL) {
-							// 在实际实现中，这里需要根据 ABI 规范从 vtable 中读取虚拟基类偏移量
-							// Itanium C++ ABI: 虚拟基类偏移量存储在 vtable 的特定位置
-							// 这里简化处理：使用静态偏移量
-							base_ptr = (void *)((uintptr_t)adjusted_ptr + offset);
-						} else {
-							// vtable 为空，使用静态偏移量
-							base_ptr = (void *)((uintptr_t)adjusted_ptr + offset);
-						}
-					} else {
-						// 没有对象指针，无法处理虚拟基类
-						// 设置 base_ptr 为 NULL，但继续检查类型信息
-						base_ptr = NULL;
-					}
-				} else {
-					// 非虚拟基类：计算基类偏移量
-					long offset = base_info->offset_flags >> BASE_OFFSET_SHIFT;
-					base_ptr = (void *)((uintptr_t)adjusted_ptr + offset);
-				}
-
-				// 递归检查基类
-				if (has_unambiguous_public_base(
-					base_info->base_type,
-					catch_type,
-					base_ptr,
-					result_ptr,
-					new_vbase_cookie
-				)) {
-					return true;
-				}
-			}
-		}
-	}
-
-	return false;
+	return visitor_data.found;
 }
 
 // 检查异常类型是否匹配 catch 类型
+// 支持动态类型信息解析
 static bool can_catch_exception(
 	const void *thrown_type_info,
 	const void *catch_type_info,
@@ -227,7 +313,12 @@ static bool can_catch_exception(
 		return true;
 	}
 
-	// 没有抛出类型信息，无法匹配
+	// 没有抛出类型信息，尝试从异常对象中提取
+	if (!thrown_type_info && exception_ptr) {
+		thrown_type_info = get_exception_type_info(exception_ptr);
+	}
+
+	// 仍然没有类型信息，无法匹配
 	if (!thrown_type_info) {
 		return false;
 	}
