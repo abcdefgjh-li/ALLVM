@@ -419,6 +419,11 @@ void binaryOperator_handler() {
 		uint64_t op1_value = get_value_ex(&op1_size);
 		uint64_t op2_value = get_value_ex(&op2_size);
 
+		// DEBUG: 打印加法操作的操作数
+		if (op_code == BINOP_ADD) {
+			printf("[BINOP_DEBUG] ADD: op1=%lld, op2=%lld, res_offset=%llu\n", (long long)op1_value, (long long)op2_value, (unsigned long long)res_offset);
+		}
+
 		switch (op_code) {
 			case BINOP_ADD:
 				res_value = op1_value + op2_value;
@@ -459,7 +464,10 @@ void binaryOperator_handler() {
 				break;
 			}
 			case BINOP_MUL:
+				// DEBUG: 打印乘法操作
+				printf("[BINOP_DEBUG] MUL: op1=%lld, op2=%lld, res_offset=%llu\n", (long long)op1_value, (long long)op2_value, (unsigned long long)res_offset);
 				res_value = op1_value * op2_value;
+				printf("[BINOP_DEBUG] MUL result: %lld\n", (long long)res_value);
 				break;
 			case BINOP_FMUL: {
 				if (op1_size <= 4) {
@@ -1606,8 +1614,16 @@ void vm_interpreter() {
 				// Use DEBUG_ID_NEW_BB (1) for funcid, DEBUG_ID_OPCODE (2) for offset
 				DEBUG(DEBUG_ID_NEW_BB, packed_funcid);
 				DEBUG(DEBUG_ID_OPCODE, offset);
+				// 保存所有全局状态，因为递归调用会破坏这些状态
+				int saved_ip = ip;
+				uint32_t saved_opcode_state = opcode_xorshift32_state;
+				uint32_t saved_vmcode_state = vm_code_state;
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
+				// 恢复所有状态，确保返回后能正确解密后续操作码
+				ip = saved_ip;
+				opcode_xorshift32_state = saved_opcode_state;
+				vm_code_state = saved_vmcode_state;
 			}
 			break;
 
@@ -1625,9 +1641,19 @@ void vm_interpreter() {
 				uint8_t type_id = get_byte_code();
 				uint64_t offset = unpack_code(pointer_size);
 
+				// 保存所有全局状态，因为递归调用会破坏这些状态
+				int saved_ip = ip;
+				uint32_t saved_opcode_state = opcode_xorshift32_state;
+				uint32_t saved_vmcode_state = vm_code_state;
+
 				// 调用函数（与 Call_OP 相同）
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
+
+				// 恢复所有状态，确保返回后能正确解密后续操作码
+				ip = saved_ip;
+				opcode_xorshift32_state = saved_opcode_state;
+				vm_code_state = saved_vmcode_state;
 
 				// CallBr 的分支处理在翻译器中已经生成，这里不需要额外处理
 			}
