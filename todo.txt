@@ -1,13 +1,15 @@
 # OLLVM aVMP 待完成任务列表
 
-## ✅ 已完成
+---
 
-### 2025-06-11 VMP 递归调用修复
-- **问题**: 递归函数返回值不正确，如 `test_simple_rec(5)` 返回 1 而非 120
-- **根因**: VMP 解释器的 3 个全局状态变量（`ip`, `opcode_xorshift32_state`, `vm_code_state`）在递归调用时被内层覆盖
-- **修复**: 在 `Call_OP` 和 `CALLBR_OP` 中保存/恢复这 3 个全局状态
-- **文件**: `aVMPInterpreter/aVMPInterpreter.c`
-- **验证**: 9 个测试用例全部通过（简单递归、尾递归、互递归、斐波那契、Tribonacci）
+## ✅ 已修复问题
+
+### 高优先级
+
+- [x] **原子 CAS 操作支持** - atomic_compare_exchange 崩溃
+  - 问题：指针读取错误，使用了 unpack_addr 而非 unpack_data
+  - 修复：在 ATOMIC_CMPXCHG_OP 和 ATOMIC_RMW_OP 中正确读取指针值
+  - 测试：所有原子操作测试通过（包括多线程 CAS）
 
 ---
 
@@ -15,7 +17,7 @@
 
 ### 高优先级
 
-- [ ] **原子 CAS 操作支持** - atomic_compare_exchange 崩溃
+- [ ] **待补充**
 
 ---
 

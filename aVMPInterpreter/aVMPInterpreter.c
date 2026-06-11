@@ -1715,8 +1715,9 @@ void vm_interpreter() {
 				// 值类型大小
 				uint32_t val_size = (uint32_t)unpack_code(4);
 
-				// 获取指针 - 修复类型转换
-				uint8_t *ptr = (uint8_t*)unpack_addr(data_seg_addr + ptr_offset, pointer_size);
+				// 获取指针 - 修复：使用 unpack_data 从 data_seg 读取指针值
+				uint64_t ptr_value = unpack_data(ptr_offset, pointer_size);
+				uint8_t *ptr = (uint8_t*)ptr_value;
 
 				// 获取比较值和新值
 				uint8_t *cmp_val = (uint8_t*)data_seg_addr + cmp_offset;
@@ -1794,8 +1795,9 @@ void vm_interpreter() {
 				// 值类型大小
 				uint32_t val_size = (uint32_t)unpack_code(4);
 
-				// 获取指针和值 - 修复类型转换
-				uint8_t *ptr = (uint8_t*)unpack_addr(data_seg_addr + ptr_offset, pointer_size);
+				// 获取指针和值 - 修复：使用 unpack_data 从 data_seg 读取指针值
+				uint64_t ptr_value = unpack_data(ptr_offset, pointer_size);
+				uint8_t *ptr = (uint8_t*)ptr_value;
 				uint8_t *val = (uint8_t*)data_seg_addr + val_offset;
 
 				// 执行原子读-修改-写操作
