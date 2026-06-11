@@ -9,6 +9,192 @@
 #include <setjmp.h>
 #include "aVMPInterpreter.h"
 
+// C++ RTTI 类型信息结构（简化版，基于 Itanium C++ ABI）
+// 参考：https://itanium-cxx-abi.github.io/cxx-abi/abi.html#rtti
+
+// type_info 基类
+typedef struct {
+	void *vtable;  // 虚表指针
+	const char *name;  // 类型名称
+} __type_info_t;
+
+// __class_type_info - 普通类（无基类）
+typedef struct {
+	void *vtable;
+	const char *name;
+} __class_type_info_t;
+
+// __si_class_type_info - 单继承类
+typedef struct {
+	void *vtable;
+	const char *name;
+	const __class_type_info_t *base_type;
+} __si_class_type_info_t;
+
+// __base_class_type_info - 基类信息
+typedef struct {
+	const __class_type_info_t *base_type;
+	long offset_flags;  // 低8位是标志，高位是偏移量
+} __base_class_type_info_t;
+
+// __vmi_class_type_info - 多重继承/虚拟继承类
+typedef struct {
+	void *vtable;
+	const char *name;
+	unsigned int flags;
+	unsigned int base_count;
+	__base_class_type_info_t base_info[1];  // 可变长度数组
+} __vmi_class_type_info_t;
+
+// RTTI 类型标志
+#define RTTI_CLASS_TYPE        0
+#define RTTI_SI_CLASS_TYPE     1
+#define RTTI_VMI_CLASS_TYPE    2
+
+// 基类标志
+#define BASE_VIRTUAL_MASK   0x1
+#define BASE_PUBLIC_MASK    0x2
+#define BASE_OFFSET_SHIFT   8
+
+// 动态转换信息
+typedef struct {
+	const __class_type_info_t *dst_type;
+	const void *static_ptr;
+	const __class_type_info_t *static_type;
+	const void *dst_ptr_leading_to_static_ptr;
+	int path_dst_ptr_to_static_ptr;  // 0=unknown, 1=public, 2=not_public
+	int number_to_static_ptr;
+	bool search_done;
+} __dynamic_cast_info_t;
+
+// 判断两个 type_info 是否相等
+static bool is_type_info_equal(const void *type1, const void *type2) {
+	if (type1 == type2) return true;
+	if (!type1 || !type2) return false;
+
+	// 比较类型名称（简化实现）
+	const __type_info_t *t1 = (const __type_info_t *)type1;
+	const __type_info_t *t2 = (const __type_info_t *)type2;
+
+	if (t1->name && t2->name) {
+		return strcmp(t1->name, t2->name) == 0;
+	}
+
+	return false;
+}
+
+// 获取 RTTI 类型（通过 vtable 或结构判断）
+static int get_rtti_type(const void *type_info) {
+	if (!type_info) return RTTI_CLASS_TYPE;
+
+	// 在实际实现中，应该通过 vtable 判断
+	// 这里简化处理：尝试判断结构类型
+	const __type_info_t *ti = (const __type_info_t *)type_info;
+
+	// 尝试访问 __si_class_type_info 的 base_type 字段
+	// 如果地址有效且不是 NULL，可能是单继承
+	const __si_class_type_info_t *si_ti = (const __si_class_type_info_t *)type_info;
+	if (si_ti->base_type != NULL && si_ti->base_type != type_info) {
+		// 可能是单继承，但需要进一步验证
+		// 这里简化处理，假设所有有 base_type 的都是单继承
+		return RTTI_SI_CLASS_TYPE;
+	}
+
+	return RTTI_CLASS_TYPE;
+}
+
+// 检查类型层次中的基类匹配（递归）
+static bool has_unambiguous_public_base(
+	const __class_type_info_t *thrown_type,
+	const __class_type_info_t *catch_type,
+	void *adjusted_ptr,
+	void **result_ptr
+) {
+	if (!thrown_type || !catch_type) return false;
+
+	// 1. 直接匹配
+	if (is_type_info_equal(thrown_type, catch_type)) {
+		if (result_ptr) *result_ptr = adjusted_ptr;
+		return true;
+	}
+
+	// 2. 检查基类
+	int rtti_type = get_rtti_type(thrown_type);
+
+	if (rtti_type == RTTI_SI_CLASS_TYPE) {
+		// 单继承：递归检查基类
+		const __si_class_type_info_t *si_type = (const __si_class_type_info_t *)thrown_type;
+		if (si_type->base_type) {
+			// 单继承的基类偏移量总是 0
+			return has_unambiguous_public_base(
+				si_type->base_type,
+				catch_type,
+				adjusted_ptr,  // 单继承，偏移量为 0
+				result_ptr
+			);
+		}
+	} else if (rtti_type == RTTI_VMI_CLASS_TYPE) {
+		// 多重继承：遍历所有基类
+		const __vmi_class_type_info_t *vmi_type = (const __vmi_class_type_info_t *)thrown_type;
+
+		for (unsigned int i = 0; i < vmi_type->base_count; i++) {
+			const __base_class_type_info_t *base_info = &vmi_type->base_info[i];
+
+			// 只检查 public 基类
+			if (base_info->offset_flags & BASE_PUBLIC_MASK) {
+				// 计算基类偏移量
+				long offset = base_info->offset_flags >> BASE_OFFSET_SHIFT;
+				void *base_ptr = (void *)((uintptr_t)adjusted_ptr + offset);
+
+				// 递归检查基类
+				if (has_unambiguous_public_base(
+					base_info->base_type,
+					catch_type,
+					base_ptr,
+					result_ptr
+				)) {
+					return true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+// 检查异常类型是否匹配 catch 类型
+static bool can_catch_exception(
+	const void *thrown_type_info,
+	const void *catch_type_info,
+	void *exception_ptr,
+	void **adjusted_ptr
+) {
+	// catch-all (...) 匹配所有异常
+	if (!catch_type_info) {
+		if (adjusted_ptr) *adjusted_ptr = exception_ptr;
+		return true;
+	}
+
+	// 没有抛出类型信息，无法匹配
+	if (!thrown_type_info) {
+		return false;
+	}
+
+	// 直接类型匹配
+	if (is_type_info_equal(thrown_type_info, catch_type_info)) {
+		if (adjusted_ptr) *adjusted_ptr = exception_ptr;
+		return true;
+	}
+
+	// 检查基类匹配（需要遍历类型层次）
+	return has_unambiguous_public_base(
+		(const __class_type_info_t *)thrown_type_info,
+		(const __class_type_info_t *)catch_type_info,
+		exception_ptr,
+		adjusted_ptr
+	);
+}
+
 // C++ 异常处理支持
 #ifdef __cplusplus
 #include <exception>
@@ -1346,67 +1532,31 @@ void catchswitch_handler() {
 		fflush(NULL);
 #endif
 
-		// 完整的RTTI类型匹配逻辑：
-		// 1. catch_type_info == 0 表示 catch-all (...)，匹配所有异常
-		// 2. 否则需要比较类型信息
-
-		int type_matches = 0;  // 0 = false, 1 = true
-
-		if (catch_type_info == 0) {
-			// catch-all (...) - 匹配所有异常
-			type_matches = 1;
-#ifdef GOVM_CPP_DEBUG
-			printf("[CATCHSWITCH]   catch-all matched!\n");
-			fflush(NULL);
-#endif
-		} else {
-			// 完整的RTTI类型匹配
-			// 在实际的C++ ABI中，需要：
-			// 1. 比较类型信息指针
-			// 2. 检查继承关系（基类匹配）
-			// 3. 处理指针和引用类型
-
-			// 简化实现：直接比较类型信息地址
-			// 在实际实现中，应该调用__cxa_allocate_exception等函数获取完整类型信息
-			if (exception_type_info == catch_type_info) {
-				type_matches = 1;
-#ifdef GOVM_CPP_DEBUG
-				printf("[CATCHSWITCH]   Exact type match!\n");
-				fflush(NULL);
-#endif
-			} else {
-				// 检查继承关系
-				// 在实际实现中，需要遍历类型层次结构
-				// 这里简化处理：检查异常对象是否包含类型信息表
-
-				// 假设exception_ptr指向异常对象，其第一个字段是类型信息指针
-				if (exception_ptr != NULL) {
-					uint64_t *exc_obj = (uint64_t *)exception_ptr;
-					// 异常对象通常包含指向类型信息的指针
-					// 这里简化处理，实际需要根据C++ ABI规范解析
+		// 使用完整的 RTTI 类型匹配逻辑
+		void *adjusted_ptr = NULL;
+		bool type_matches = can_catch_exception(
+			(const void *)exception_type_info,
+			(const void *)catch_type_info,
+			exception_ptr,
+			&adjusted_ptr
+		);
 
 #ifdef GOVM_CPP_DEBUG
-					printf("[CATCHSWITCH]   Checking inheritance: exc_obj[0]=0x%lx\n", exc_obj[0]);
-					fflush(NULL);
+		printf("[CATCHSWITCH]   Type match result: %s, adjusted_ptr=%p\n",
+		       type_matches ? "YES" : "NO", adjusted_ptr);
+		fflush(NULL);
 #endif
-
-					// 检查异常对象的类型信息是否匹配
-					if (exc_obj[0] == catch_type_info) {
-						type_matches = 1;
-#ifdef GOVM_CPP_DEBUG
-						printf("[CATCHSWITCH]   Inheritance match!\n");
-						fflush(NULL);
-#endif
-					}
-				}
-			}
-		}
 
 		if (type_matches) {
 #ifdef GOVM_CPP_DEBUG
 			printf("[CATCHSWITCH] Matched! Jumping to handler %lu\n", handler_target);
 			fflush(NULL);
 #endif
+
+			// 更新异常指针（如果有调整）
+			if (adjusted_ptr) {
+				exception_ptr = adjusted_ptr;
+			}
 
 			// 跳转到匹配的handler
 			ip = (uint32_t)handler_target;
