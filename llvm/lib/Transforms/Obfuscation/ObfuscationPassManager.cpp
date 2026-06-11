@@ -18,7 +18,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationOptions.h"
 #include "llvm/Transforms/Obfuscation/aVMP.h"
-#include "llvm/Transforms/Obfuscation/AProtect.h"
 #include "llvm/Transforms/Obfuscation/LdPreloadProtect.h"
 #include "llvm/Transforms/Obfuscation/VmProtectDetect.h"
 #include "llvm/Transforms/Obfuscation/UsbProtect.h"
@@ -398,12 +397,11 @@ namespace llvm {
 				if (EnableMemDetect) errs() << "  + MemDetect\n";
 				if (EnablePtraceDetect) errs() << "  + PtraceDetect\n";
 				if (EnableRootDetect) errs() << "  + RootDetect\n";
-				if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
-				if (EnableHideMaps) errs() << "  + HideMaps\n";
-				if (EnableFakeMaps) errs() << "  + FakeMaps\n";
-				errs() << "  + AProtect\n";
-				if (EnableBanDump) errs() << "  + BanDump\n";
-				errs() << "========================================\n";
+			if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
+			if (EnableHideMaps) errs() << "  + HideMaps\n";
+			if (EnableFakeMaps) errs() << "  + FakeMaps\n";
+			if (EnableBanDump) errs() << "  + BanDump\n";
+			errs() << "========================================\n";
 			}
 
 			// ========== 1. 检测类Pass ==========
@@ -455,20 +453,17 @@ namespace llvm {
 				add(llvm::createNoRootDetectPass());
 			}
 
-			// ========== 2. AProtect打印 ==========
-			add(llvm::createAProtectPass());
-
-			// ========== 3. SyscallProtect ==========
+			// ========== 2. SyscallProtect ==========
 			if (EnableSyscallProtect) {
 				add(llvm::createSyscallProtectPass());
 			}
 
-			// ========== 4. VMProtect ==========
+			// ========== 3. VMProtect ==========
 			if (EnableVMProtect) {
 				add(llvm::createVMProtectPass(true));
 			}
 
-			// ========== 5. OLLVM混淆 ==========
+			// ========== 4. OLLVM混淆 ==========
 			if (EnableHideMaps) {
 				add(llvm::createHideMapsPass());
 			}

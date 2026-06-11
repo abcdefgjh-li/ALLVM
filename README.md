@@ -135,27 +135,33 @@ int VMP_PROTECT main(int argc, char **argv) {
 
 ## Pass 执行顺序
 
+### 编译时 Pass 注入顺序
+
 ```
-1. SyscallProtect (系统调用保护)
-2. VMProtect (虚拟机保护)
-3. 检测注入 (反调试等)
-   └─ LdPreloadProtect
-   └─ VmProtectDetect
-   └─ UsbProtect
-   └─ IdaDetect
-   └─ VpnDetect
-   └─ ProxyDetect
-   └─ TimeDetect
-   └─ HostsDetect
-   └─ MemDetect
-   └─ PtraceDetect
-   └─ HideMaps
-   └─ FakeMaps
-   └─ RootDetect
-   └─ NoRootDetect
-   └─ AProtect
-   └─ BanDump
-4. ALLVM混淆 (代码混淆保护)
+1. 检测类Pass (最先注入，运行时最先执行)
+   └─ LdPreloadProtect    (LD_PRELOAD注入检测)
+   └─ VmProtectDetect     (VM虚拟机检测)
+   └─ UsbProtect          (USB调试禁用)
+   └─ IdaDetect           (IDA调试器检测)
+   └─ VpnDetect           (VPN连接检测)
+   └─ ProxyDetect         (代理/iptables检测)
+   └─ TimeDetect          (时间差调试检测)
+   └─ HostsDetect         (Hosts文件检测)
+   └─ MemDetect           (内存驻留检测)
+   └─ PtraceDetect        (Ptrace调试器检测)
+   └─ RootDetect          (Root检测)
+   └─ NoRootDetect        (无Root检测)
+
+2. SyscallProtect (系统调用保护)
+   └─ 替换libc函数为直接syscall
+
+3. VMProtect (虚拟机保护)
+   └─ 函数虚拟化保护
+
+4. OLLVM混淆 (代码混淆保护)
+   └─ HideMaps            (隐藏Maps文件)
+   └─ FakeMaps            (伪造Maps内容)
+   └─ BanDump             (禁用内存Dump)
    └─ ConstantIntEncryption
    └─ ConstantFPEncryption
    └─ StringEncryption
@@ -164,6 +170,30 @@ int VMP_PROTECT main(int argc, char **argv) {
    └─ Flattening
    └─ IndirectBranch
    └─ MsRttiEraser
+```
+
+### 运行时执行顺序
+
+```
+程序启动
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 1. 检测类Pass注入的代码              │
+│    (LD_PRELOAD检测、调试器检测等)    │
+│    检测到威胁时打印:                 │
+│    - A-protect (随机颜色)            │
+│    - Protection v1.6.0               │
+│    - [DEBUG] XXX detected!           │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 2. main() 函数执行                   │
+│    - SyscallProtect保护的函数调用    │
+│    - VMProtect虚拟化的函数执行       │
+│    - OLLVM混淆后的代码执行           │
+└─────────────────────────────────────┘
 ```
 
 ## Android.mk 示例

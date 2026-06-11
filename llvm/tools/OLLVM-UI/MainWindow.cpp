@@ -228,6 +228,11 @@ void MainWindow::onInjectFlags() {
 
     QStringList injectFlags;
     injectFlags << "-mllvm" << "-irobf" << flags;
+    
+    // VMP需要禁用异常
+    if (hasVmp) {
+        injectFlags << "-fno-exceptions" << "-frtti";
+    }
 
     QString backupFile = mkFile + ".bak";
     if (!QFileInfo::exists(backupFile)) {

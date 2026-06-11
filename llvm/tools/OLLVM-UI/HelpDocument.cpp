@@ -99,8 +99,6 @@ QString HelpDocument::generateHelpContent() {
 | **Hosts 文件检测** | `-irobf-hosts` | 检测 Hosts 文件篡改 |
 | **内存检测** | `-irobf-mem` | 内存驻留检测 |
 | **Ptrace 检测** | `-irobf-ptrace` | 检测 Ptrace 调试器 |
-| **Inline Hook 检测** | `-irobf-inlinehook` | 检测 Inline Hook |
-| **PLT Hook 检测** | `-irobf-plthook` | 检测 PLT Hook |
 | **Root 检测** | `-irobf-root` | 检测 Root 环境（有 Root 则退出） |
 | **非 Root 检测** | `-irobf-noroot` | 检测非 Root 环境（无 Root 则退出） |
 
@@ -116,6 +114,8 @@ QString HelpDocument::generateHelpContent() {
 ## VMP 虚拟机保护
 
 VMP 是最高强度的代码保护，将代码转换为自定义虚拟机指令执行。
+
+> **重要**: VMP 要求禁用C++异常处理，UI会自动注入 `-fno-exceptions -frtti` 编译选项。
 
 ### 启用方式
 
@@ -139,7 +139,7 @@ int my_protected_function(int a, int b) {
 
 ```makefile
 LOCAL_CFLAGS += -mllvm -irobf-vmp
-LOCAL_CFLAGS += -mllvm -irobf-vm_functions=my_protected_function
+LOCAL_CFLAGS += -fno-exceptions -frtti
 ```
 
 ---
@@ -174,8 +174,9 @@ LOCAL_CFLAGS += -mllvm -irobf-vm_functions=my_protected_function
 1. **备份**：注入前会自动创建 Android.mk.bak 备份文件
 2. **兼容性**：部分功能仅支持 ARM64 架构
 3. **性能**：混淆会增加代码体积和运行开销，请按需选择
-4. **VMP**：VMP 保护会显著增加代码体积，仅对关键函数使用
+4. **VMP**：VMP 保护会显著增加代码体积，仅对关键函数使用。需要禁用异常处理（-fno-exceptions）
 5. **Root 检测**：Root 检测和非 Root 检测互斥，只能选择其一
+6. **A-Protect**：A-Protect 输出现在默认启用，在程序启动时打印保护信息
 
 ---
 

@@ -101,7 +101,7 @@ bool RootDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "Root Access");
     
     // 创建Root检测函数
     Function *CheckFunc = createRootCheckFunc(M, ReportFunc);

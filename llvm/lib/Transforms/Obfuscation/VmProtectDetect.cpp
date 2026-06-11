@@ -310,7 +310,7 @@ bool VmProtectDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M, "VM/Emulator");
     
     // 创建检测函数
     Function *CheckFunc = createVMCheckFunc(M, ReportAndKillFunc);

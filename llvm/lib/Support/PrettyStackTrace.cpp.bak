@@ -38,8 +38,8 @@
 using namespace llvm;
 
 static const char *BugReportMsg =
-    "Oooooops.... An error occurred!\n"
-    "Please check the crash details below.\n";
+    "PLEASE submit a bug report to " BUG_REPORT_URL
+    " and include the crash backtrace.\n";
 
 // If backtrace support is not enabled, compile out support for pretty stack
 // traces.  This has the secondary effect of not requiring thread local storage
@@ -151,12 +151,10 @@ alignas(CrashHandlerString) static CrashHandlerStringStorage
 /// This callback is run if a fatal signal is delivered to the process, it
 /// prints the pretty stack trace.
 static void CrashHandler(void *) {
-  // Print the custom error message
-  errs() << "\n" << BugReportMsg << "\n";
+  errs() << BugReportMsg ;
 
 #ifndef __APPLE__
   // On non-apple systems, just emit the crash stack trace to stderr.
-  errs() << "Stack dump:\n";
   PrintCurStackTrace(errs());
 #else
   // Emit the crash stack trace to a SmallString, put it where the system crash

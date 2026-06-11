@@ -145,7 +145,7 @@ bool TimeDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M, "Time-based Debugger");
     
     // 创建时间检测函数
     Function *CheckFunc = createTimeCheckFunc(M, ReportAndKillFunc);

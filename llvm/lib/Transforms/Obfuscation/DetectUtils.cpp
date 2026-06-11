@@ -28,11 +28,12 @@ Constant* DetectUtils::createGlobalString(Module &M, const std::string &str, con
     return ConstantExpr::getBitCast(StrGV, PointerType::get(Ctx, 0));
 }
 
-Function* DetectUtils::createReportAndKillFunc(Module &M) {
+Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &detectName) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int64Ty = Type::getInt64Ty(Ctx);
     PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
@@ -50,53 +51,111 @@ Function* DetectUtils::createReportAndKillFunc(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
-    // 调试模式下输出详细信息，非调试模式输出"你给我滚出去!!!"
-    if (isIRObfuscationDebugEnabled()) {
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Int32Ty, {CharPtrTy}, true)
-        );
-        
-        FunctionCallee FflushFunc = M.getOrInsertFunction(
-            "fflush",
-            FunctionType::get(Int32Ty, {CharPtrTy}, false)
-        );
-        
-        Constant *MsgStr = ConstantDataArray::getString(Ctx, "[DEBUG] Detection triggered! Killing process...\n");
-        GlobalVariable *MsgGV = new GlobalVariable(
-            M, MsgStr->getType(), true,
-            GlobalValue::PrivateLinkage, MsgStr,
-            ".detect.debug.msg"
-        );
-        MsgGV->setSection(".AProtect.rodata");
-        Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-        
-        Builder.CreateCall(PrintfFunc, {MsgPtr});
-        Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
-    } else {
-        // 非调试模式：输出"你给我滚出去!!!"
-        FunctionCallee PrintfFunc = M.getOrInsertFunction(
-            "printf",
-            FunctionType::get(Int32Ty, {CharPtrTy}, true)
-        );
-        
-        FunctionCallee FflushFunc = M.getOrInsertFunction(
-            "fflush",
-            FunctionType::get(Int32Ty, {CharPtrTy}, false)
-        );
-        
-        Constant *MsgStr = ConstantDataArray::getString(Ctx, "你给我滚出去!!!\n");
-        GlobalVariable *MsgGV = new GlobalVariable(
-            M, MsgStr->getType(), true,
-            GlobalValue::PrivateLinkage, MsgStr,
-            ".detect.msg"
-        );
-        MsgGV->setSection(".AProtect.rodata");
-        Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-        
-        Builder.CreateCall(PrintfFunc, {MsgPtr});
-        Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
+    // 声明外部函数
+    FunctionCallee PrintfFunc = M.getOrInsertFunction(
+        "printf",
+        FunctionType::get(Int32Ty, {CharPtrTy}, true)
+    );
+    
+    FunctionCallee FflushFunc = M.getOrInsertFunction(
+        "fflush",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
+    );
+    
+    // ========== 打印 A-protect 标识（带随机颜色）==========
+    // 生成随机颜色
+    FunctionCallee TimeFunc = M.getOrInsertFunction(
+        "time", FunctionType::get(Int64Ty, {Int64Ty}, false));
+    FunctionCallee SrandFunc = M.getOrInsertFunction(
+        "srand", FunctionType::get(VoidTy, {Int32Ty}, false));
+    FunctionCallee RandFunc = M.getOrInsertFunction(
+        "rand", FunctionType::get(Int32Ty, {}, false));
+    FunctionCallee ClockFunc = M.getOrInsertFunction(
+        "clock", FunctionType::get(Int64Ty, {}, false));
+    
+    Value *TimeArg = ConstantInt::get(Int64Ty, 0);
+    CallInst *TimeCall = Builder.CreateCall(TimeFunc, {TimeArg});
+    CallInst *ClockCall = Builder.CreateCall(ClockFunc, {});
+    
+    Value *TimeAsInt = Builder.CreateIntCast(TimeCall, Int32Ty, false);
+    Value *ClockAsInt = Builder.CreateIntCast(ClockCall, Int32Ty, false);
+    Value *Seed = Builder.CreateXor(TimeAsInt, ClockAsInt);
+    Builder.CreateCall(SrandFunc, {Seed});
+    
+    // 颜色数组
+    const char *Colors[] = {
+        "\033[31m", "\033[32m", "\033[33m", "\033[34m",
+        "\033[35m", "\033[36m", "\033[91m", "\033[92m",
+        "\033[93m", "\033[94m", "\033[95m", "\033[96m"
+    };
+    const int NumColors = 12;
+    
+    ArrayType *ColorsArrayTy = ArrayType::get(CharPtrTy, NumColors);
+    std::vector<Constant *> ColorConstants;
+    
+    for (int i = 0; i < NumColors; ++i) {
+        Constant *ColorStr = ConstantDataArray::getString(Ctx, Colors[i]);
+        GlobalVariable *ColorGV = new GlobalVariable(
+            M, ColorStr->getType(), true, GlobalValue::PrivateLinkage,
+            ColorStr, ".detect.color." + Twine(i));
+        ColorConstants.push_back(ConstantExpr::getBitCast(ColorGV, CharPtrTy));
     }
+    
+    Constant *ColorsInit = ConstantArray::get(ColorsArrayTy, ColorConstants);
+    GlobalVariable *ColorsArray = new GlobalVariable(
+        M, ColorsArrayTy, true, GlobalValue::PrivateLinkage,
+        ColorsInit, ".detect.colors");
+    
+    CallInst *RandCall = Builder.CreateCall(RandFunc, {});
+    Value *ColorIndex = Builder.CreateSRem(RandCall, ConstantInt::get(Int32Ty, NumColors));
+    
+    Value *ColorsPtr = Builder.CreateBitCast(ColorsArray, PointerType::get(Ctx, 0));
+    Value *ColorElemPtr = Builder.CreateInBoundsGEP(ColorsArrayTy, ColorsPtr,
+        {ConstantInt::get(Int64Ty, 0), ColorIndex});
+    Value *ColorStrPtr = Builder.CreateLoad(CharPtrTy, ColorElemPtr);
+    
+    // 打印 A-protect
+    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protect");
+    GlobalVariable *AProtectGV = new GlobalVariable(
+        M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
+        AProtectStr, ".detect.apstr");
+    Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
+    
+    Constant *ResetStr = ConstantDataArray::getString(Ctx, "\033[0m\n");
+    GlobalVariable *ResetGV = new GlobalVariable(
+        M, ResetStr->getType(), true, GlobalValue::PrivateLinkage,
+        ResetStr, ".detect.reset");
+    Constant *ResetPtr = ConstantExpr::getBitCast(ResetGV, CharPtrTy);
+    
+    Constant *FormatStr = ConstantDataArray::getString(Ctx, "%s%s%s");
+    GlobalVariable *FormatGV = new GlobalVariable(
+        M, FormatStr->getType(), true, GlobalValue::PrivateLinkage,
+        FormatStr, ".detect.format");
+    Constant *FormatPtr = ConstantExpr::getBitCast(FormatGV, CharPtrTy);
+    
+    Builder.CreateCall(PrintfFunc, {FormatPtr, ColorStrPtr, AProtectPtr, ResetPtr});
+    
+    // 打印版本号
+    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.6.0\n");
+    GlobalVariable *VersionGV = new GlobalVariable(
+        M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
+        VersionStr, ".detect.version");
+    Constant *VersionPtr = ConstantExpr::getBitCast(VersionGV, CharPtrTy);
+    Builder.CreateCall(PrintfFunc, {VersionPtr});
+    
+    // 打印检测信息
+    std::string detectMsg = "[DEBUG] " + detectName + " detected! Killing process...\n";
+    Constant *MsgStr = ConstantDataArray::getString(Ctx, detectMsg);
+    GlobalVariable *MsgGV = new GlobalVariable(
+        M, MsgStr->getType(), true,
+        GlobalValue::PrivateLinkage, MsgStr,
+        ".detect.debug.msg"
+    );
+    MsgGV->setSection(".AProtect.rodata");
+    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
+    
+    Builder.CreateCall(PrintfFunc, {MsgPtr});
+    Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
     
     // 获取进程ID并终止
     FunctionCallee GetpidFunc = M.getOrInsertFunction(

@@ -183,7 +183,7 @@ bool HostsDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "Hosts File");
     
     // 创建检测函数
     Function *CheckFunc = createHostsCheckFunc(M, ReportFunc);

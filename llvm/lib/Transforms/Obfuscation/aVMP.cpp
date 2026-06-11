@@ -20,6 +20,8 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
@@ -837,6 +839,9 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     // firstly,  we need to unpack function args
     // errs() << "[handle_callinst] Unpacking args, arg_size=" << inst->arg_size() << "\n";
     std::vector<Value *> target_func_args;
+    // 保存参数值和偏移量，用于恢复 data_seg 后恢复参数
+    std::vector<std::pair<Value*, unsigned>> saved_args; // (arg_value, offset)
+    
     for (unsigned idx = 0; idx < inst->arg_size(); idx++){
         // errs() << "[handle_callinst] Processing arg " << idx << "\n";
         Value * currarg = inst->getArgOperand(idx);
@@ -913,6 +918,15 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             Value * ptr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
             Value * arg = IRBcon.CreateLoad(currarg->getType(), ptr);
             target_func_args.push_back(arg);
+            
+            // 保存参数值和偏移量，用于恢复 data_seg 后恢复参数
+            // 注意：这里保存的是加载后的值，不是指针
+            saved_args.push_back({arg, curroffset});
+            
+            // DEBUG: 添加调试输出
+            if (isIRObfuscationDebugEnabled()) {
+                errs() << "[handle_callinst] Saving arg " << idx << " from data_seg[" << curroffset << "]\n";
+            }
         }
     }
 
@@ -921,6 +935,50 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     // secondly, we create a new basic block to construct callinst
     BasicBlock *callFunction = BasicBlock::Create(Mod->getContext(), "callFunction_" + to_string(this->callinst_handler_curr_idx), this->callinst_handler);
     IRBuilder<> IRBcallFunction(callFunction);
+    
+    // DEBUG: 添加调试输出
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[handle_callinst] Created callFunction BB: " << callFunction->getName() << "\n";
+        errs() << "[handle_callinst] callFunction parent: " << callFunction->getParent()->getName() << "\n";
+        errs() << "[handle_callinst] IRBcallFunction.GetInsertBlock(): " << IRBcallFunction.GetInsertBlock()->getName() << "\n";
+        errs() << "[handle_callinst] IRBcallFunction.GetInsertPoint(): ";
+        if (IRBcallFunction.GetInsertPoint() == callFunction->end()) {
+            errs() << "end() of BB\n";
+        } else {
+            errs() << &*IRBcallFunction.GetInsertPoint() << "\n";
+        }
+    }
+
+    // 保存 data_seg 以支持递归调用
+    // 使用 malloc/free 来避免栈溢出
+    Function *malloc_func = Mod->getFunction("malloc");
+    if (!malloc_func) {
+        FunctionType *malloc_type = FunctionType::get(PointerType::get(Mod->getContext(), 0), {Type::getInt64Ty(Mod->getContext())}, false);
+        malloc_func = Function::Create(malloc_type, Function::ExternalLinkage, "malloc", Mod);
+    }
+    
+    Function *memcpy_func = Intrinsic::getOrInsertDeclaration(Mod, Intrinsic::memcpy, {PointerType::get(Mod->getContext(), 0), PointerType::get(Mod->getContext(), 0), Type::getInt64Ty(Mod->getContext())});
+    Function *free_func = Mod->getFunction("free");
+    if (!free_func) {
+        FunctionType *free_type = FunctionType::get(Type::getVoidTy(Mod->getContext()), {PointerType::get(Mod->getContext(), 0)}, false);
+        free_func = Function::Create(free_type, Function::ExternalLinkage, "free", Mod);
+    }
+    
+    // 获取 data_seg 实际大小（从 gv_data_seg 的类型中获取）
+    // gv_data_seg 是 [N x i8] 类型的数组
+    Type *data_seg_type = gv_data_seg->getValueType();
+    uint64_t data_seg_size = 5000;  // 默认值
+    if (ArrayType *arr_type = dyn_cast<ArrayType>(data_seg_type)) {
+        data_seg_size = arr_type->getNumElements();
+    }
+    
+    Value *alloc_size = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), data_seg_size);
+    Value *saved_data_seg = IRBcallFunction.CreateCall(malloc_func, {alloc_size});
+    
+    // 保存当前 data_seg
+    Value *dest_save = IRBcallFunction.CreatePointerCast(saved_data_seg, PointerType::get(Mod->getContext(), 0));
+    Value *src_save = IRBcallFunction.CreatePointerCast(gv_data_seg, PointerType::get(Mod->getContext(), 0));
+    IRBcallFunction.CreateCall(memcpy_func, {dest_save, src_save, alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
 
     // errs() << "[handle_callinst] Checking call type\n";
     Value *resultValue;
@@ -1107,26 +1165,135 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     }
 
     // Store result and create return
-    // if return not void, store it to gv_data_seg
+    // 问题：data_seg[0..callee_return_size-1] 存储被调用函数的返回值
+    // 恢复 data_seg 时，应该跳过这个空间，保留被调用函数的返回值
+    
+    // 获取被调用函数的返回值空间大小
+    int callee_return_value_size = 0;
     if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+        callee_return_value_size = modDataLayout->getTypeAllocSize(inst->getType());
+    }
+    
+    // 1. 读取返回值到临时变量
+    Value *saved_result = nullptr;
+    if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
+        // 从 data_seg[0] 读取返回值（函数返回值存储在这里）
+        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+        Value * gepinst0 = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, Zero}, "");
+        Value * ptr0 = IRBcallFunction.CreatePointerCast(gepinst0, PointerType::get(Mod->getContext(), 0));
+        saved_result = IRBcallFunction.CreateLoad(inst->getType(), ptr0);
+    }
+
+    // DEBUG: 添加调试输出
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[handle_callinst] callee_return_value_size=" << callee_return_value_size 
+               << ", data_seg_size=" << data_seg_size << "\n";
+        if (saved_result) {
+            errs() << "[handle_callinst] saved_result type: " << *saved_result->getType() << "\n";
+        }
+    }
+
+    // 2. 恢复 data_seg[callee_return_size..end]，跳过被调用函数的返回值空间
+    // 这样可以保留被调用函数的返回值，同时恢复调用者的局部变量
+    if (callee_return_value_size < data_seg_size) {
+        Value *src_restore = IRBcallFunction.CreatePointerCast(saved_data_seg, PointerType::get(Mod->getContext(), 0));
+        Value *dest_restore = IRBcallFunction.CreatePointerCast(gv_data_seg, PointerType::get(Mod->getContext(), 0));
+        
+        // 恢复 data_seg[callee_return_size..end]
+        // src = saved_data_seg + callee_return_value_size
+        Value *src_restore_offset = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), src_restore, callee_return_value_size);
+        // dest = gv_data_seg + callee_return_value_size
+        Value *dest_restore_offset = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), dest_restore, callee_return_value_size);
+        // size = data_seg_size - callee_return_value_size
+        Value *alloc_size_minus_return = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), data_seg_size - callee_return_value_size);
+        
+        // DEBUG: 添加调试输出
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[handle_callinst] Restoring data_seg[" << callee_return_value_size 
+                   << ".." << data_seg_size << "]\n";
+        }
+        
+        IRBcallFunction.CreateCall(memcpy_func, {dest_restore_offset, src_restore_offset, alloc_size_minus_return, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
+    }
+    
+    // 2.5 恢复参数值（在恢复 data_seg 之后）
+    // 这是为了修复递归调用问题：恢复 data_seg 会覆盖参数值
+    // 我们需要在恢复后将参数值重新写入 data_seg
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[handle_callinst] saved_args.size()=" << saved_args.size() << "\n";
+        errs() << "[handle_callinst] IRBcallFunction.GetInsertBlock()=" << IRBcallFunction.GetInsertBlock()->getName() << "\n";
+        errs() << "[handle_callinst] callFunction BB has " << callFunction->size() << " instructions before restoring args\n";
+    }
+    for (auto &saved_arg : saved_args) {
+        Value *arg_value = saved_arg.first;
+        unsigned arg_offset = saved_arg.second;
+        
+        // DEBUG: 添加调试输出
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[handle_callinst] Restoring arg to data_seg[" << arg_offset << "]\n";
+            errs() << "[handle_callinst]   arg_value=" << *arg_value << "\n";
+            errs() << "[handle_callinst]   arg_value->getParent()=";
+            if (Instruction *arg_inst = dyn_cast<Instruction>(arg_value)) {
+                if (arg_inst->getParent()) {
+                    errs() << arg_inst->getParent()->getName() << "\n";
+                } else {
+                    errs() << "null parent BB\n";
+                }
+            } else {
+                errs() << "not an instruction\n";
+            }
+        }
+        
+        // 存储参数值到 data_seg[arg_offset]
+        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+        Value *offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), arg_offset);
+        Value *gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+        Value *ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+        StoreInst *store = IRBcallFunction.CreateStore(arg_value, ptr);
+        
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[handle_callinst]   Created store: " << *store << "\n";
+            errs() << "[handle_callinst]   store->getParent()=";
+            if (store->getParent()) {
+                errs() << store->getParent()->getName() << "\n";
+            } else {
+                errs() << "null\n";
+            }
+            errs() << "[handle_callinst]   callFunction BB has " << callFunction->size() << " instructions after creating store\n";
+        }
+    }
+    
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[handle_callinst] callFunction BB has " << callFunction->size() << " instructions after restoring all args\n";
+        errs() << "[handle_callinst] Instructions in callFunction BB:\n";
+        for (auto &I : *callFunction) {
+            errs() << "  " << I << "\n";
+        }
+    }
+    
+    // 3. 释放堆内存
+    IRBcallFunction.CreateCall(free_func, {saved_data_seg});
+    
+    // 4. 存储返回值到正确位置
+    if (saved_result != nullptr) {
         if (value_map.find(inst) == value_map.end()) {
             // errs() << "[VMP] ERROR: call result not found in value_map: " << *inst << "\n";
         } else {
             unsigned result_value_offset = value_map[inst];
 
-            // load value from gv_data_seg
+            // DEBUG: 添加调试输出
+            if (isIRObfuscationDebugEnabled()) {
+                errs() << "[handle_callinst] Storing result to data_seg[" << result_value_offset << "]\n";
+            }
+
+            // 存储到 data_seg[result_offset]
             ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
             Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
             Value * gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
-
-            // convert gep from i8* to value->getType() *
             Value * ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
-
-            // store
-            IRBcallFunction.CreateStore(resultValue, ptr);
+            IRBcallFunction.CreateStore(saved_result, ptr);
         }
     }
-
     
     // Create Return
     IRBcallFunction.CreateRetVoid();
@@ -2707,6 +2874,9 @@ void GOVMModifier::run() {
     irbuilder.CreateStore(data_seg_ptr2int, data_seg_addr);
     Value * code_seg_ptr2int = irbuilder.CreatePtrToInt(gv_code_seg, Type::getInt64Ty(Mod->getContext()));
     irbuilder.CreateStore(code_seg_ptr2int, code_seg_addr);
+
+    // 重置 ip 为 0，确保每次调用都从函数开头执行
+    irbuilder.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), ip);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMModifier]   Creating call to vm_interpreter...\n";
