@@ -52,7 +52,11 @@ def compile_test(source_file, output_binary, extra_flags=""):
 def push_and_run_test(binary_path):
     """推送并运行测试"""
     binary_name = os.path.basename(binary_path)
-    remote_path = f"/data/local/tmp/{binary_name}"
+    # 使用 /tmp/ 目录（Android 上可写）
+    remote_path = f"/tmp/{binary_name}"
+
+    # 先尝试删除旧文件
+    run_command(f'"{ADB_PATH}" shell rm -f {remote_path}')
 
     # 推送
     print(f"\n[PUSH] {binary_path} -> {remote_path}")
@@ -132,21 +136,24 @@ VMP_PROTECT int main() {
 def test_atomic():
     """测试原子操作"""
     print("\n" + "=" * 70)
-    print("测试 2: 原子操作")
+    print("测试 2: 原子操作 (VMP)")
     print("=" * 70)
 
-    # 创建测试文件 - 不使用 VMP，只测试原子操作
-    test_code = '''// 原子操作测试
+    # 创建测试文件 - 使用 VMP 保护
+    test_code = '''// 原子操作测试 (VMP)
 #include <stdio.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 
-int main() {
-    printf("=== Atomic Operations Test ===\\n");
+#define VMP_PROTECT __attribute__((annotate("vmp")))
+
+VMP_PROTECT int main() {
+    printf("=== Atomic Operations Test (VMP) ===\\n");
     fflush(stdout);
 
-    // 使用普通变量，手动调用原子操作
-    int counter = 0;
+    // 先声明变量，再赋值（避免初始化问题）
+    int counter;
+    counter = 0;
 
     printf("[DEBUG] counter initialized\\n");
     fflush(stdout);
@@ -228,7 +235,7 @@ def main():
     total = len(results)
 
     for name, success in results:
-        status = "✓ PASS" if success else "✗ FAIL"
+        status = "[PASS]" if success else "[FAIL]"
         print(f"{status} - {name}")
 
     print(f"\n总计: {passed}/{total} 通过")

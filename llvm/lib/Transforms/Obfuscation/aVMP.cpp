@@ -223,17 +223,24 @@ std::string *LogUtils::log_title(const char *title) {
 
 #define GOVTRANSLATOR_DEBUG
 
+// GEP 信息结构体（全局定义，供 GOVMTranslator 和 GOVMModifier 共享）
+struct GEPInfo {
+    GlobalVariable *GV;
+    int gep_offset;  // GEP 计算出的偏移量
+};
+
 /***
  * The main class that modify the callsite of vm-function.
  */
 class GOVMTranslator {
-    
+
     public:
         GOVMTranslator(Function * F) {
             this->Mod = F->getParent();
             this->F = F;
             this->modDataLayout = const_cast<DataLayout *>(&this->Mod->getDataLayout());
             this->pointer_size = modDataLayout->getPointerSize();  // 动态获取指针大小
+            this->has_unsupported_instruction = false;  // 初始化标志
 
             // construct function and global variables
             init();
@@ -243,6 +250,7 @@ class GOVMTranslator {
         Function * F;
         DataLayout * modDataLayout;
         unsigned pointer_size;  // 动态获取的指针大小,支持不同架构
+        bool has_unsupported_instruction;  // 标记是否遇到不支持的指令
 
         // Global variables for VM interpreter
         GlobalVariable *gv_code_seg;
@@ -273,12 +281,15 @@ class GOVMTranslator {
         std::map<BasicBlock *, int> basicblock_map;
         std::vector<pair<int, BasicBlock *>> br_map;
         std::map<CallBase *, long long> callinst_map;
-        
+
         // LLVM 21: SwitchInst支持
         std::vector<std::tuple<int, BasicBlock *, int>> switch_map;  // (code_pos, target_bb, case_value)
 
         // collect global variable
         std::map<GlobalVariable *, int> gv_value_map;
+
+        // collect GEP results (保存 GEP 信息：全局变量和偏移量)
+        std::map<int, GEPInfo> gep_info_map;  // key: data_seg 中的偏移量
 
         // current offset in data_seg
         int curr_data_offset = 0;
@@ -338,6 +349,10 @@ class GOVMTranslator {
 
         std::map<GlobalVariable *, int> *get_gv_value_map() {
             return &gv_value_map;
+        }
+
+        std::map<int, GEPInfo> *get_gep_info_map() {
+            return &gep_info_map;
         }
 
         std::map<Value *, int> *get_value_map() {
@@ -563,20 +578,65 @@ class GOVMTranslator {
             std::vector<uint8_t> res;
             std::vector<uint8_t> packed;
             std::vector<uint8_t> packType = type_to_hex(value->getType());
+
+            errs() << "[packValue] Processing value: " << *value << "\n";
+            errs() << "[packValue]   Type: " << *value->getType() << "\n";
+            errs() << "[packValue]   IsConstantData: " << isa<ConstantData>(value) << "\n";
+            errs() << "[packValue]   IsConstantExpr: " << isa<ConstantExpr>(value) << "\n";
+            errs() << "[packValue]   IsInstruction: " << isa<Instruction>(value) << "\n";
+            errs() << "[packValue]   In value_map: " << (value_map->find(value) != value_map->end()) << "\n";
+
             if(ConstantData* CD = dyn_cast<ConstantData>(value)){
+                // 对于常量值，直接打包常量值，设置 type_id = 1 表示常量
                 packed = pack_const_value(value);
+                packType[1] = 1;  // 标记为常量
+                errs() << "[packValue] ConstantData: packed as const, size=" << packed.size() << "\n";
             }
             else if(ConstantExpr* CE = dyn_cast<ConstantExpr>(value)){
                 if (CE->getOpcode() == Instruction::GetElementPtr) {
+                    errs() << "[packValue] Processing ConstantExpr GEP: " << *CE << "\n";
                     if (GlobalVariable *GV = dyn_cast<GlobalVariable>(CE->getOperand(0))) {
+                        // 将全局变量添加到 gv_value_map
                         if (gv_value_map.find(GV) == gv_value_map.end()) {
                             gv_value_map.insert({GV, curr_data_offset});
                             insert_to_value_map(value_map, GV, curr_data_offset);
                             int res_size = modDataLayout->getTypeAllocSize(GV->getValueType());
                             curr_data_offset += res_size;
+                            errs() << "[packValue] Added GV to gv_value_map: offset=" << curr_data_offset - res_size << "\n";
                         }
-                        packed = pack((*value_map)[GV], pointer_size);
+
+                        // 计算 GEP 的偏移量
+                        APInt offset(64, 0);
+                        if (GEPOperator *GEP = dyn_cast<GEPOperator>(CE)) {
+                            if (GEP->accumulateConstantOffset(*modDataLayout, offset)) {
+                                // 成功计算偏移量
+                                int gep_offset_val = offset.getSExtValue();
+
+                                // 将 GEP 信息添加到 gep_info_map
+                                int data_offset = curr_data_offset;
+                                insert_to_value_map(value_map, value, curr_data_offset);
+                                curr_data_offset += pointer_size;
+
+                                GEPInfo info;
+                                info.GV = GV;
+                                info.gep_offset = gep_offset_val;
+                                gep_info_map.insert({data_offset, info});
+
+                                errs() << "[packValue] Added GEP to gep_info_map: data_offset=" << data_offset
+                                       << ", gep_offset=" << gep_offset_val << "\n";
+
+                                packed = pack(data_offset, pointer_size);
+                            } else {
+                                // 无法计算偏移量，使用全局变量的偏移量
+                                errs() << "[packValue] Cannot calculate GEP offset, using GV offset\n";
+                                packed = pack((*value_map)[GV], pointer_size);
+                            }
+                        } else {
+                            errs() << "[packValue] Cannot cast to GEPOperator, using GV offset\n";
+                            packed = pack((*value_map)[GV], pointer_size);
+                        }
                     } else {
+                        errs() << "[packValue] GEP operand is not GlobalVariable\n";
                         packed = pack(0, pointer_size);
                     }
                 } else if (CE->getOpcode() == Instruction::BitCast) {
@@ -589,6 +649,7 @@ class GOVMTranslator {
             else{
                 // if value not in map
                 if (value_map->find(value) == value_map->end()) {
+                    errs() << "[packValue] Value not in map: " << *value << "\n";
                     // check value is not a GlobalVariable
                     if (GlobalVariable *gv = dyn_cast<GlobalVariable>(value)) {
                         // is a GlobalVariable and not in value_map
@@ -621,11 +682,18 @@ class GOVMTranslator {
                         return res;
                     }
                     else {
-                        assert(value_map->find(value) != value_map->end());
+                        errs() << "[packValue] ERROR: Value not in map and not a GlobalVariable/Function/GlobalValue!\n";
+                        errs() << "[packValue] Value: " << *value << "\n";
+                        errs() << "[packValue] Type: " << *value->getType() << "\n";
+                        // Instead of asserting, add it to value_map
+                        insert_to_value_map(value_map, value, curr_data_offset);
+                        int res_size = modDataLayout->getTypeAllocSize(value->getType());
+                        curr_data_offset += res_size;
                     }
                 }
 
                 packed = pack((*value_map)[value], pointer_size);
+                errs() << "[packValue] Packed value offset=" << (*value_map)[value] << "\n";
                 // variable，packtype->TypeID=0
                 packType[1] = 0;
             }
@@ -848,10 +916,33 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
 
         // if value is a constant, use it directly
         if(isa<Constant>(currarg)){
-            // errs() << "[handle_callinst] Arg " << idx << " is constant\n";
-            // Handle ConstantExpr (e.g., BitCast of function pointer like std::endl)
+            errs() << "[handle_callinst] Arg " << idx << " is constant: " << *currarg << "\n";
+            // Handle ConstantExpr GEP (like stdout)
             if (ConstantExpr *CE = dyn_cast<ConstantExpr>(currarg)) {
-                if (CE->getOpcode() == Instruction::BitCast) {
+                errs() << "[handle_callinst]   It's a ConstantExpr, opcode: " << CE->getOpcodeName() << "\n";
+                if (CE->getOpcode() == Instruction::GetElementPtr) {
+                    errs() << "[handle_callinst]   It's a GEP, calling packValue...\n";
+                    // 对于 GEP，需要调用 packValue 来填充 gep_value_map
+                    // 然后从 data_seg 读取结果地址
+                    std::vector<uint8_t> packed = packValue(currarg, &value_map);
+                    errs() << "[handle_callinst]   packValue returned, value_map size=" << value_map.size() << "\n";
+                    if (value_map.find(currarg) != value_map.end()) {
+                        unsigned curroffset = value_map[currarg];
+                        errs() << "[handle_callinst]   Found in value_map at offset " << curroffset << "\n";
+                        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                        Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), curroffset);
+                        Value * gepinst = IRBcon.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                        Value * ptr_addr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+                        Value * actual_ptr = IRBcon.CreateLoad(PointerType::get(Mod->getContext(), 0), ptr_addr);
+                        target_func_args.push_back(actual_ptr);
+                        if (isIRObfuscationDebugEnabled()) {
+                            errs() << "[handle_callinst] Arg " << idx << " is ConstantExpr GEP, loading from data_seg[" << curroffset << "]\n";
+                        }
+                        continue;
+                    } else {
+                        errs() << "[handle_callinst]   NOT found in value_map!\n";
+                    }
+                } else if (CE->getOpcode() == Instruction::BitCast) {
                     // For BitCast, get the underlying value
                     Value *underlyingValue = CE->getOperand(0);
                     if (isa<Function>(underlyingValue) || isa<GlobalValue>(underlyingValue)) {
@@ -873,6 +964,44 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         }
 
         if (value_map.find(currarg) == value_map.end()) {
+            // 检查是否是 GetElementPtrInst
+            if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(currarg)) {
+                // GetElementPtrInst：检查其操作数是否是全局变量
+                Value *ptrOperand = GEP->getPointerOperand();
+                if (GlobalVariable *GV = dyn_cast<GlobalVariable>(ptrOperand)) {
+                    // 全局变量的 GEP：从 gv_value_map 中查找偏移量
+                    if (gv_value_map.find(GV) != gv_value_map.end()) {
+                        unsigned curroffset = gv_value_map[GV];
+                        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                        Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), curroffset);
+                        Value * gepinst = IRBcon.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                        Value * ptr_addr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+                        Value * actual_ptr = IRBcon.CreateLoad(PointerType::get(Mod->getContext(), 0), ptr_addr);
+                        target_func_args.push_back(actual_ptr);
+                        if (isIRObfuscationDebugEnabled()) {
+                            errs() << "[handle_callinst] Arg " << idx << " is GetElementPtrInst of GlobalVariable, loading from data_seg[" << curroffset << "]\n";
+                        }
+                        continue;
+                    }
+                }
+            }
+            // 检查是否是全局变量
+            if (GlobalVariable *GV = dyn_cast<GlobalVariable>(currarg)) {
+                // 全局变量：从 gv_value_map 中查找偏移量
+                if (gv_value_map.find(GV) != gv_value_map.end()) {
+                    unsigned curroffset = gv_value_map[GV];
+                    ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+                    Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), curroffset);
+                    Value * gepinst = IRBcon.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+                    Value * ptr_addr = IRBcon.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+                    Value * actual_ptr = IRBcon.CreateLoad(PointerType::get(Mod->getContext(), 0), ptr_addr);
+                    target_func_args.push_back(actual_ptr);
+                    if (isIRObfuscationDebugEnabled()) {
+                        errs() << "[handle_callinst] Arg " << idx << " is GlobalVariable, loading from data_seg[" << curroffset << "]\n";
+                    }
+                    continue;
+                }
+            }
             // errs() << "[VMP] ERROR: arg not found in value_map for call: " << *inst << "\n";
             target_func_args.push_back(UndefValue::get(currarg->getType()));
             continue;
@@ -1667,7 +1796,7 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
     }
 
     else if(CallBase * inst = dyn_cast<CallBase>(ins)) {
-        
+
         if (isIRObfuscationDebugEnabled()) {
             Function *callee = inst->getCalledFunction();
             if (callee) {
@@ -1676,19 +1805,76 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
                 errs() << "[Translator] Handling CallBase (indirect call)\n";
             }
         }
-        
+
+        // 遍历参数，处理 ConstantExpr GEP 和 GetElementPtrInst (like stdout)
+        for (unsigned idx = 0; idx < inst->arg_size(); idx++) {
+            Value *currarg = inst->getArgOperand(idx);
+            errs() << "[Translator]   Arg " << idx << ": " << *currarg << "\n";
+            errs() << "[Translator]     Type: " << *currarg->getType() << "\n";
+            errs() << "[Translator]     IsConstant: " << isa<Constant>(currarg) << "\n";
+            errs() << "[Translator]     IsConstantExpr: " << isa<ConstantExpr>(currarg) << "\n";
+            errs() << "[Translator]     IsGetElementPtrInst: " << isa<GetElementPtrInst>(currarg) << "\n";
+
+            // 处理 ConstantExpr GEP
+            if (ConstantExpr *CE = dyn_cast<ConstantExpr>(currarg)) {
+                errs() << "[Translator]     Opcode: " << CE->getOpcodeName() << "\n";
+                if (CE->getOpcode() == Instruction::GetElementPtr) {
+                    errs() << "[Translator]   Found ConstantExpr GEP in arg " << idx << ", calling packValue...\n";
+                    // 调用 packValue 来填充 gep_value_map
+                    std::vector<uint8_t> packed = packValue(currarg, &value_map);
+                }
+            }
+            // 处理 GetElementPtrInst (like stdout)
+            else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(currarg)) {
+                errs() << "[Translator]     Found GetElementPtrInst in arg " << idx << "\n";
+                Value *ptrOperand = GEP->getPointerOperand();
+                errs() << "[Translator]       Pointer operand: " << *ptrOperand << "\n";
+                if (GlobalVariable *GV = dyn_cast<GlobalVariable>(ptrOperand)) {
+                    errs() << "[Translator]       Pointer is GlobalVariable: " << GV->getName() << "\n";
+                    // 将全局变量添加到 gv_value_map
+                    if (gv_value_map.find(GV) == gv_value_map.end()) {
+                        gv_value_map.insert({GV, curr_data_offset});
+                        insert_to_value_map(&value_map, GV, curr_data_offset);
+                        int res_size = modDataLayout->getTypeAllocSize(GV->getValueType());
+                        curr_data_offset += res_size;
+                        errs() << "[Translator]       Added GV to gv_value_map: offset=" << curr_data_offset - res_size << "\n";
+                    }
+
+                    // 计算 GEP 的偏移量
+                    APInt gep_offset(64, 0);
+                    if (GEP->accumulateConstantOffset(*modDataLayout, gep_offset)) {
+                        int offset_val = gep_offset.getSExtValue();
+                        errs() << "[Translator]       GEP offset: " << offset_val << "\n";
+
+                        // 将 GEP 信息添加到 gep_info_map
+                        int data_offset = curr_data_offset;
+                        insert_to_value_map(&value_map, currarg, curr_data_offset);
+                        curr_data_offset += pointer_size;
+
+                        GEPInfo info;
+                        info.GV = GV;
+                        info.gep_offset = offset_val;
+                        gep_info_map.insert({data_offset, info});
+
+                        errs() << "[Translator]       Added GEP to gep_info_map: data_offset=" << data_offset
+                               << ", gep_offset=" << offset_val << "\n";
+                    }
+                }
+            }
+        }
+
         // current function id
         long long curr_func_id = this->callinst_handler_curr_idx ++;
-        
+
         std::vector<uint8_t> packed_funcid = pack(curr_func_id, pointer_size);
-        
+
         // check if this callsite return a void
         std::vector<uint8_t> packed_res;
         if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
             // return a value
             Type *retType = inst->getType();
             int res_size = modDataLayout->getTypeAllocSize(retType);
-            
+
             if (isIRObfuscationDebugEnabled()) {
                 errs() << "[Translator]   Return type: " << *retType << "\n";
                 errs() << "[Translator]   Return type size: " << res_size << " bytes\n";
@@ -1698,12 +1884,12 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
                     errs() << "[Translator]   Struct name: " << (ST->hasName() ? ST->getName() : "<anonymous>") << "\n";
                     errs() << "[Translator]   Num elements: " << ST->getNumElements() << "\n";
                     for (unsigned i = 0; i < ST->getNumElements(); i++) {
-                        errs() << "[Translator]     Element " << i << ": " << *ST->getElementType(i) 
+                        errs() << "[Translator]     Element " << i << ": " << *ST->getElementType(i)
                                << " (size=" << modDataLayout->getTypeAllocSize(ST->getElementType(i)) << ")\n";
                     }
                 }
             }
-            
+
             insert_to_value_map(&value_map, inst, curr_data_offset);
             curr_data_offset += res_size;
 
@@ -2456,6 +2642,11 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         // 值操作数
         std::vector<uint8_t> packed_val = GET_PACK_VALUE(inst->getValOperand());
 
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[ATOMIC_RMW] packed_val size=" << packed_val.size() << "\n";
+            errs() << "[ATOMIC_RMW] val operand: " << *inst->getValOperand() << "\n";
+        }
+
         // 内存序
         AtomicOrdering ordering = inst->getOrdering();
         uint8_t ordering_val = 0;
@@ -2516,6 +2707,14 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
     }
 
     else{
+        // 遇到不支持的指令类型
+        has_unsupported_instruction = true;
+
+        // 打印警告信息
+        errs() << "[VMP Warning] Unsupported instruction in function '" << F->getName() << "':\n";
+        errs() << "[VMP Warning]   " << *ins << "\n";
+        errs() << "[VMP Warning]   Instruction type: " << ins->getOpcodeName() << "\n";
+        errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
     }
 }
 
@@ -2711,7 +2910,14 @@ bool GOVMTranslator::run(){
     // errs() << "[Translator] Finishing callinst_handler...\n";
     // callinst_handler fini
     finish_callinst_handler();
-    
+
+    // 检查是否遇到不支持的指令
+    if (has_unsupported_instruction) {
+        errs() << "[VMP Warning] Function '" << F->getName() << "' contains unsupported instructions.\n";
+        errs() << "[VMP Warning] VMP protection has been skipped for this function.\n";
+        return false;  // 返回 false 表示跳过虚拟化
+    }
+
     // errs() << "[Translator] Done!\n";
     return true;  // 返回 true 表示成功处理
 }
@@ -2729,9 +2935,10 @@ bool GOVMTranslator::run(){
  * The main class that modify the callsite of vm-function.
  */
 class GOVMModifier {
-    
+
     public:
-        GOVMModifier(Function * F, std::map<GlobalVariable *, int> *gv_value_map, std::map<Value *, int> *value_map,
+        GOVMModifier(Function * F, std::map<GlobalVariable *, int> *gv_value_map,
+                     std::map<int, GEPInfo> *gep_info_map, std::map<Value *, int> *value_map,
                      GlobalVariable *gv_data_seg, GlobalVariable *gv_code_seg,
                      GlobalVariable *ip, GlobalVariable *data_seg_addr, GlobalVariable *code_seg_addr,
                      Function *govm_interpreter, int data_seg_size) {
@@ -2739,6 +2946,7 @@ class GOVMModifier {
             this->F = F;
             this->modDataLayout = const_cast<DataLayout *>(&this->Mod->getDataLayout());
             this->gv_value_map = gv_value_map;
+            this->gep_info_map = gep_info_map;
             this->value_map = value_map;
             this->gv_data_seg = gv_data_seg;
             this->gv_code_seg = gv_code_seg;
@@ -2754,6 +2962,7 @@ class GOVMModifier {
         DataLayout * modDataLayout;
 
         std::map<GlobalVariable *, int> *gv_value_map;
+        std::map<int, GEPInfo> *gep_info_map;
         std::map<Value *, int> *value_map;
 
         GlobalVariable *gv_data_seg;
@@ -2846,6 +3055,36 @@ void GOVMModifier::run() {
         Value * ptr = irbuilder.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
 
         irbuilder.CreateStore(gv_addr_int, ptr);
+    }
+
+    // 存储 GEP 的结果地址
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[GOVMModifier]   Storing GEP result addresses (gep_info_map size=" << gep_info_map->size() << ")...\n";
+    }
+    for (auto p: *gep_info_map) {
+        int data_offset = p.first;
+        GEPInfo info = p.second;
+
+        errs() << "[GOVMModifier]   Processing GEP: data_offset=" << data_offset
+               << ", GV=" << info.GV->getName() << ", gep_offset=" << info.gep_offset << "\n";
+
+        // 获取全局变量的地址
+        Value * gv_addr_int = irbuilder.CreatePtrToInt(info.GV, Type::getInt64Ty(Mod->getContext()));
+
+        // 计算 GEP 结果地址
+        Value * offset_int = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), info.gep_offset);
+        Value * result_addr = irbuilder.CreateAdd(gv_addr_int, offset_int);
+
+        // 存储结果地址到 data_seg
+        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+        Value * data_offset_val = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), data_offset);
+        Value * gepinst = irbuilder.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, data_offset_val}, "");
+        Value * ptr = irbuilder.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+        irbuilder.CreateStore(result_addr, ptr);
+
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[GOVMModifier]     Stored GEP result at data_seg[" << data_offset << "]\n";
+        }
     }
 
     if (isIRObfuscationDebugEnabled()) {
@@ -3872,7 +4111,8 @@ struct VMProtect : public ModulePass {
         
         Function *vm_interpreter_func = F->getParent()->getFunction("vm_interpreter_"+F->getName().str());
         
-        GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_value_map(),
+        GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
+                                                    translator->get_value_map(),
                                                     translator->get_gv_data_seg(),
                                                     translator->get_gv_code_seg(),
                                                     translator->get_ip(),
@@ -4016,7 +4256,8 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
     
     Function *vm_interpreter_func = F->getParent()->getFunction("vm_interpreter_"+F->getName().str());
     
-    GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_value_map(),
+    GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
+                                                translator->get_value_map(),
                                                 translator->get_gv_data_seg(),
                                                 translator->get_gv_code_seg(),
                                                 translator->get_ip(),

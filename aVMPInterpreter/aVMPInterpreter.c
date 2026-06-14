@@ -1352,26 +1352,25 @@ void extractvalue_handler() {
 	uint8_t res_type = get_byte_code();
 	uint64_t res_offset = unpack_code(pointer_size);
 
-	// 聚合操作数的值（地址）
-	uint64_t agg_value = get_value();
+	// 聚合操作数的值（data_seg 中的偏移量）
+	uint8_t agg_size = get_byte_code();
+	uint8_t agg_type = get_byte_code();
+	uint64_t agg_offset = unpack_code(pointer_size);
 
-	// 偏移量
-	uint64_t offset = get_value();
+	// 偏移量（常量）
+	uint8_t offset_size = get_byte_code();
+	uint8_t offset_type = get_byte_code();
+	uint64_t offset = unpack_code(pointer_size);
 
 	// 结果类型大小
 	uint32_t value_size = (uint32_t)unpack_code(4);
 
-	// 从聚合值地址+offset处读取数据，存储到结果位置
-	uint64_t src_addr = agg_value + offset;
-	uint64_t result_value = 0;
+	// 从 data_seg 中读取聚合操作数的数据
+	// agg_offset 是 data_seg 中的偏移量，offset 是结构体中的偏移量
+	uint8_t *src_addr = (uint8_t*)data_seg_addr + agg_offset + offset;
 
-	// 读取value_size字节的数据
-	for (uint32_t i = 0; i < value_size && i < 8; i++) {
-		result_value |= ((uint64_t)((uint8_t *)src_addr)[i]) << (i * 8);
-	}
-
-	// 存储到结果位置
-	pack_store_addr(data_seg_addr + res_offset, result_value, res_size);
+	// 读取 value_size 字节的数据，存储到结果位置
+	memcpy((uint8_t*)data_seg_addr + res_offset, src_addr, value_size);
 }
 
 #ifdef IS_INLINE_FUNC
@@ -1815,6 +1814,11 @@ void vm_interpreter() {
 		uint8_t opcode = get_opcode();
 		DEBUG(DEBUG_ID_OPCODE, opcode);
 
+#ifdef GOVM_CPP_DEBUG
+		printf("[VM] opcode=%u ip=%lu\n", opcode, (unsigned long)(ip - code_seg_addr));
+		fflush(NULL);
+#endif
+
 		switch (opcode) {
 
 			case NOP_OP:
@@ -2063,39 +2067,75 @@ void vm_interpreter() {
 
 				// 解析操作类型
 				uint8_t op_val = get_byte_code();
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] op_val=%u\n", op_val);
+				fflush(NULL);
+#endif
 
 				// packed_res: 结果值（原始值）
 				uint8_t res_type_size = get_byte_code();
 				uint8_t res_type_id = get_byte_code();
 				uint64_t res_offset = unpack_code(pointer_size);
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] res_offset=%llu\n", (unsigned long long)res_offset);
+				fflush(NULL);
+#endif
 
 				// packed_ptr: 指针操作数
 				uint8_t ptr_type_size = get_byte_code();
 				uint8_t ptr_type_id = get_byte_code();
 				uint64_t ptr_offset = unpack_code(pointer_size);
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] ptr_offset=%llu\n", (unsigned long long)ptr_offset);
+				fflush(NULL);
+#endif
 
 				// packed_val: 值操作数
 				uint8_t val_type_size = get_byte_code();
 				uint8_t val_type_id = get_byte_code();
-				uint64_t val_offset = unpack_code(pointer_size);
+				uint64_t val;
+				if (val_type_id == 0) {
+					// 变量：读取偏移量
+					uint64_t val_offset = unpack_code(pointer_size);
+					val = unpack_data(val_offset, val_type_size);
+				} else {
+					// 常量：直接读取值
+					val = unpack_code(val_type_size);
+				}
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] val=%llu\n", (unsigned long long)val);
+				fflush(NULL);
+#endif
 
 				// 内存序
 				uint8_t ordering = get_byte_code();
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] ordering=%u\n", ordering);
+				fflush(NULL);
+#endif
 
 				// 值类型大小
 				uint32_t val_size = (uint32_t)unpack_code(4);
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] val_size=%u\n", val_size);
+				fflush(NULL);
+#endif
 
-				// 获取指针和值 - 修复：使用 unpack_data 从 data_seg 读取指针值
+				// 获取指针 - 修复：使用 unpack_data 从 data_seg 读取指针值
 				uint64_t ptr_value = unpack_data(ptr_offset, pointer_size);
 				uint8_t *ptr = (uint8_t*)ptr_value;
-				uint8_t *val = (uint8_t*)data_seg_addr + val_offset;
+
+#ifdef GOVM_CPP_DEBUG
+				printf("[ATOMIC_RMW] ptr_value=0x%llx val=%u\n", (unsigned long long)ptr_value, (uint32_t)val);
+				fflush(NULL);
+#endif
 
 				// 执行原子读-修改-写操作
 				uint8_t old_val[16];
 
 				// 根据操作类型和值大小执行相应的原子操作
 				if (val_size == 4) {
-					uint32_t operand = *(uint32_t*)val;
+					uint32_t operand = (uint32_t)val;
 					uint32_t old;
 
 					switch (op_val) {
@@ -2123,7 +2163,7 @@ void vm_interpreter() {
 					}
 					*(uint32_t*)old_val = old;
 				} else if (val_size == 8) {
-					uint64_t operand = *(uint64_t*)val;
+					uint64_t operand = val;
 					uint64_t old;
 
 					switch (op_val) {

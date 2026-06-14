@@ -1,14 +1,17 @@
-// 原子操作测试
+// 原子操作测试 (VMP)
 #include <stdio.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 
-int main() {
-    printf("=== Atomic Operations Test ===\n");
+#define VMP_PROTECT __attribute__((annotate("vmp")))
+
+VMP_PROTECT int main() {
+    printf("=== Atomic Operations Test (VMP) ===\n");
     fflush(stdout);
 
-    // 使用普通变量，手动调用原子操作
-    int counter = 0;
+    // 先声明变量，再赋值（避免初始化问题）
+    int counter;
+    counter = 0;
 
     printf("[DEBUG] counter initialized\n");
     fflush(stdout);
