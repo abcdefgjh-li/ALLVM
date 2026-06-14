@@ -2783,6 +2783,16 @@ void GOVMModifier::run() {
         errs() << "[GOVMModifier] Starting run() for function: " << F->getName() << "\n";
     }
 
+    // 强制使用 O0 优化级别
+    // 添加 optnone 属性禁用所有优化
+    F->addFnAttr(Attribute::OptimizeNone);
+    // 添加 noinline 属性禁用内联
+    F->addFnAttr(Attribute::NoInline);
+
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[GOVMModifier]   Added optnone and noinline attributes to force O0 optimization\n";
+    }
+
     std::string orig_name = F->getName().str();
     
     if (isIRObfuscationDebugEnabled()) {
