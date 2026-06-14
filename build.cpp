@@ -16,6 +16,7 @@ static std::string g_apk_output_dir;
 static std::string g_zstd_dir;
 
 static void init_paths() {
+    SetConsoleOutputCP(65001);
     char buf[MAX_PATH];
     GetModuleFileNameA(NULL, buf, MAX_PATH);
     std::string exe_path(buf);
@@ -82,12 +83,8 @@ static int run_cmd_vcvars(const std::string& vcvars, const std::string& cmd, con
     return ret;
 }
 
-// ========== compile_interpreter ==========
 static bool compile_interpreter(const std::string& target_triple) {
-    printf("\n============================================================\n");
-    printf("Compiling aVMPInterpreter (no obfuscation)...\n");
-    printf("Target: %s\n", target_triple.c_str());
-    printf("============================================================\n");
+    printf("[1/3] 编译解释器 (%s)...\n", target_triple.c_str());
     
     std::string interp_dir = g_script_dir + "\\aVMPInterpreter";
     std::string bc_file = interp_dir + "\\aVMPInterpreter.bc";
@@ -99,38 +96,32 @@ static bool compile_interpreter(const std::string& target_triple) {
     
     if (file_exists(ndk_clang)) {
         clang_path = ndk_clang;
-        printf("[INFO] Using NDK clang: %s\n", clang_path.c_str());
     } else if (file_exists(build_clang)) {
         clang_path = build_clang;
-        printf("[INFO] Using build clang: %s\n", clang_path.c_str());
     } else {
-        printf("Error: clang not found\n");
+        printf("  错误: 未找到 clang\n");
         return false;
     }
     
     std::string cmd = "\"" + clang_path + "\" -O2 -emit-llvm -c \"" + src_file + "\" -o \"" + bc_file + "\" -target " + target_triple + " -DGOVM_CPP_DEBUG";
-    printf("Running: %s\n", cmd.c_str());
     
     int ret = run_cmd(cmd);
     if (ret != 0) {
-        printf("Compilation failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
-    printf("Compilation successful!\n");
+    printf("  完成\n");
     return true;
 }
 
-// ========== generate_vm_h ==========
 static bool generate_vm_h() {
-    printf("\n============================================================\n");
-    printf("Generating vm.h...\n");
-    printf("============================================================\n");
+    printf("[2/3] 生成 vm.h...\n");
     
     std::string bc_file = g_script_dir + "\\aVMPInterpreter\\aVMPInterpreter.bc";
     std::string vm_h = g_script_dir + "\\llvm\\include\\llvm\\Transforms\\Obfuscation\\vm.h";
     
     if (!file_exists(bc_file)) {
-        printf("Error: %s not found\n", bc_file.c_str());
+        printf("  错误: 未找到 %s\n", bc_file.c_str());
         return false;
     }
     
@@ -140,7 +131,7 @@ static bool generate_vm_h() {
     
     FILE *f = fopen(vm_h.c_str(), "wb");
     if (!f) {
-        printf("Error: cannot write %s\n", vm_h.c_str());
+        printf("  错误: 无法写入 %s\n", vm_h.c_str());
         return false;
     }
     fprintf(f, "#include <string>\n");
@@ -161,11 +152,10 @@ static bool generate_vm_h() {
     fprintf(f, "}\n");
     fclose(f);
     
-    printf("Generated vm.h with binary_ir_length = %zu\n", data.size());
+    printf("  完成 (%zu 字节)\n", data.size());
     return true;
 }
 
-// ========== build_zstd ==========
 static bool build_zstd() {
     std::string zstd_src_dir = g_zstd_dir + "\\src";
     std::string zstd_build_dir = g_zstd_dir + "\\build";
@@ -174,93 +164,82 @@ static bool build_zstd() {
 
     std::string vcvars = find_vs();
     if (vcvars.empty()) {
-        printf("Error: Visual Studio not found!\n");
+        printf("错误: 未找到 Visual Studio!\n");
         return false;
     }
 
     if (file_exists(zstd_build_dir + "\\lib\\zstd_static.lib")) {
-        printf("\n[INFO] zstd already built at %s, skipping...\n", zstd_build_dir.c_str());
+        printf("[zstd] 已构建，跳过\n");
         return true;
     }
 
-    printf("\n============================================================\n");
-    printf("Building zstd (required for lld ZSTD support)...\n");
-    printf("============================================================\n");
+    printf("[zstd] 构建...\n");
 
     dir_create(g_zstd_dir);
 
     if (!dir_exists(zstd_src_dir)) {
-        printf("[1/3] Downloading zstd source...\n");
+        printf("  下载中...\n");
         std::string curl_cmd = "curl -L -o \"" + zstd_zip + "\" \"" + zstd_url + "\"";
-        printf("Running: %s\n", curl_cmd.c_str());
         int ret = run_cmd(curl_cmd);
         if (ret != 0) {
-            printf("Failed to download zstd source (code %d)\n", ret);
+            printf("  下载失败 (代码 %d)\n", ret);
             return false;
         }
 
-        printf("[2/3] Extracting zstd source...\n");
+        printf("  解压中...\n");
         std::string expand_cmd = "powershell -Command \"Expand-Archive -Path '" + zstd_zip + "' -DestinationPath '" + g_zstd_dir + "' -Force\"";
-        printf("Running: %s\n", expand_cmd.c_str());
         ret = run_cmd(expand_cmd);
         if (ret != 0) {
-            printf("Failed to extract zstd source (code %d)\n", ret);
+            printf("  解压失败 (代码 %d)\n", ret);
             return false;
         }
 
         std::string extracted_dir = g_zstd_dir + "\\zstd-1.5.6";
         if (!dir_exists(extracted_dir)) {
-            printf("Error: extracted directory not found at %s\n", extracted_dir.c_str());
+            printf("  错误: 解压目录不存在\n");
             return false;
         }
         if (!MoveFileExA(extracted_dir.c_str(), zstd_src_dir.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
-            printf("Warning: MoveFileExA failed (%d), using extracted dir directly\n", (int)GetLastError());
             zstd_src_dir = extracted_dir;
         }
 
         DeleteFileA(zstd_zip.c_str());
     }
 
-    printf("[3/3] Building zstd with CMake...\n");
+    printf("  CMake 配置...\n");
     dir_create(zstd_build_dir);
 
     std::string cmake_cmd = "cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "
                             "-DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON "
                             "-DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF "
                             "\"" + zstd_src_dir + "\\build\\cmake\"";
-    printf("CMake: %s\n", cmake_cmd.c_str());
 
     int ret = run_cmd_vcvars(vcvars, cmake_cmd, zstd_build_dir);
     if (ret != 0) {
-        printf("zstd CMake configure failed with code %d\n", ret);
+        printf("  CMake 失败 (代码 %d)\n", ret);
         return false;
     }
 
+    printf("  编译中...\n");
     std::string ninja_cmd = "ninja";
     ret = run_cmd_vcvars(vcvars, ninja_cmd, zstd_build_dir);
     if (ret != 0) {
-        printf("zstd build failed with code %d\n", ret);
+        printf("  编译失败 (代码 %d)\n", ret);
         return false;
     }
 
-    printf("[SUCCESS] zstd built successfully!\n");
+    printf("  完成\n");
     return true;
 }
 
-// ========== cmake_configure ==========
 static bool cmake_configure() {
-    printf("\n============================================================\n");
-    printf("CMake Configure (Windows)\n");
-    printf("============================================================\n");
-    printf("Build Dir: %s\n", g_build_dir.c_str());
-    printf("============================================================\n");
+    printf("[0/3] CMake 配置...\n");
     
     std::string vcvars = find_vs();
     if (vcvars.empty()) {
-        printf("Error: Visual Studio not found!\n");
+        printf("  错误: 未找到 Visual Studio!\n");
         return false;
     }
-    printf("[INFO] Using Visual Studio: %s\n", vcvars.c_str());
     
     dir_create(g_build_dir);
     
@@ -277,38 +256,27 @@ static bool cmake_configure() {
                             "-Dzstd_STATIC_LIBRARY=\"" + zstd_lib + "\" "
                             "../llvm";
     
-    printf("\n[INFO] Running CMake configure...\n");
-    printf("%s\n\n", cmake_cmd.c_str());
-    
     int ret = run_cmd_vcvars(vcvars, cmake_cmd, g_build_dir);
     if (ret != 0) {
-        printf("\nCMake configure failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
     
-    printf("\n============================================================\n");
-    printf("[SUCCESS] CMake configure completed!\n");
-    printf("============================================================\n");
+    printf("  完成\n");
     return true;
 }
 
-// ========== build_ollvm ==========
 static bool build_ollvm(const std::string& targets, int jobs) {
-    printf("\n============================================================\n");
-    printf("OLLVM Build (Ninja)\n");
-    printf("============================================================\n");
-    printf("Build Dir: %s\n", g_build_dir.c_str());
-    printf("Jobs: %d\n", jobs);
-    printf("============================================================\n");
+    printf("[3/3] 编译 OLLVM (-j%d)...\n", jobs);
     
     if (!file_exists(g_build_dir)) {
-        printf("Error: Build directory not found\n");
+        printf("  错误: 构建目录不存在\n");
         return false;
     }
     
     std::string vcvars = find_vs();
     if (vcvars.empty()) {
-        printf("Error: Visual Studio not found!\n");
+        printf("  错误: 未找到 Visual Studio!\n");
         return false;
     }
     
@@ -316,28 +284,21 @@ static bool build_ollvm(const std::string& targets, int jobs) {
     sprintf(jbuf, "%d", jobs);
     std::string ninja_cmd = std::string("ninja -j") + jbuf + " " + targets;
     
-    printf("\n[INFO] Building with %s...\n", ninja_cmd.c_str());
-    
     int ret = run_cmd_vcvars(vcvars, ninja_cmd, g_build_dir);
     if (ret != 0) {
-        printf("\nBuild failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
 
-    printf("\n============================================================\n");
-    printf("[SUCCESS] Build completed!\n");
-    printf("============================================================\n");
+    printf("  完成\n");
     return true;
 }
 
-// ========== replace_ndk_clang ==========
 static bool replace_ndk_clang() {
-    printf("\n============================================================\n");
-    printf("Replacing NDK clang with OLLVM...\n");
-    printf("============================================================\n");
+    printf("[4/3] 替换 NDK clang...\n");
     
     if (!file_exists(g_ndk_bin)) {
-        printf("[SKIP] NDK not found at %s\n", g_ndk_bin.c_str());
+        printf("  未找到 NDK，跳过\n");
         return true;
     }
     
@@ -352,19 +313,15 @@ static bool replace_ndk_clang() {
         std::string src = build_bin + "\\" + name;
         std::string dst = g_ndk_bin + "\\" + name;
         
-        if (!file_exists(src)) {
-            printf("  [SKIP] %s not found in build dir\n", name);
-            continue;
-        }
+        if (!file_exists(src)) continue;
         
         std::string backup = dst + ".bak";
         if (!file_exists(backup) && file_exists(dst)) {
-            printf("  Backing up %s...\n", name);
             copy_file(dst, backup);
         }
         
         copy_file(src, dst);
-        printf("  %s - OK\n", name);
+        printf("  %s 完成\n", name);
     }
 
     std::string lld_src = build_bin + "\\lld.exe";
@@ -372,28 +329,21 @@ static bool replace_ndk_clang() {
     if (file_exists(lld_src)) {
         std::string backup = lld_dst + ".bak";
         if (!file_exists(backup) && file_exists(lld_dst)) {
-            printf("  Backing up ld.lld.exe...\n");
             copy_file(lld_dst, backup);
         }
         copy_file(lld_src, lld_dst);
-        printf("  ld.lld.exe - OK\n");
+        printf("  ld.lld.exe 完成\n");
     }
     
-    printf("\n[SUCCESS] NDK clang replaced with OLLVM!\n");
+    printf("  替换完成\n");
     return true;
 }
 
-// ========== build_apk ==========
 static bool build_apk() {
-    printf("\n============================================================\n");
-    printf("Building Acode APK with Cordova...\n");
-    printf("============================================================\n");
-    printf("Acode Dir: %s\n", g_acode_dir.c_str());
-    printf("Output Dir: %s\n", g_apk_output_dir.c_str());
-    printf("============================================================\n");
+    printf("[APK] 构建调试版...\n");
     
     if (!dir_exists(g_acode_dir)) {
-        printf("Error: Acode directory not found at %s\n", g_acode_dir.c_str());
+        printf("  错误: 未找到 Acode 目录\n");
         return false;
     }
     
@@ -401,24 +351,24 @@ static bool build_apk() {
     
     std::string platforms_dir = g_acode_dir + "\\platforms";
     if (!dir_exists(platforms_dir)) {
-        printf("\n[0/3] Adding Cordova Android platform...\n");
+        printf("  添加 Cordova 平台...\n");
         int ret = run_cmd("npx cordova platform add android", g_acode_dir);
         if (ret != 0) {
-            printf("[WARN] Platform add failed with code %d, continuing...\n", ret);
+            printf("  警告: 平台添加失败，继续...\n");
         }
     }
     
-    printf("\n[1/2] Building web assets with rspack...\n");
+    printf("  构建前端资源...\n");
     int ret = run_cmd("npm run build", g_acode_dir);
     if (ret != 0) {
-        printf("rspack build failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
     
-    printf("\n[2/2] Building Android APK with Cordova...\n");
+    printf("  构建 APK...\n");
     ret = run_cmd("npx cordova build android", g_acode_dir);
     if (ret != 0) {
-        printf("Cordova build failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
     
@@ -427,41 +377,33 @@ static bool build_apk() {
     
     if (file_exists(apk_src)) {
         copy_file(apk_src, apk_dst);
-        printf("\n[SUCCESS] APK copied to: %s\n", apk_dst.c_str());
-    } else {
-        printf("\n[WARN] APK not found at expected location\n");
+        printf("  APK: %s\n", apk_dst.c_str());
     }
     
-    printf("\n============================================================\n");
-    printf("[SUCCESS] APK build completed!\n");
-    printf("============================================================\n");
     return true;
 }
 
-// ========== build_apk_release ==========
 static bool build_apk_release() {
-    printf("\n============================================================\n");
-    printf("Building Acode Release APK...\n");
-    printf("============================================================\n");
+    printf("[APK] 构建正式版...\n");
     
     if (!dir_exists(g_acode_dir)) {
-        printf("Error: Acode directory not found at %s\n", g_acode_dir.c_str());
+        printf("  错误: 未找到 Acode 目录\n");
         return false;
     }
     
     dir_create(g_apk_output_dir);
     
-    printf("\n[1/2] Building web assets...\n");
+    printf("  构建前端资源...\n");
     int ret = run_cmd("npm run build", g_acode_dir);
     if (ret != 0) {
-        printf("Build failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
     
-    printf("\n[2/2] Building release APK...\n");
+    printf("  构建正式版 APK...\n");
     ret = run_cmd("npx cordova build android --release", g_acode_dir);
     if (ret != 0) {
-        printf("Cordova release build failed with code %d\n", ret);
+        printf("  失败 (代码 %d)\n", ret);
         return false;
     }
     
@@ -470,26 +412,20 @@ static bool build_apk_release() {
     
     if (file_exists(apk_src)) {
         copy_file(apk_src, apk_dst);
-        printf("\n[SUCCESS] Release APK copied to: %s\n", apk_dst.c_str());
+        printf("  APK: %s\n", apk_dst.c_str());
     }
     
     return true;
 }
 
-// ========== main ==========
 int main(int argc, char* argv[]) {
     init_paths();
-    
-    printf("============================================================\n");
-    printf("OLLVM Build Script\n");
-    printf("============================================================\n");
     
     std::string target_triple = "aarch64-linux-android";
     int jobs = 32;
     bool build_apk_flag = false;
     bool build_apk_release_flag = false;
     
-    // Step flags
     bool step_zstd        = false;
     bool step_cmake       = true;
     bool step_interpreter = true;
@@ -533,15 +469,6 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    printf("\n[INFO] Steps: %s%s%s%s%s\n",
-           step_zstd        ? "zstd "        : "",
-           step_cmake       ? "cmake "       : "",
-           step_interpreter ? "interpreter " : "",
-           step_vmh         ? "vmh "         : "",
-           step_build       ? "build "       : "");
-    printf("[INFO] Ninja targets: %s\n", ninja_targets.c_str());
-    printf("[INFO] Jobs: %d\n", jobs);
-    
     if (step_zstd) {
         if (!build_zstd()) return 1;
     }
@@ -567,8 +494,6 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    printf("\n============================================================\n");
-    printf("All steps completed successfully!\n");
-    printf("============================================================\n");
+    printf("\n全部完成。\n");
     return 0;
 }
