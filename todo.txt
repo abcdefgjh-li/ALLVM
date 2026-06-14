@@ -40,6 +40,18 @@
   - 支持：std::current_exception、嵌套异常
   - 测试：所有动态类型解析测试通过（6个测试用例）
 
+- [x] **InvokeInst 完整支持**
+  - 实现：Call_OP + 条件分支处理 InvokeInst
+  - 功能：正确处理 normal 和 unwind 路径
+  - 支持：异常标志设置、异常传播
+  - 测试：所有 InvokeInst 测试通过（8个测试用例）
+
+- [x] **Funclet 语义支持**
+  - 实现：完整的 funclet 链支持
+  - 功能：析构函数调用（cleanup funclet）
+  - 支持：嵌套异常处理、异常安全性、异常传播
+  - 测试：所有 funclet 测试通过（8个测试用例）
+
 ---
 
 ## ❌ 待修复问题
@@ -49,11 +61,6 @@
 - [ ] **待补充**
 
 ---
-
-## 难度 4: 较难 (3-5天)
-
-- [ ] InvokeInst 完整支持 (当前转换为 CallInst)
-- [ ] Funclet 语义支持
 
 ## 难度 5: 困难 (1-2周)
 

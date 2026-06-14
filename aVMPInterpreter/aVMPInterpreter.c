@@ -1,5 +1,5 @@
 // Enable debug output unconditionally for testing
-// #define GOVM_CPP_DEBUG 1
+#define GOVM_CPP_DEBUG 1
 
 #include <stdio.h>
 #include <string.h>
@@ -1741,11 +1741,6 @@ void return_handler() {
 	if (var_size != 0 || var_type != 0) {
 		pack_store_addr((uint64_t)(uint8_t*)data_seg_addr, ret_value, var_size);
 	}
-	// we dont know (uint8_t*)data_seg_addr size, may segmentfault
-	// (uint8_t*)data_seg_addr_clean(var_size);
-	// for (unsigned i=var_size; i<SEG_SIZE; i++) {
-	//     ((uint8_t *)(uint8_t*)data_seg_addr)[i] = 0;
-	// }
 }
 
 // call_handler is declared extern in the header and replaced at link time

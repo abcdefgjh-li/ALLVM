@@ -1167,29 +1167,26 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     // Store result and create return
     // 问题：data_seg[0..callee_return_size-1] 存储被调用函数的返回值
     // 恢复 data_seg 时，应该跳过这个空间，保留被调用函数的返回值
-    
+
     // 获取被调用函数的返回值空间大小
     int callee_return_value_size = 0;
     if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
         callee_return_value_size = modDataLayout->getTypeAllocSize(inst->getType());
     }
-    
-    // 1. 读取返回值到临时变量
+
+    // 1. 保存返回值到临时变量
+    // 重要：返回值在 resultValue 中（寄存器），不在 data_seg[0] 中
     Value *saved_result = nullptr;
     if (inst->getType() != Type::getVoidTy(this->Mod->getContext())) {
-        // 从 data_seg[0] 读取返回值（函数返回值存储在这里）
-        ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-        Value * gepinst0 = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, Zero}, "");
-        Value * ptr0 = IRBcallFunction.CreatePointerCast(gepinst0, PointerType::get(Mod->getContext(), 0));
-        saved_result = IRBcallFunction.CreateLoad(inst->getType(), ptr0);
-    }
+        // 使用 wrapper 函数的返回值（resultValue），而不是从 data_seg[0] 读取
+        saved_result = resultValue;
 
-    // DEBUG: 添加调试输出
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[handle_callinst] callee_return_value_size=" << callee_return_value_size 
-               << ", data_seg_size=" << data_seg_size << "\n";
-        if (saved_result) {
-            errs() << "[handle_callinst] saved_result type: " << *saved_result->getType() << "\n";
+        // DEBUG: 添加调试输出
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[handle_callinst] saved_result from function return (not from data_seg[0])\n";
+            if (saved_result) {
+                errs() << "[handle_callinst] saved_result type: " << *saved_result->getType() << "\n";
+            }
         }
     }
 
@@ -1198,7 +1195,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     if (callee_return_value_size < data_seg_size) {
         Value *src_restore = IRBcallFunction.CreatePointerCast(saved_data_seg, PointerType::get(Mod->getContext(), 0));
         Value *dest_restore = IRBcallFunction.CreatePointerCast(gv_data_seg, PointerType::get(Mod->getContext(), 0));
-        
+
         // 恢复 data_seg[callee_return_size..end]
         // src = saved_data_seg + callee_return_value_size
         Value *src_restore_offset = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), src_restore, callee_return_value_size);
@@ -1206,13 +1203,13 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         Value *dest_restore_offset = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), dest_restore, callee_return_value_size);
         // size = data_seg_size - callee_return_value_size
         Value *alloc_size_minus_return = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), data_seg_size - callee_return_value_size);
-        
+
         // DEBUG: 添加调试输出
         if (isIRObfuscationDebugEnabled()) {
-            errs() << "[handle_callinst] Restoring data_seg[" << callee_return_value_size 
+            errs() << "[handle_callinst] Restoring data_seg[" << callee_return_value_size
                    << ".." << data_seg_size << "]\n";
         }
-        
+
         IRBcallFunction.CreateCall(memcpy_func, {dest_restore_offset, src_restore_offset, alloc_size_minus_return, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
     }
     
@@ -2547,19 +2544,21 @@ bool GOVMTranslator::run(){
     }
     
     curr_data_offset = 0;
-    
-    // if return not void, alloca a memory
+
+    // if return not void, alloca a memory at offset 0
     if (!F->getReturnType()->isVoidTy()) {
+        // 返回值存储在偏移量 0
+        // 注意：不需要插入到 value_map，因为返回值没有对应的 Value*
         curr_data_offset += modDataLayout->getTypeAllocSize(F->getReturnType());
     }
-    
+
     // parameter allocation
     if(!F->isVarArg()){
         for(auto arg = F->arg_begin(); arg != F->arg_end(); ++arg) {
-            
+
             Value * tmparg = &*arg;
             insert_to_value_map(&value_map, tmparg, curr_data_offset);
-            
+
             curr_data_offset += modDataLayout->getTypeAllocSize(tmparg->getType());
         }
     }
