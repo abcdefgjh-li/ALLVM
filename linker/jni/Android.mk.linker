@@ -1,0 +1,15 @@
+LOCAL_PATH := $(call my-dir)
+
+# 只编译 linker
+include $(CLEAR_VARS)
+LOCAL_MODULE := linker
+LOCAL_SRC_FILES := loader.cpp
+
+# C++ 标准和编译选项
+LOCAL_CFLAGS += -std=c++17 -Wall -Wextra -O2
+LOCAL_CPPFLAGS += -std=c++17 -Wall -Wextra -O2 -fexceptions -frtti
+
+# 链接选项 - 动态链接
+LOCAL_LDLIBS += -llog -ldl
+
+include $(BUILD_EXECUTABLE)

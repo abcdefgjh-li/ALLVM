@@ -1,0 +1,14 @@
+LOCAL_PATH := $(call my-dir)
+
+# 编译 minimal_test
+include $(CLEAR_VARS)
+LOCAL_MODULE := minimal_test
+LOCAL_SRC_FILES := minimal_test.c
+
+# C 编译选项
+LOCAL_CFLAGS += -Wall -Wextra -O2 -nostdlib
+
+# 链接选项 - 静态链接，不链接任何库
+LOCAL_LDFLAGS += -static -nostdlib
+
+include $(BUILD_EXECUTABLE)

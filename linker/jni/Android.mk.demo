@@ -1,0 +1,15 @@
+LOCAL_PATH := $(call my-dir)
+
+# 只编译 linker_demo
+include $(CLEAR_VARS)
+LOCAL_MODULE := linker_demo
+LOCAL_SRC_FILES := linker_demo.cpp
+
+# C++ 标准和编译选项 - 禁用异常和 RTTI
+LOCAL_CFLAGS += -std=c++17 -Wall -Wextra -O2 -fno-exceptions -fno-rtti
+LOCAL_CPPFLAGS += -std=c++17 -Wall -Wextra -O2 -fno-exceptions -fno-rtti
+
+# 链接选项
+LOCAL_LDLIBS += -llog
+
+include $(BUILD_EXECUTABLE)
