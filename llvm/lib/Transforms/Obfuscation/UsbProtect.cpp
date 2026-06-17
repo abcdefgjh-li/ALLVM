@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// 本文件实现USB调试禁用注入Pass，在程序入口点注入检测代码
-// 禁用USB调试并验证是否成功，失败则强制终止进程
+// 本文件实现USB调试保护注入Pass，在程序入口点注入保护代码
+// 尽力关闭USB调试；如果设备环境不支持，则静默跳过，避免误报误杀
 //
 //===----------------------------------------------------------------------===//
 
@@ -46,14 +46,14 @@ struct UsbProtect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createUsbCheckFunc(Module &M, Function *ReportAndKillFunc);
+    Function* createUsbCheckFunc(Module &M);
 };
 
 }
 
 char UsbProtect::ID = 0;
 
-Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc) {
+Function* UsbProtect::createUsbCheckFunc(Module &M) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
@@ -74,10 +74,8 @@ Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc)
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
     BasicBlock *CheckEnableBB = BasicBlock::Create(Ctx, "check_enable", Func);
-    BasicBlock *CheckEnableFailBB = BasicBlock::Create(Ctx, "check_enable_fail", Func);
     BasicBlock *CheckEnableOkBB = BasicBlock::Create(Ctx, "check_enable_ok", Func);
     BasicBlock *CheckFuncsBB = BasicBlock::Create(Ctx, "check_funcs", Func);
-    BasicBlock *CheckFuncsFailBB = BasicBlock::Create(Ctx, "check_funcs_fail", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
@@ -184,11 +182,7 @@ Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc)
     Constant *Needle1 = makeString("1");
     Value *Found1 = Builder.CreateCall(StrstrFunc, {Buf16Ptr, Needle1});
     Value *Found1NotNull = Builder.CreateICmpNE(Found1, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(Found1NotNull, CheckEnableFailBB, CheckFuncsBB);
-    
-    Builder.SetInsertPoint(CheckEnableFailBB);
-    Builder.CreateCall(ReportAndKillFunc);
-    Builder.CreateBr(ExitBB);
+    Builder.CreateCondBr(Found1NotNull, ExitBB, CheckFuncsBB);
     
     Builder.SetInsertPoint(CheckFuncsBB);
     Fp = Builder.CreateCall(FopenFunc, {FuncsPath, ReadMode});
@@ -225,11 +219,7 @@ Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc)
     AnyFound = Builder.CreateOr(AnyFound, FoundMassNotNull);
     AnyFound = Builder.CreateOr(AnyFound, FoundFileNotNull);
     
-    Builder.CreateCondBr(AnyFound, CheckFuncsFailBB, ExitBB);
-    
-    Builder.SetInsertPoint(CheckFuncsFailBB);
-    Builder.CreateCall(ReportAndKillFunc);
-    Builder.CreateBr(ExitBB);
+    Builder.CreateCondBr(AnyFound, ExitBB, ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
     Builder.CreateRetVoid();
@@ -239,7 +229,7 @@ Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc)
 
 bool UsbProtect::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] UsbProtect: Injecting USB detection\n";
+        errs() << "[DEBUG] UsbProtect: Injecting USB protection\n";
     }
 
     Function *MainFunc = M.getFunction("main");
@@ -253,8 +243,7 @@ bool UsbProtect::runOnModule(Module &M) {
 
     BasicBlock &EntryBB = MainFunc->getEntryBlock();
     
-    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M, "USB Debug");
-    Function *CheckFunc = createUsbCheckFunc(M, ReportAndKillFunc);
+    Function *CheckFunc = createUsbCheckFunc(M);
 
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
 
@@ -282,5 +271,5 @@ ModulePass *llvm::createUsbProtectPass() {
     return new UsbProtect();
 }
 
-INITIALIZE_PASS_BEGIN(UsbProtect, "usbprotect", "Inject USB debug disable at program start", false, false)
-INITIALIZE_PASS_END(UsbProtect, "usbprotect", "Inject USB debug disable at program start", false, false)
+INITIALIZE_PASS_BEGIN(UsbProtect, "usbprotect", "Inject USB debug protection at program start", false, false)
+INITIALIZE_PASS_END(UsbProtect, "usbprotect", "Inject USB debug protection at program start", false, false)

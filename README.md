@@ -88,19 +88,17 @@ int VMP_PROTECT main(int argc, char **argv) {
 |------|------|
 | `-mllvm -irobf-ldpreload` | LD_PRELOAD注入检测 |
 | `-mllvm -irobf-vmdetect` | VM虚拟机检测 |
-| `-mllvm -irobf-usb` | USB调试禁用检测 |
-| `-mllvm -irobf-ida` | IDA调试器检测 |
+| `-mllvm -irobf-usb` | USB调试保护 |
+| `-mllvm -irobf-ida` | 调试器检测（IDA端口 + TracerPid） |
 | `-mllvm -irobf-vpn` | VPN连接检测 |
 | `-mllvm -irobf-proxy` | 代理/iptables检测 |
 | `-mllvm -irobf-time` | 时间差调试检测 |
 | `-mllvm -irobf-hosts` | Hosts文件检测 |
-| `-mllvm -irobf-mem` | 内存驻留检测 |
-| `-mllvm -irobf-ptrace` | Ptrace调试器检测 |
-| `-mllvm -irobf-bandump` | 禁用内存Dump (移除读权限) |
+| `-mllvm -irobf-bandump` | 内存 Dump 保护 |
 | `-mllvm -irobf-no-aprotect` | 禁用 AProtect 启动输出（默认启用） |
 | `-mllvm -irobf-root` | Root检测 (有root退出) |
 | `-mllvm -irobf-noroot` | 无Root检测 (无root退出) |
-| `-mllvm -irobf-hidemaps` | 隐藏Maps文件 (需Root) |
+| `-mllvm -irobf-hidemaps` | 隐藏 Maps 保护 (需Root) |
 | `-mllvm -irobf-fakemaps` | 伪造Maps内容 |
 
 ### 系统调用保护
@@ -141,14 +139,11 @@ int VMP_PROTECT main(int argc, char **argv) {
 1. 检测类Pass (最先注入，运行时最先执行)
    └─ LdPreloadProtect    (LD_PRELOAD注入检测)
    └─ VmProtectDetect     (VM虚拟机检测)
-   └─ UsbProtect          (USB调试禁用)
-   └─ IdaDetect           (IDA调试器检测)
+   └─ IdaDetect           (调试器检测)
    └─ VpnDetect           (VPN连接检测)
    └─ ProxyDetect         (代理/iptables检测)
    └─ TimeDetect          (时间差调试检测)
    └─ HostsDetect         (Hosts文件检测)
-   └─ MemDetect           (内存驻留检测)
-   └─ PtraceDetect        (Ptrace调试器检测)
    └─ RootDetect          (Root检测)
    └─ NoRootDetect        (无Root检测)
 
@@ -158,10 +153,11 @@ int VMP_PROTECT main(int argc, char **argv) {
 3. VMProtect (虚拟机保护)
    └─ 函数虚拟化保护
 
-4. OLLVM混淆 (代码混淆保护)
-   └─ HideMaps            (隐藏Maps文件)
+4. 保护类Pass
+   └─ UsbProtect          (USB调试保护)
+   └─ HideMaps            (隐藏 Maps 保护)
    └─ FakeMaps            (伪造Maps内容)
-   └─ BanDump             (禁用内存Dump)
+   └─ BanDump             (内存 Dump 保护)
    └─ ConstantIntEncryption
    └─ ConstantFPEncryption
    └─ StringEncryption
@@ -241,8 +237,6 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 # LOCAL_CFLAGS += -mllvm -irobf-proxy
 # LOCAL_CFLAGS += -mllvm -irobf-time
 # LOCAL_CFLAGS += -mllvm -irobf-hosts
-# LOCAL_CFLAGS += -mllvm -irobf-mem
-# LOCAL_CFLAGS += -mllvm -irobf-ptrace
 # LOCAL_CFLAGS += -mllvm -irobf-bandump
 # LOCAL_CFLAGS += -mllvm -irobf-no-aprotect  # 禁用 AProtect 输出（默认启用）
 # LOCAL_CFLAGS += -mllvm -irobf-root
@@ -269,16 +263,14 @@ include $(BUILD_EXECUTABLE)
 | `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
 | `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
 | `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | AProtect 保护 |
-| `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 禁用内存Dump |
+| `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 内存 Dump 保护 |
 | `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
-| `llvm\lib\Transforms\Obfuscation\PtraceDetect.cpp` | Ptrace 反调试检测 |
-| `llvm\lib\Transforms\Obfuscation\MemDetect.cpp` | 内存检测 |
-| `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 Maps 保护 |
 | `llvm\lib\Transforms\Obfuscation\FakeMaps.cpp` | 伪造 maps 文件 |
 | `llvm\lib\Transforms\Obfuscation\RootDetect.cpp` | Root 检测 |
 | `llvm\lib\Transforms\Obfuscation\NoRootDetect.cpp` | 非Root检测 |
 | `llvm\lib\Transforms\Obfuscation\VmProtectDetect.cpp` | VMProtect 检测 |
-| `llvm\lib\Transforms\Obfuscation\IdaDetect.cpp` | IDA Pro 检测 |
+| `llvm\lib\Transforms\Obfuscation\IdaDetect.cpp` | 调试器检测 |
 | `llvm\lib\Transforms\Obfuscation\VpnDetect.cpp` | VPN 检测 |
 | `llvm\lib\Transforms\Obfuscation\ProxyDetect.cpp` | 代理检测 |
 | `llvm\lib\Transforms\Obfuscation\TimeDetect.cpp` | 时间检测 |
@@ -326,9 +318,9 @@ include $(BUILD_EXECUTABLE)
   - 修复无限递归问题，使用内联汇编直接调用 syscall
   - 保留 read, write, exit 等核心函数的替换
   - 移除 fopen 替换（无法避免递归）
-- **修复 PtraceDetect**:
-  - 修复双重 ptrace 调用导致的误报
-  - 改用检查 /proc/self/status 中的 TracerPid
+- **调试器检测整合**:
+  - 将 TracerPid 检查并入统一调试器检测
+  - 使用检查 /proc/self/status 中的 TracerPid 方式识别附加调试
 - **修复 UsbProtect**:
   - 修复当系统文件不存在时的崩溃问题
 - **修复 VmProtectDetect**:

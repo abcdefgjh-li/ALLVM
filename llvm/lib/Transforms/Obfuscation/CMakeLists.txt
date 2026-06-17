@@ -24,8 +24,6 @@ add_llvm_library(LLVMObfuscation
   ProxyDetect.cpp
   TimeDetect.cpp
   HostsDetect.cpp
-  MemDetect.cpp
-  PtraceDetect.cpp
   HideMaps.cpp
   FakeMaps.cpp
   RootDetect.cpp

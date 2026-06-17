@@ -199,13 +199,7 @@ void MainWindow::onInjectFlags() {
     auto passChecks = m_mainTab->passChecks();
     for (const auto &pc : passChecks) {
         if (pc.chk->isChecked()) {
-            if (pc.flag == "irobf-memmaps") {
-                flags << "-mllvm" << "-irobf-bandump";
-                flags << "-mllvm" << "-irobf-hidemaps";
-                flags << "-mllvm" << "-irobf-fakemaps";
-            } else {
-                flags << "-mllvm" << "-" + pc.flag;
-            }
+            flags << "-mllvm" << "-" + pc.flag;
         }
         if (pc.levelCombo && pc.chk->isChecked()) {
             int lvl = pc.levelCombo->currentIndex() + 1;

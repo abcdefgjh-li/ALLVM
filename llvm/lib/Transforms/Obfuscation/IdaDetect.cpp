@@ -1,4 +1,4 @@
-//===- IdaDetect.cpp - IDA调试器检测注入Pass -------------------===//
+//===- IdaDetect.cpp - 调试器检测注入Pass -----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// 本文件实现IDA调试器检测注入Pass，在程序入口点注入检测代码
-// 检测IDA调试器的默认端口23946
+// 本文件实现调试器检测注入Pass，在程序入口点注入检测代码
+// 检测IDA调试器默认端口23946，并复用TracerPid检测
 //
 //===----------------------------------------------------------------------===//
 
@@ -41,19 +41,19 @@ struct IdaDetect : public ModulePass {
     }
 
     StringRef getPassName() const override {
-        return {"IdaDetect"};
+        return {"DebuggerDetect"};
     }
 
     bool runOnModule(Module &M) override;
     
-    Function* createIdaCheckFunc(Module &M, Function *reportFunc);
+    Function* createDebuggerPortCheckFunc(Module &M, Function *reportFunc);
 };
 
 }
 
 char IdaDetect::ID = 0;
 
-Function* IdaDetect::createIdaCheckFunc(Module &M, Function *reportFunc) {
+Function* IdaDetect::createDebuggerPortCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
@@ -66,7 +66,7 @@ Function* IdaDetect::createIdaCheckFunc(Module &M, Function *reportFunc) {
         FuncTy,
         GlobalValue::InternalLinkage,
         M.getDataLayout().getProgramAddressSpace(),
-        "check_ida",
+        "check_debugger_port",
         &M
     );
     
@@ -75,6 +75,7 @@ Function* IdaDetect::createIdaCheckFunc(Module &M, Function *reportFunc) {
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
     BasicBlock *CheckPortBB = BasicBlock::Create(Ctx, "check_port", Func);
     BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
+    BasicBlock *CleanupBB = BasicBlock::Create(Ctx, "cleanup", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
@@ -161,27 +162,26 @@ Function* IdaDetect::createIdaCheckFunc(Module &M, Function *reportFunc) {
         SockFd, AddrCast, ConstantInt::get(Int32Ty, 16)
     });
     
-    // connect返回0表示成功连接（IDA正在监听）
-    Value *IdaFound = Builder.CreateICmpEQ(ConnectRet, ConstantInt::get(Int32Ty, 0));
-    Builder.CreateCondBr(IdaFound, FoundBB, ExitBB);
+    // connect返回0表示成功连接（例如IDA调试器正在监听）
+    Value *DebuggerFound = Builder.CreateICmpEQ(ConnectRet, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(DebuggerFound, FoundBB, CleanupBB);
     
     Builder.SetInsertPoint(FoundBB);
     
-    // 关闭socket
+    // 调用报告函数
+    Builder.CreateCall(reportFunc);
+    Builder.CreateUnreachable();
+
+    Builder.SetInsertPoint(CleanupBB);
+
     FunctionCallee CloseFunc = M.getOrInsertFunction(
         "close",
         FunctionType::get(Int32Ty, {Int32Ty}, false)
     );
     Builder.CreateCall(CloseFunc, {SockFd});
-    
-    // 调用报告函数
-    Builder.CreateCall(reportFunc);
     Builder.CreateBr(ExitBB);
-    
+
     Builder.SetInsertPoint(ExitBB);
-    
-    // 关闭socket（如果还没关闭）
-    Builder.CreateCall(CloseFunc, {SockFd});
     Builder.CreateRetVoid();
     
     return Func;
@@ -189,7 +189,7 @@ Function* IdaDetect::createIdaCheckFunc(Module &M, Function *reportFunc) {
 
 bool IdaDetect::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] IdaDetect: Injecting IDA detection\n";
+        errs() << "[DEBUG] IdaDetect: Injecting debugger detection\n";
     }
 
     Function *MainFunc = M.getFunction("main");
@@ -198,21 +198,22 @@ bool IdaDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "IDA Debugger");
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "Debugger");
     
-    // 创建IDA检测函数
-    Function *CheckFunc = createIdaCheckFunc(M, ReportFunc);
+    // 在同一选项下整合端口监听和TracerPid两类调试器检测
+    Function *CheckFunc = createDebuggerPortCheckFunc(M, ReportFunc);
+    Function *TracerPidCheckFunc = DetectUtils::createTracerPidCheckFunc(M, ReportFunc);
     
-    // 配置选项
-    DetectOptions opts = DetectOptions::create(false);  // 不使用线程
-    
-    // 注入到main函数
-    return DetectUtils::injectToMain(M, CheckFunc, opts);
+    BasicBlock &EntryBB = MainFunc->getEntryBlock();
+    IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
+    Builder.CreateCall(CheckFunc);
+    Builder.CreateCall(TracerPidCheckFunc);
+    return true;
 }
 
 ModulePass *llvm::createIdaDetectPass() {
     return new IdaDetect();
 }
 
-INITIALIZE_PASS_BEGIN(IdaDetect, "idadetect", "Inject IDA debugger detection at program start", false, false)
-INITIALIZE_PASS_END(IdaDetect, "idadetect", "Inject IDA debugger detection at program start", false, false)
+INITIALIZE_PASS_BEGIN(IdaDetect, "idadetect", "Inject debugger detection at program start", false, false)
+INITIALIZE_PASS_END(IdaDetect, "idadetect", "Inject debugger detection at program start", false, false)

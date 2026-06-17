@@ -86,21 +86,25 @@ QString HelpDocument::generateHelpContent() {
 | 功能 | 参数 | 说明 |
 |------|------|------|
 | **RTTI 擦除** | `-irobf-rtti` | 移除 C++ RTTI 类型信息 |
-| **系统调用保护** | `-irobf-syscall` | 替换 libc 函数为直接 syscall，防止 Hook |
-| **内存保护** | `-irobf-memprotect` | 内存 Dump 保护 |
-| **内存Dump & Maps保护** | `-irobf-memmaps` | 组合保护：禁用内存Dump + 隐藏Maps + 伪造Maps |
 | **LD_PRELOAD 检测** | `-irobf-ldpreload` | 检测 LD_PRELOAD 注入 |
 | **虚拟机检测** | `-irobf-vmdetect` | 检测是否在虚拟机中运行 |
-| **USB 调试保护** | `-irobf-usb` | 禁用 USB 调试 |
-| **IDA 调试器检测** | `-irobf-ida` | 检测 IDA Pro 调试器 |
+| **调试器检测** | `-irobf-ida` | 统一检测 IDA 端口监听和 TracerPid 调试附加 |
 | **VPN 检测** | `-irobf-vpn` | 检测 VPN 连接 |
 | **代理/iptables 检测** | `-irobf-proxy` | 检测代理和 iptables |
 | **时间差检测** | `-irobf-time` | 检测时间差调试 |
 | **Hosts 文件检测** | `-irobf-hosts` | 检测 Hosts 文件篡改 |
-| **内存检测** | `-irobf-mem` | 内存驻留检测 |
-| **Ptrace 检测** | `-irobf-ptrace` | 检测 Ptrace 调试器 |
 | **Root 检测** | `-irobf-root` | 检测 Root 环境（有 Root 则退出） |
 | **非 Root 检测** | `-irobf-noroot` | 检测非 Root 环境（无 Root 则退出） |
+
+### 保护
+
+| 功能 | 参数 | 说明 |
+|------|------|------|
+| **系统调用保护** | `-irobf-syscall` | 替换 libc 函数为直接 syscall，防止 Hook |
+| **USB 调试保护** | `-irobf-usb` | 尝试关闭 USB 调试；设备不支持时静默跳过 |
+| **内存 Dump 保护** | `-irobf-bandump` | 使用 `mlockall`、`setrlimit`、`prctl(PR_SET_DUMPABLE, 0)` 禁止转储 |
+| **隐藏 Maps 保护** | `-irobf-hidemaps` | Root 环境下生成假 maps 并 bind mount 到 `/proc/self/maps` |
+| **伪造 Maps 内容** | `-irobf-fakemaps` | 生成伪造的 maps 内容用于迷惑分析 |
 
 ### 其他功能
 

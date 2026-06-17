@@ -26,8 +26,6 @@
 #include "llvm/Transforms/Obfuscation/ProxyDetect.h"
 #include "llvm/Transforms/Obfuscation/TimeDetect.h"
 #include "llvm/Transforms/Obfuscation/HostsDetect.h"
-#include "llvm/Transforms/Obfuscation/MemDetect.h"
-#include "llvm/Transforms/Obfuscation/PtraceDetect.h"
 #include "llvm/Transforms/Obfuscation/HideMaps.h"
 #include "llvm/Transforms/Obfuscation/FakeMaps.h"
 #include "llvm/Transforms/Obfuscation/RootDetect.h"
@@ -158,12 +156,12 @@ EnableVmProtectDetect("irobf-vmdetect", cl::init(false), cl::NotHidden,
 
 static cl::opt<bool>
 EnableUsbProtect("irobf-usb", cl::init(false), cl::NotHidden,
-                 cl::desc("Enable USB debug disable injection."),
+                 cl::desc("Enable USB debug protection."),
                  cl::ZeroOrMore);
 
 static cl::opt<bool>
 EnableIdaDetect("irobf-ida", cl::init(false), cl::NotHidden,
-                cl::desc("Enable IDA debugger detection."),
+                cl::desc("Enable debugger detection (IDA port + TracerPid)."),
                 cl::ZeroOrMore);
 
 static cl::opt<bool>
@@ -187,18 +185,8 @@ EnableHostsDetect("irobf-hosts", cl::init(false), cl::NotHidden,
                   cl::ZeroOrMore);
 
 static cl::opt<bool>
-EnableMemDetect("irobf-mem", cl::init(false), cl::NotHidden,
-                cl::desc("Enable memory detection."),
-                cl::ZeroOrMore);
-
-static cl::opt<bool>
-EnablePtraceDetect("irobf-ptrace", cl::init(false), cl::NotHidden,
-                   cl::desc("Enable ptrace debugger detection."),
-                   cl::ZeroOrMore);
-
-static cl::opt<bool>
 EnableHideMaps("irobf-hidemaps", cl::init(false), cl::NotHidden,
-               cl::desc("Enable hide /proc/self/maps (requires root)."),
+               cl::desc("Enable /proc/self/maps hiding protection (requires root)."),
                cl::ZeroOrMore);
 
 static cl::opt<bool>
@@ -223,7 +211,7 @@ EnableSyscallProtect("irobf-syscall", cl::init(false), cl::NotHidden,
 
 static cl::opt<bool>
 EnableBanDump("irobf-bandump", cl::init(false), cl::NotHidden,
-              cl::desc("Enable memory dump protection by removing read permission from executable memory."),
+              cl::desc("Enable anti-dump protection."),
               cl::ZeroOrMore);
 
 static cl::opt<std::string>
@@ -354,8 +342,7 @@ namespace llvm {
 			    EnableIRConstantIntEncryption || EnableIRConstantFPEncryption ||
 			    EnableRttiEraser || EnableVMProtect || EnableLdPreloadProtect ||
 			    EnableVmProtectDetect || EnableUsbProtect || EnableIdaDetect || EnableVpnDetect ||
-			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect || EnableMemDetect ||
-			    EnablePtraceDetect ||
+			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect ||
 			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect ||
 			    EnableSyscallProtect || EnableBanDump ||
 			    !SamsaraConfigPath.empty();
@@ -388,16 +375,14 @@ namespace llvm {
 				if (EnableSyscallProtect) errs() << "  + SyscallProtect\n";
 				if (EnableLdPreloadProtect) errs() << "  + LdPreloadProtect\n";
 				if (EnableVmProtectDetect) errs() << "  + VmProtectDetect\n";
-				if (EnableUsbProtect) errs() << "  + UsbProtect\n";
-				if (EnableIdaDetect) errs() << "  + IdaDetect\n";
+				if (EnableIdaDetect) errs() << "  + DebuggerDetect\n";
 				if (EnableVpnDetect) errs() << "  + VpnDetect\n";
 				if (EnableProxyDetect) errs() << "  + ProxyDetect\n";
 				if (EnableTimeDetect) errs() << "  + TimeDetect\n";
 				if (EnableHostsDetect) errs() << "  + HostsDetect\n";
-				if (EnableMemDetect) errs() << "  + MemDetect\n";
-				if (EnablePtraceDetect) errs() << "  + PtraceDetect\n";
 				if (EnableRootDetect) errs() << "  + RootDetect\n";
 			if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
+			if (EnableUsbProtect) errs() << "  + UsbProtect\n";
 			if (EnableHideMaps) errs() << "  + HideMaps\n";
 			if (EnableFakeMaps) errs() << "  + FakeMaps\n";
 			if (EnableBanDump) errs() << "  + BanDump\n";
@@ -411,10 +396,6 @@ namespace llvm {
 
 			if (EnableVmProtectDetect) {
 				add(llvm::createVmProtectDetectPass());
-			}
-
-			if (EnableUsbProtect) {
-				add(llvm::createUsbProtectPass());
 			}
 
 			if (EnableIdaDetect) {
@@ -437,14 +418,6 @@ namespace llvm {
 				add(llvm::createHostsDetectPass());
 			}
 
-			if (EnableMemDetect) {
-				add(llvm::createMemDetectPass());
-			}
-
-			if (EnablePtraceDetect) {
-				add(llvm::createPtraceDetectPass());
-			}
-
 			if (EnableRootDetect) {
 				add(llvm::createRootDetectPass());
 			}
@@ -463,7 +436,11 @@ namespace llvm {
 				add(llvm::createVMProtectPass(true));
 			}
 
-			// ========== 4. OLLVM混淆 ==========
+			// ========== 4. 保护类Pass ==========
+			if (EnableUsbProtect) {
+				add(llvm::createUsbProtectPass());
+			}
+
 			if (EnableHideMaps) {
 				add(llvm::createHideMapsPass());
 			}
