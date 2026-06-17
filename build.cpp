@@ -16,7 +16,6 @@ static std::string g_apk_output_dir;
 static std::string g_zstd_dir;
 
 static void init_paths() {
-    SetConsoleOutputCP(65001);
     char buf[MAX_PATH];
     GetModuleFileNameA(NULL, buf, MAX_PATH);
     std::string exe_path(buf);
@@ -56,7 +55,7 @@ static int run_cmd(const std::string& cmd, const std::string& cwd = "") {
     std::string bat_file = cwd.empty() ? "build_tmp.bat" : cwd + "\\build_tmp.bat";
     FILE *f = fopen(bat_file.c_str(), "wb");
     if (!f) return -1;
-    fprintf(f, "@echo off\r\n");
+    fprintf(f, "@echo off\r\nchcp 65001 >nul\r\n");
     if (!cwd.empty()) fprintf(f, "cd /d \"%s\"\r\n", cwd.c_str());
     fprintf(f, "%s\r\n", cmd.c_str());
     fprintf(f, "exit /b %%ERRORLEVEL%%\r\n");
@@ -71,7 +70,7 @@ static int run_cmd_vcvars(const std::string& vcvars, const std::string& cmd, con
     std::string bat_file = cwd.empty() ? "build_tmp.bat" : cwd + "\\build_tmp.bat";
     FILE *f = fopen(bat_file.c_str(), "wb");
     if (!f) return -1;
-    fprintf(f, "@echo off\r\n");
+    fprintf(f, "@echo off\r\nchcp 65001 >nul\r\n");
     fprintf(f, "call \"%s\" >nul 2>&1\r\n", vcvars.c_str());
     if (!cwd.empty()) fprintf(f, "cd /d \"%s\"\r\n", cwd.c_str());
     fprintf(f, "%s\r\n", cmd.c_str());
@@ -83,8 +82,9 @@ static int run_cmd_vcvars(const std::string& vcvars, const std::string& cmd, con
     return ret;
 }
 
+// ========== compile_interpreter ==========
 static bool compile_interpreter(const std::string& target_triple) {
-    printf("[1/3] 编译解释器 (%s)...\n", target_triple.c_str());
+    printf("\n[1/3] 编译 aVMPInterpreter (目标: %s)...\n", target_triple.c_str());
     
     std::string interp_dir = g_script_dir + "\\aVMPInterpreter";
     std::string bc_file = interp_dir + "\\aVMPInterpreter.bc";
@@ -99,29 +99,30 @@ static bool compile_interpreter(const std::string& target_triple) {
     } else if (file_exists(build_clang)) {
         clang_path = build_clang;
     } else {
-        printf("  错误: 未找到 clang\n");
+        printf("[错误] 未找到 clang\n");
         return false;
     }
     
-    std::string cmd = "\"" + clang_path + "\" -O2 -emit-llvm -c \"" + src_file + "\" -o \"" + bc_file + "\" -target " + target_triple + " -DGOVM_CPP_DEBUG";
+    std::string cmd = "\"" + clang_path + "\" -O2 -emit-llvm -c \"" + src_file + "\" -o \"" + bc_file + "\" -target " + target_triple;
     
     int ret = run_cmd(cmd);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] 编译失败 (代码: %d)\n", ret);
         return false;
     }
-    printf("  完成\n");
+    printf("[完成] aVMPInterpreter 编译成功\n");
     return true;
 }
 
+// ========== generate_vm_h ==========
 static bool generate_vm_h() {
-    printf("[2/3] 生成 vm.h...\n");
+    printf("\n[2/3] 生成 vm.h...\n");
     
     std::string bc_file = g_script_dir + "\\aVMPInterpreter\\aVMPInterpreter.bc";
     std::string vm_h = g_script_dir + "\\llvm\\include\\llvm\\Transforms\\Obfuscation\\vm.h";
     
     if (!file_exists(bc_file)) {
-        printf("  错误: 未找到 %s\n", bc_file.c_str());
+        printf("[错误] 未找到 %s\n", bc_file.c_str());
         return false;
     }
     
@@ -131,7 +132,7 @@ static bool generate_vm_h() {
     
     FILE *f = fopen(vm_h.c_str(), "wb");
     if (!f) {
-        printf("  错误: 无法写入 %s\n", vm_h.c_str());
+        printf("[错误] 无法写入 %s\n", vm_h.c_str());
         return false;
     }
     fprintf(f, "#include <string>\n");
@@ -152,10 +153,11 @@ static bool generate_vm_h() {
     fprintf(f, "}\n");
     fclose(f);
     
-    printf("  完成 (%zu 字节)\n", data.size());
+    printf("[完成] vm.h 已生成 (大小: %zu 字节)\n", data.size());
     return true;
 }
 
+// ========== build_zstd ==========
 static bool build_zstd() {
     std::string zstd_src_dir = g_zstd_dir + "\\src";
     std::string zstd_build_dir = g_zstd_dir + "\\build";
@@ -164,49 +166,46 @@ static bool build_zstd() {
 
     std::string vcvars = find_vs();
     if (vcvars.empty()) {
-        printf("错误: 未找到 Visual Studio!\n");
+        printf("[错误] 未找到 Visual Studio!\n");
         return false;
     }
 
     if (file_exists(zstd_build_dir + "\\lib\\zstd_static.lib")) {
-        printf("[zstd] 已构建，跳过\n");
+        printf("[跳过] zstd 已编译\n");
         return true;
     }
 
-    printf("[zstd] 构建...\n");
+    printf("\n[构建] zstd...\n");
 
     dir_create(g_zstd_dir);
 
     if (!dir_exists(zstd_src_dir)) {
-        printf("  下载中...\n");
+        printf("  -> 下载 zstd 源码...\n");
         std::string curl_cmd = "curl -L -o \"" + zstd_zip + "\" \"" + zstd_url + "\"";
         int ret = run_cmd(curl_cmd);
         if (ret != 0) {
-            printf("  下载失败 (代码 %d)\n", ret);
+            printf("[错误] 下载失败 (代码: %d)\n", ret);
             return false;
         }
 
-        printf("  解压中...\n");
+        printf("  -> 解压 zstd...\n");
         std::string expand_cmd = "powershell -Command \"Expand-Archive -Path '" + zstd_zip + "' -DestinationPath '" + g_zstd_dir + "' -Force\"";
         ret = run_cmd(expand_cmd);
         if (ret != 0) {
-            printf("  解压失败 (代码 %d)\n", ret);
+            printf("[错误] 解压失败 (代码: %d)\n", ret);
             return false;
         }
 
         std::string extracted_dir = g_zstd_dir + "\\zstd-1.5.6";
         if (!dir_exists(extracted_dir)) {
-            printf("  错误: 解压目录不存在\n");
+            printf("[错误] 解压目录不存在\n");
             return false;
         }
-        if (!MoveFileExA(extracted_dir.c_str(), zstd_src_dir.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
-            zstd_src_dir = extracted_dir;
-        }
-
+        MoveFileExA(extracted_dir.c_str(), zstd_src_dir.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED);
         DeleteFileA(zstd_zip.c_str());
     }
 
-    printf("  CMake 配置...\n");
+    printf("  -> 编译 zstd...\n");
     dir_create(zstd_build_dir);
 
     std::string cmake_cmd = "cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "
@@ -216,32 +215,37 @@ static bool build_zstd() {
 
     int ret = run_cmd_vcvars(vcvars, cmake_cmd, zstd_build_dir);
     if (ret != 0) {
-        printf("  CMake 失败 (代码 %d)\n", ret);
+        printf("[错误] CMake 配置失败 (代码: %d)\n", ret);
         return false;
     }
 
-    printf("  编译中...\n");
     std::string ninja_cmd = "ninja";
     ret = run_cmd_vcvars(vcvars, ninja_cmd, zstd_build_dir);
     if (ret != 0) {
-        printf("  编译失败 (代码 %d)\n", ret);
+        printf("[错误] 编译失败 (代码: %d)\n", ret);
         return false;
     }
 
-    printf("  完成\n");
+    printf("[完成] zstd 编译成功\n");
     return true;
 }
 
+// ========== cmake_configure ==========
 static bool cmake_configure() {
-    printf("[0/3] CMake 配置...\n");
+    printf("\n[CMake] 配置中...\n");
     
     std::string vcvars = find_vs();
     if (vcvars.empty()) {
-        printf("  错误: 未找到 Visual Studio!\n");
+        printf("[错误] 未找到 Visual Studio!\n");
         return false;
     }
     
     dir_create(g_build_dir);
+    
+    std::string cmake_cache = g_build_dir + "\\CMakeCache.txt";
+    if (file_exists(cmake_cache)) {
+        DeleteFileA(cmake_cache.c_str());
+    }
     
     std::string zstd_include_dir = g_zstd_dir + "\\src\\lib";
     std::string zstd_lib = g_zstd_dir + "\\build\\lib\\zstd_static.lib";
@@ -258,25 +262,26 @@ static bool cmake_configure() {
     
     int ret = run_cmd_vcvars(vcvars, cmake_cmd, g_build_dir);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] CMake 配置失败 (代码: %d)\n", ret);
         return false;
     }
     
-    printf("  完成\n");
+    printf("[完成] CMake 配置成功\n");
     return true;
 }
 
+// ========== build_ollvm ==========
 static bool build_ollvm(const std::string& targets, int jobs) {
-    printf("[3/3] 编译 OLLVM (-j%d)...\n", jobs);
+    printf("\n[3/3] 编译 OLLVM (并行: %d)...\n", jobs);
     
     if (!file_exists(g_build_dir)) {
-        printf("  错误: 构建目录不存在\n");
+        printf("[错误] 构建目录不存在\n");
         return false;
     }
     
     std::string vcvars = find_vs();
     if (vcvars.empty()) {
-        printf("  错误: 未找到 Visual Studio!\n");
+        printf("[错误] 未找到 Visual Studio!\n");
         return false;
     }
     
@@ -286,19 +291,20 @@ static bool build_ollvm(const std::string& targets, int jobs) {
     
     int ret = run_cmd_vcvars(vcvars, ninja_cmd, g_build_dir);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] 编译失败 (代码: %d)\n", ret);
         return false;
     }
 
-    printf("  完成\n");
+    printf("[完成] OLLVM 编译成功\n");
     return true;
 }
 
+// ========== replace_ndk_clang ==========
 static bool replace_ndk_clang() {
-    printf("[4/3] 替换 NDK clang...\n");
+    printf("\n[替换] NDK 工具链...\n");
     
     if (!file_exists(g_ndk_bin)) {
-        printf("  未找到 NDK，跳过\n");
+        printf("[跳过] NDK 不存在于 %s\n", g_ndk_bin.c_str());
         return true;
     }
     
@@ -321,7 +327,7 @@ static bool replace_ndk_clang() {
         }
         
         copy_file(src, dst);
-        printf("  %s 完成\n", name);
+        printf("  -> %s OK\n", name);
     }
 
     std::string lld_src = build_bin + "\\lld.exe";
@@ -332,18 +338,19 @@ static bool replace_ndk_clang() {
             copy_file(lld_dst, backup);
         }
         copy_file(lld_src, lld_dst);
-        printf("  ld.lld.exe 完成\n");
+        printf("  -> ld.lld.exe OK\n");
     }
     
-    printf("  替换完成\n");
+    printf("[完成] NDK 工具链已替换\n");
     return true;
 }
 
+// ========== build_apk ==========
 static bool build_apk() {
-    printf("[APK] 构建调试版...\n");
+    printf("\n[构建] APK...\n");
     
     if (!dir_exists(g_acode_dir)) {
-        printf("  错误: 未找到 Acode 目录\n");
+        printf("[错误] Acode 目录不存在: %s\n", g_acode_dir.c_str());
         return false;
     }
     
@@ -351,24 +358,21 @@ static bool build_apk() {
     
     std::string platforms_dir = g_acode_dir + "\\platforms";
     if (!dir_exists(platforms_dir)) {
-        printf("  添加 Cordova 平台...\n");
-        int ret = run_cmd("npx cordova platform add android", g_acode_dir);
-        if (ret != 0) {
-            printf("  警告: 平台添加失败，继续...\n");
-        }
+        printf("  -> 添加 Cordova Android 平台...\n");
+        run_cmd("npx cordova platform add android", g_acode_dir);
     }
     
-    printf("  构建前端资源...\n");
+    printf("  -> 构建 Web 资源...\n");
     int ret = run_cmd("npm run build", g_acode_dir);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] Web 构建失败 (代码: %d)\n", ret);
         return false;
     }
     
-    printf("  构建 APK...\n");
+    printf("  -> 构建 Android APK...\n");
     ret = run_cmd("npx cordova build android", g_acode_dir);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] Cordova 构建失败 (代码: %d)\n", ret);
         return false;
     }
     
@@ -377,33 +381,36 @@ static bool build_apk() {
     
     if (file_exists(apk_src)) {
         copy_file(apk_src, apk_dst);
-        printf("  APK: %s\n", apk_dst.c_str());
+        printf("[完成] APK 已保存: %s\n", apk_dst.c_str());
+    } else {
+        printf("[警告] APK 未找到\n");
     }
     
     return true;
 }
 
+// ========== build_apk_release ==========
 static bool build_apk_release() {
-    printf("[APK] 构建正式版...\n");
+    printf("\n[构建] Release APK...\n");
     
     if (!dir_exists(g_acode_dir)) {
-        printf("  错误: 未找到 Acode 目录\n");
+        printf("[错误] Acode 目录不存在: %s\n", g_acode_dir.c_str());
         return false;
     }
     
     dir_create(g_apk_output_dir);
     
-    printf("  构建前端资源...\n");
+    printf("  -> 构建 Web 资源...\n");
     int ret = run_cmd("npm run build", g_acode_dir);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] 构建失败 (代码: %d)\n", ret);
         return false;
     }
     
-    printf("  构建正式版 APK...\n");
+    printf("  -> 构建 Release APK...\n");
     ret = run_cmd("npx cordova build android --release", g_acode_dir);
     if (ret != 0) {
-        printf("  失败 (代码 %d)\n", ret);
+        printf("[错误] Release 构建失败 (代码: %d)\n", ret);
         return false;
     }
     
@@ -412,14 +419,24 @@ static bool build_apk_release() {
     
     if (file_exists(apk_src)) {
         copy_file(apk_src, apk_dst);
-        printf("  APK: %s\n", apk_dst.c_str());
+        printf("[完成] Release APK 已保存: %s\n", apk_dst.c_str());
     }
     
     return true;
 }
 
+// ========== main ==========
 int main(int argc, char* argv[]) {
+    // 设置控制台 UTF-8 编码
+    SetConsoleOutputCP(65001);
+    SetConsoleCP(65001);
+    
     init_paths();
+    
+    printf("\n");
+    printf("  ╔══════════════════════════════════════════╗\n");
+    printf("  ║       OLLVM 构建脚本 v21.x              ║\n");
+    printf("  ╚══════════════════════════════════════════╝\n");
     
     std::string target_triple = "aarch64-linux-android";
     int jobs = 32;
@@ -434,7 +451,7 @@ int main(int argc, char* argv[]) {
     
     std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis ollvm-ui";
      
-     for (int i = 1; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);
         if (arg == "--target" && i + 1 < argc) {
             target_triple = argv[++i];
@@ -494,6 +511,9 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    printf("\n全部完成。\n");
+    printf("\n");
+    printf("  ╔══════════════════════════════════════════╗\n");
+    printf("  ║            构建完成!                     ║\n");
+    printf("  ╚══════════════════════════════════════════╝\n\n");
     return 0;
 }

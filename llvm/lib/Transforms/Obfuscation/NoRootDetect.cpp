@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/NoRootDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -152,15 +153,9 @@ bool NoRootDetect::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[DEBUG] NoRootDetect: Building no-root exit in NoRootFoundBB\n";
     }
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "请以root运行!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M, MsgStr->getType(), true,
-        GlobalValue::PrivateLinkage, MsgStr,
-        ".noroot.msg"
-    );
-    Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(MsgGV, CharPtrTy)});
-    Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
-    Builder.CreateCall(ExitFunc, {ConstantInt::get(Int32Ty, 1)});
+    // 使用DetectUtils的报告函数
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "No Root Access");
+    Builder.CreateCall(ReportFunc);
     Builder.CreateUnreachable();
 
     if (isIRObfuscationDebugEnabled()) {

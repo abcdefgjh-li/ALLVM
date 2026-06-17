@@ -18,7 +18,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationOptions.h"
 #include "llvm/Transforms/Obfuscation/aVMP.h"
-#include "llvm/Transforms/Obfuscation/AProtect.h"
 #include "llvm/Transforms/Obfuscation/LdPreloadProtect.h"
 #include "llvm/Transforms/Obfuscation/VmProtectDetect.h"
 #include "llvm/Transforms/Obfuscation/UsbProtect.h"
@@ -29,11 +28,8 @@
 #include "llvm/Transforms/Obfuscation/HostsDetect.h"
 #include "llvm/Transforms/Obfuscation/MemDetect.h"
 #include "llvm/Transforms/Obfuscation/PtraceDetect.h"
-#include "llvm/Transforms/Obfuscation/InlineHookDetect.h"
-#include "llvm/Transforms/Obfuscation/PltHookDetect.h"
 #include "llvm/Transforms/Obfuscation/HideMaps.h"
 #include "llvm/Transforms/Obfuscation/FakeMaps.h"
-#include "llvm/Transforms/Obfuscation/MemProtect.h"
 #include "llvm/Transforms/Obfuscation/RootDetect.h"
 #include "llvm/Transforms/Obfuscation/NoRootDetect.h"
 #include "llvm/Transforms/Obfuscation/SyscallProtect.h"
@@ -201,16 +197,6 @@ EnablePtraceDetect("irobf-ptrace", cl::init(false), cl::NotHidden,
                    cl::ZeroOrMore);
 
 static cl::opt<bool>
-EnableInlineHookDetect("irobf-inlinehook", cl::init(false), cl::NotHidden,
-                       cl::desc("Enable inline hook detection."),
-                       cl::ZeroOrMore);
-
-static cl::opt<bool>
-EnablePltHookDetect("irobf-plthook", cl::init(false), cl::NotHidden,
-                    cl::desc("Enable PLT hook detection."),
-                    cl::ZeroOrMore);
-
-static cl::opt<bool>
 EnableHideMaps("irobf-hidemaps", cl::init(false), cl::NotHidden,
                cl::desc("Enable hide /proc/self/maps (requires root)."),
                cl::ZeroOrMore);
@@ -218,16 +204,6 @@ EnableHideMaps("irobf-hidemaps", cl::init(false), cl::NotHidden,
 static cl::opt<bool>
 EnableFakeMaps("irobf-fakemaps", cl::init(false), cl::NotHidden,
                cl::desc("Enable generate fake /proc/self/maps content."),
-               cl::ZeroOrMore);
-
-static cl::opt<bool>
-EnableMemProtect("irobf-memprotect", cl::init(false), cl::NotHidden,
-                 cl::desc("Enable memory dump protection."),
-                 cl::ZeroOrMore);
-
-static cl::opt<bool>
-EnableAProtect("irobf-aprotect", cl::init(false), cl::NotHidden,
-               cl::desc("Enable A-protect output at program start."),
                cl::ZeroOrMore);
 
 static cl::opt<bool>
@@ -379,8 +355,8 @@ namespace llvm {
 			    EnableRttiEraser || EnableVMProtect || EnableLdPreloadProtect ||
 			    EnableVmProtectDetect || EnableUsbProtect || EnableIdaDetect || EnableVpnDetect ||
 			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect || EnableMemDetect ||
-			    EnablePtraceDetect || EnableInlineHookDetect || EnablePltHookDetect || EnableMemProtect ||
-			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect || EnableAProtect ||
+			    EnablePtraceDetect ||
+			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect ||
 			    EnableSyscallProtect || EnableBanDump ||
 			    !SamsaraConfigPath.empty();
 
@@ -410,7 +386,6 @@ namespace llvm {
 				if (EnableRttiEraser) errs() << "  + RTTIEraser\n";
 				if (EnableVMProtect) errs() << "  + VMProtect\n";
 				if (EnableSyscallProtect) errs() << "  + SyscallProtect\n";
-				if (EnableMemProtect) errs() << "  + MemProtect\n";
 				if (EnableLdPreloadProtect) errs() << "  + LdPreloadProtect\n";
 				if (EnableVmProtectDetect) errs() << "  + VmProtectDetect\n";
 				if (EnableUsbProtect) errs() << "  + UsbProtect\n";
@@ -421,25 +396,15 @@ namespace llvm {
 				if (EnableHostsDetect) errs() << "  + HostsDetect\n";
 				if (EnableMemDetect) errs() << "  + MemDetect\n";
 				if (EnablePtraceDetect) errs() << "  + PtraceDetect\n";
-				if (EnableInlineHookDetect) errs() << "  + InlineHookDetect\n";
-				if (EnablePltHookDetect) errs() << "  + PltHookDetect\n";
 				if (EnableRootDetect) errs() << "  + RootDetect\n";
-				if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
-				if (EnableHideMaps) errs() << "  + HideMaps\n";
-				if (EnableFakeMaps) errs() << "  + FakeMaps\n";
-				if (EnableAProtect) errs() << "  + AProtect\n";
-				if (EnableBanDump) errs() << "  + BanDump\n";
-				errs() << "========================================\n";
+			if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
+			if (EnableHideMaps) errs() << "  + HideMaps\n";
+			if (EnableFakeMaps) errs() << "  + FakeMaps\n";
+			if (EnableBanDump) errs() << "  + BanDump\n";
+			errs() << "========================================\n";
 			}
 
-			if (EnableSyscallProtect) {
-				add(llvm::createSyscallProtectPass());
-			}
-
-			if (EnableVMProtect) {
-				add(llvm::createVMProtectPass(true));
-			}
-
+			// ========== 1. 检测类Pass ==========
 			if (EnableLdPreloadProtect) {
 				add(llvm::createLdPreloadProtectPass());
 			}
@@ -480,26 +445,6 @@ namespace llvm {
 				add(llvm::createPtraceDetectPass());
 			}
 
-			if (EnableInlineHookDetect) {
-				add(llvm::createInlineHookDetectPass());
-			}
-
-			if (EnablePltHookDetect) {
-				add(llvm::createPltHookDetectPass());
-			}
-
-			if (EnableHideMaps) {
-				add(llvm::createHideMapsPass());
-			}
-
-			if (EnableFakeMaps) {
-				add(llvm::createFakeMapsPass());
-			}
-
-			if (EnableMemProtect) {
-				add(llvm::createMemProtectPass());
-			}
-
 			if (EnableRootDetect) {
 				add(llvm::createRootDetectPass());
 			}
@@ -508,8 +453,23 @@ namespace llvm {
 				add(llvm::createNoRootDetectPass());
 			}
 
-			if (EnableAProtect) {
-				add(llvm::createAProtectPass());
+			// ========== 2. SyscallProtect ==========
+			if (EnableSyscallProtect) {
+				add(llvm::createSyscallProtectPass());
+			}
+
+			// ========== 3. VMProtect ==========
+			if (EnableVMProtect) {
+				add(llvm::createVMProtectPass(true));
+			}
+
+			// ========== 4. OLLVM混淆 ==========
+			if (EnableHideMaps) {
+				add(llvm::createHideMapsPass());
+			}
+
+			if (EnableFakeMaps) {
+				add(llvm::createFakeMapsPass());
 			}
 
 			if (EnableBanDump) {

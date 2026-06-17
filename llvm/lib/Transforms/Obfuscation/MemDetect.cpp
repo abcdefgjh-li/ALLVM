@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/MemDetect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -45,84 +46,12 @@ struct MemDetect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
     Function* createMemCheckFunc(Module &M, Function *ReportAndKillFunc);
 };
 
 }
 
 char MemDetect::ID = 0;
-
-Function* MemDetect::createReportAndKillFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "mem_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "检测到内存异常!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".mem.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionCallee AsmExitFunc = M.getOrInsertFunction("exit",
-        FunctionType::get(Type::getVoidTy(M.getContext()), {Int32Ty}, false));
-    Builder.CreateCall(AsmExitFunc, {ConstantInt::get(Int32Ty, 0)});
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
 
 Function* MemDetect::createMemCheckFunc(Module &M, Function *ReportAndKillFunc) {
     LLVMContext &Ctx = M.getContext();
@@ -230,7 +159,7 @@ bool MemDetect::runOnModule(Module &M) {
 
     BasicBlock &EntryBB = MainFunc->getEntryBlock();
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M, "Memory Resident");
     Function *CheckFunc = createMemCheckFunc(M, ReportAndKillFunc);
 
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());

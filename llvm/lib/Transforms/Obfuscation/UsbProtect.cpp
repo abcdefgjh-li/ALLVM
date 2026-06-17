@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Obfuscation/UsbProtect.h"
+#include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -45,84 +46,12 @@ struct UsbProtect : public ModulePass {
 
     bool runOnModule(Module &M) override;
     
-    Function* createReportAndKillFunc(Module &M);
     Function* createUsbCheckFunc(Module &M, Function *ReportAndKillFunc);
 };
 
 }
 
 char UsbProtect::ID = 0;
-
-Function* UsbProtect::createReportAndKillFunc(Module &M) {
-    LLVMContext &Ctx = M.getContext();
-    
-    Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-    
-    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
-    Function *Func = Function::Create(
-        FuncTy,
-        GlobalValue::InternalLinkage,
-        M.getDataLayout().getProgramAddressSpace(),
-        "usb_report_and_kill",
-        &M
-    );
-    
-    Func->addFnAttr(Attribute::NoInline);
-    Func->addFnAttr(Attribute::OptimizeNone);
-    
-    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
-    IRBuilder<> Builder(BB);
-    
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-    
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, "USB调试检测异常!!!\n");
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M,
-        MsgStr->getType(),
-        true,
-        GlobalValue::PrivateLinkage,
-        MsgStr,
-        ".usb.msg"
-    );
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    
-    Constant *NullPtr = ConstantPointerNull::get(CharPtrTy);
-    Builder.CreateCall(FflushFunc, {NullPtr});
-    
-    FunctionCallee GetpidFunc = M.getOrInsertFunction(
-        "getpid",
-        FunctionType::get(Int32Ty, {}, false)
-    );
-    
-    FunctionCallee KillFunc = M.getOrInsertFunction(
-        "kill",
-        FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false)
-    );
-    
-    Value *Pid = Builder.CreateCall(GetpidFunc);
-    Value *Sigkill = ConstantInt::get(Int32Ty, 9);
-    Builder.CreateCall(KillFunc, {Pid, Sigkill});
-    
-    FunctionCallee AsmExitFunc = M.getOrInsertFunction("exit",
-        FunctionType::get(Type::getVoidTy(M.getContext()), {Int32Ty}, false));
-    Builder.CreateCall(AsmExitFunc, {ConstantInt::get(Int32Ty, 0)});
-    
-    Builder.CreateUnreachable();
-    
-    return Func;
-}
 
 Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc) {
     LLVMContext &Ctx = M.getContext();
@@ -231,7 +160,8 @@ Function* UsbProtect::createUsbCheckFunc(Module &M, Function *ReportAndKillFunc)
     Builder.SetInsertPoint(CheckEnableBB);
     Fp = Builder.CreateCall(FopenFunc, {EnablePath, ReadMode});
     FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(FpNotNull, CheckEnableOkBB, CheckEnableFailBB);
+    // 如果文件不存在，跳过检测（模拟器可能没有这些文件）
+    Builder.CreateCondBr(FpNotNull, CheckEnableOkBB, CheckFuncsBB);
     
     Builder.SetInsertPoint(CheckEnableOkBB);
     Type *Buf16Ty = ArrayType::get(Type::getInt8Ty(Ctx), 16);
@@ -323,7 +253,7 @@ bool UsbProtect::runOnModule(Module &M) {
 
     BasicBlock &EntryBB = MainFunc->getEntryBlock();
     
-    Function *ReportAndKillFunc = createReportAndKillFunc(M);
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M, "USB Debug");
     Function *CheckFunc = createUsbCheckFunc(M, ReportAndKillFunc);
 
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());

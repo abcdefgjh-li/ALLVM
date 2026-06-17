@@ -49,10 +49,14 @@ struct DetectOptions {
 class DetectUtils {
 public:
     /// 创建统一的报告和终止函数
-    /// 非调试模式输出"你给我滚出去!!!"
+    /// 检测到威胁时打印:
+    ///   - A-protect (随机颜色)
+    ///   - Protection v1.6.0
+    ///   - [DEBUG] {detectName} detected! Killing process...
     /// @param M 模块
+    /// @param detectName 检测类型名称（如 "LD_PRELOAD", "IDA", "Ptrace"等）
     /// @return 创建的函数
-    static Function* createReportAndKillFunc(Module &M);
+    static Function* createReportAndKillFunc(Module &M, const std::string &detectName = "Unknown");
     
     /// 创建隐蔽终止函数（延迟响应）
     /// @param M 模块

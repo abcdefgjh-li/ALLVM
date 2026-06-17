@@ -96,6 +96,7 @@ bool SyscallProtect::isSyscallFunction(const StringRef &Name) {
 }
 
 bool SyscallProtect::isManualImplFunction(const StringRef &Name) {
+    // 注意：不替换 fopen，因为它会导致无限递归
     static const StringSet<> ManualFuncs = {
         "memcmp", "__orig_memcmp",
         "getenv", "__orig_getenv",
@@ -104,8 +105,7 @@ bool SyscallProtect::isManualImplFunction(const StringRef &Name) {
         "system", "__orig_system",
         "execvp", "__orig_execvp",
         "execvpe", "__orig_execvpe",
-        "remove", "__orig_remove",
-        "fopen", "__orig_fopen"
+        "remove", "__orig_remove"
     };
     return ManualFuncs.contains(Name);
 }
@@ -175,6 +175,7 @@ SmallVector<Type*, 6> SyscallProtect::getArgTypes(LLVMContext &Ctx, const String
     
     StringRef BaseName = Name.starts_with("__orig_") ? Name.substr(7) : Name;
     
+    // 特殊处理的函数
     if (BaseName == "open") {
         return SmallVector<Type*, 6>{PtrTy, Int32Ty, Int32Ty};
     }
@@ -206,13 +207,32 @@ SmallVector<Type*, 6> SyscallProtect::getArgTypes(LLVMContext &Ctx, const String
         return SmallVector<Type*, 6>{PtrTy, PtrTy, PtrTy};
     }
     
+    // 网络相关函数
+    if (BaseName == "sendto" || BaseName == "recvfrom") {
+        return SmallVector<Type*, 6>{Int32Ty, PtrTy, Int64Ty, Int32Ty, PtrTy, Int64Ty};
+    }
+    if (BaseName == "send" || BaseName == "recv") {
+        return SmallVector<Type*, 6>{Int32Ty, PtrTy, Int64Ty, Int32Ty};
+    }
+    
+    // 文件 I/O 函数
+    if (BaseName == "read" || BaseName == "write") {
+        return SmallVector<Type*, 6>{Int32Ty, PtrTy, Int64Ty};
+    }
+    
+    // 其他函数
+    if (BaseName == "connect") {
+        return SmallVector<Type*, 6>{Int32Ty, PtrTy, Int32Ty};
+    }
+    if (BaseName == "clock_gettime") {
+        return SmallVector<Type*, 6>{Int32Ty, PtrTy};
+    }
+    
+    // 默认：全部使用 Int64Ty
     int NumArgs = getNumArgs(Name);
     SmallVector<Type*, 6> ArgTypes;
     for (int i = 0; i < NumArgs; i++) {
-        if (i == 0) ArgTypes.push_back(Int32Ty);
-        else if (i == 2) ArgTypes.push_back(Int32Ty);
-        else if (i == 3) ArgTypes.push_back(Int32Ty);
-        else ArgTypes.push_back(PtrTy);
+        ArgTypes.push_back(Int64Ty);
     }
     return ArgTypes;
 }
@@ -462,21 +482,33 @@ Function* SyscallProtect::createGetenvWrapper(Module &M) {
         {EnvEntry, ConstantInt::get(Int8Ty, '=')}
     );
     
-    Value *KeyLen = CompareBuilder.CreatePtrToInt(
-        CompareBuilder.CreateSub(EqPos, EnvEntry),
-        Type::getInt64Ty(Ctx)
-    );
+    // 检查是否找到 '='
+    Value *EqFound = CompareBuilder.CreateICmpNE(EqPos, ConstantPointerNull::get(PtrTy), "eq_found");
     
-    Value *LenMatch = CompareBuilder.CreateICmpEQ(NameLen, KeyLen, "len_match");
+    BasicBlock *NoEqBB = BasicBlock::Create(Ctx, "no_eq", Func);
+    BasicBlock *CompareLenBB = BasicBlock::Create(Ctx, "compare_len", Func);
     
-    Value *KeyMatch = CompareBuilder.CreateCall(
+    CompareBuilder.CreateCondBr(EqFound, CompareLenBB, NoEqBB);
+    
+    IRBuilder<> NoEqBuilder(NoEqBB);
+    NoEqBuilder.CreateBr(NextBB);
+    
+    IRBuilder<> CompareLenBuilder(CompareLenBB);
+    // 计算键长度: EqPos - EnvEntry
+    Value *EnvEntryInt = CompareLenBuilder.CreatePtrToInt(EnvEntry, Type::getInt64Ty(Ctx));
+    Value *EqPosInt = CompareLenBuilder.CreatePtrToInt(EqPos, Type::getInt64Ty(Ctx));
+    Value *KeyLen = CompareLenBuilder.CreateSub(EqPosInt, EnvEntryInt, "key_len");
+    
+    Value *LenMatch = CompareLenBuilder.CreateICmpEQ(NameLen, KeyLen, "len_match");
+    
+    Value *KeyMatch = CompareLenBuilder.CreateCall(
         M.getOrInsertFunction("strncmp", FunctionType::get(Type::getInt32Ty(Ctx), {PtrTy, PtrTy, Type::getInt64Ty(Ctx)}, false)),
         {NameArg, EnvEntry, NameLen}
     );
-    KeyMatch = CompareBuilder.CreateICmpEQ(KeyMatch, ConstantInt::get(Type::getInt32Ty(Ctx), 0), "key_match");
+    KeyMatch = CompareLenBuilder.CreateICmpEQ(KeyMatch, ConstantInt::get(Type::getInt32Ty(Ctx), 0), "key_match");
     
-    Value *BothMatch = CompareBuilder.CreateAnd(LenMatch, KeyMatch, "both_match");
-    CompareBuilder.CreateCondBr(BothMatch, FoundBB, NextBB);
+    Value *BothMatch = CompareLenBuilder.CreateAnd(LenMatch, KeyMatch, "both_match");
+    CompareLenBuilder.CreateCondBr(BothMatch, FoundBB, NextBB);
     
     IRBuilder<> NextBuilder(NextBB);
     Value *NextIdx = NextBuilder.CreateAdd(Idx, ConstantInt::get(Type::getInt64Ty(Ctx), 1), "next_idx");
@@ -486,7 +518,10 @@ Function* SyscallProtect::createGetenvWrapper(Module &M) {
     Idx->addIncoming(NextIdx, NextBB);
     
     IRBuilder<> FoundBuilder(FoundBB);
-    Value *ValuePtr = FoundBuilder.CreateGEP(Int8Ty, EqPos, ConstantInt::get(Type::getInt64Ty(Ctx), 1), "value_ptr");
+    // 使用 PHI 节点获取 EqPos
+    PHINode *EqPosPhi = FoundBuilder.CreatePHI(PtrTy, 1, "eq_pos_phi");
+    EqPosPhi->addIncoming(EqPos, CompareLenBB);
+    Value *ValuePtr = FoundBuilder.CreateGEP(Int8Ty, EqPosPhi, ConstantInt::get(Type::getInt64Ty(Ctx), 1), "value_ptr");
     FoundBuilder.CreateRet(ValuePtr);
     
     IRBuilder<> NotFoundBuilder(NotFoundBB);
@@ -517,8 +552,9 @@ Function* SyscallProtect::createGetaddrinfoWrapper(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
+    // 直接调用原始 getaddrinfo
     FunctionCallee RealFunc = M.getOrInsertFunction(
-        "__real_getaddrinfo",
+        "getaddrinfo",
         FunctionType::get(Int32Ty, {PtrTy, PtrTy, PtrTy, PtrTy}, false)
     );
     
@@ -555,8 +591,9 @@ Function* SyscallProtect::createSystemWrapper(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
+    // 直接调用原始 system
     FunctionCallee RealFunc = M.getOrInsertFunction(
-        "__real_system",
+        "system",
         FunctionType::get(Int32Ty, {PtrTy}, false)
     );
     
@@ -588,8 +625,9 @@ Function* SyscallProtect::createPopenWrapper(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
+    // 直接调用原始 popen
     FunctionCallee RealFunc = M.getOrInsertFunction(
-        "__real_popen",
+        "popen",
         FunctionType::get(FilePtrTy, {PtrTy, PtrTy}, false)
     );
     
@@ -626,8 +664,9 @@ Function* SyscallProtect::createExecvpWrapper(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
+    // 直接调用原始 execvp
     FunctionCallee RealFunc = M.getOrInsertFunction(
-        "__real_execvp",
+        "execvp",
         FunctionType::get(Int32Ty, {PtrTy, PtrTy}, false)
     );
     
@@ -664,8 +703,9 @@ Function* SyscallProtect::createExecvpeWrapper(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
+    // 直接调用原始 execvpe
     FunctionCallee RealFunc = M.getOrInsertFunction(
-        "__real_execvpe",
+        "execvpe",
         FunctionType::get(Int32Ty, {PtrTy, PtrTy, PtrTy}, false)
     );
     
@@ -763,8 +803,9 @@ Function* SyscallProtect::createFopenWrapper(Module &M) {
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
     
+    // 直接调用原始 fopen
     FunctionCallee RealFunc = M.getOrInsertFunction(
-        "__real_fopen",
+        "fopen",
         FunctionType::get(FilePtrTy, {PtrTy, PtrTy}, false)
     );
     
@@ -809,6 +850,37 @@ bool SyscallProtect::runOnModule(Module &M) {
     
     for (Function &F : M) {
         if (F.isDeclaration()) continue;
+        
+        // 跳过 VMP 保护的函数（带 "vmp" 注解的函数由 VMP 处理）
+        std::string annotation;
+        GlobalVariable *glob = M.getGlobalVariable("llvm.global.annotations");
+        if (glob && glob->hasInitializer()) {
+            if (ConstantArray *ca = dyn_cast<ConstantArray>(glob->getInitializer())) {
+                for (unsigned i = 0; i < ca->getNumOperands(); ++i) {
+                    if (ConstantStruct *structAn = dyn_cast<ConstantStruct>(ca->getOperand(i))) {
+                        Function *annotatedFunc = nullptr;
+                        Value *op0 = structAn->getOperand(0);
+                        if (ConstantExpr *expr = dyn_cast<ConstantExpr>(op0)) {
+                            if (expr->getOpcode() == Instruction::BitCast)
+                                annotatedFunc = dyn_cast<Function>(expr->getOperand(0));
+                        } else if (Function *directFunc = dyn_cast<Function>(op0)) {
+                            annotatedFunc = directFunc;
+                        }
+                        if (annotatedFunc == &F) {
+                            if (ConstantExpr *note = dyn_cast<ConstantExpr>(structAn->getOperand(1))) {
+                                if (GlobalVariable *annoteStr = dyn_cast<GlobalVariable>(note->getOperand(0)))
+                                    if (ConstantDataSequential *data = dyn_cast<ConstantDataSequential>(annoteStr->getInitializer()))
+                                        if (data->isString())
+                                            annotation += data->getAsString().lower() + " ";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (annotation.find("vmp") != std::string::npos) {
+            continue;  // 跳过 VMP 保护函数
+        }
         
         SmallVector<CallInst*, 16> ToReplace;
         

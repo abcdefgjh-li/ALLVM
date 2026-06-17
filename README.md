@@ -3,8 +3,6 @@
   <br>
   <b>逆向大家庭</b>
   <br><br>
-  <b>作者</b>：abcdefgjh
-  <br>
   <b>QQ</b>：3986612313
   <br>
   <b>TG</b>：<a href="https://t.me/abcdefgjha">@abcdefgjha</a>
@@ -20,46 +18,9 @@
 
 ## 快速开始
 
-### 编译 ALLVM
-
 ```bash
 .\build.exe
 ```
-
-### 编译测试程序
-
-```bash
-cd test
-..\android-ndk-r30-beta1-windows\ndk-build.cmd clean
-..\android-ndk-r30-beta1-windows\ndk-build.cmd NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk APP_PLATFORM=android-21 APP_ABI=arm64-v8a
-```
-
-### VMP 测试示例
-
-VMP测试项目位于 `test_vmp/` 目录：
-
-```bash
-cd test_vmp
-..\android-ndk-r30-beta1-windows\ndk-build.cmd NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk APP_PLATFORM=android-21 APP_ABI=arm64-v8a
-
-# 推送到模拟器运行
-adb push libs\arm64-v8a\test_vmp_full /data/local/tmp/
-adb shell chmod 755 /data/local/tmp/test_vmp_full
-adb shell /data/local/tmp/test_vmp_full
-```
-
-## 关键文件位置
-
-| 文件 | 说明 |
-|------|------|
-| `llvm\lib\Transforms\Obfuscation\ObfuscationPassManager.cpp` | Pass 管理器，注册和调度所有混淆 Pass |
-| `llvm\lib\Transforms\Obfuscation\SyscallProtect.cpp` | 系统调用保护，替换 libc 函数为直接 syscall |
-| `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 禁用内存Dump，移除内存读权限 |
-| `llvm\lib\Transforms\Obfuscation\Flattening.cpp` | 控制流平坦化 |
-| `llvm\lib\Transforms\Obfuscation\IndirectBranch.cpp` | 间接分支混淆 |
-| `llvm\lib\Transforms\Obfuscation\IndirectCall.cpp` | 间接调用混淆 |
-| `llvm\lib\Transforms\Obfuscation\StringEncryption.cpp` | 字符串加密 |
-| `llvm\include\llvm\Transforms\Obfuscation\` | 头文件目录 |
 
 ## 混淆参数
 
@@ -83,21 +44,11 @@ adb shell /data/local/tmp/test_vmp_full
 | `-mllvm -irobf-fla` | 启用控制流平坦化 |
 | `-mllvm -irobf-indgv` | 启用间接全局变量混淆 |
 | `-mllvm -level-indgv=3` | 混淆强度 (1-3) |
-
-### 常量加密
-
-| 参数 | 说明 |
-|------|------|
 | `-mllvm -irobf-cse` | 启用字符串常量加密 |
 | `-mllvm -irobf-cie` | 启用整数常量加密 |
 | `-mllvm -level-cie=3` | 混淆强度 (1-3) |
 | `-mllvm -irobf-cfe` | 启用浮点常量加密 |
 | `-mllvm -level-cfe=3` | 混淆强度 (1-3) |
-
-### RTTI 擦除
-
-| 参数 | 说明 |
-|------|------|
 | `-mllvm -irobf-rtti` | 启用 RTTI 信息擦除 |
 
 ### VMP 虚拟机保护
@@ -106,7 +57,7 @@ adb shell /data/local/tmp/test_vmp_full
 |------|------|
 | `-mllvm -irobf-vmp` | 启用 VMP 虚拟机保护 |
 
-> **重要依赖**: 必须同时开启 `-frtti -fno-exceptions`
+> **重要依赖**: 必须同时开启 `-fno-exceptions -frtti`（UI会自动注入）
 
 **启用方法**: 在需要保护的函数上添加注解：
 
@@ -145,16 +96,14 @@ int VMP_PROTECT main(int argc, char **argv) {
 | `-mllvm -irobf-hosts` | Hosts文件检测 |
 | `-mllvm -irobf-mem` | 内存驻留检测 |
 | `-mllvm -irobf-ptrace` | Ptrace调试器检测 |
-| `-mllvm -irobf-inlinehook` | Inline Hook检测 |
-| `-mllvm -irobf-plthook` | PLT Hook检测 |
-| `-mllvm -irobf-memprotect` | 内存Dump保护 |
 | `-mllvm -irobf-bandump` | 禁用内存Dump (移除读权限) |
-| `-mllvm -irobf-root` | Root检测(有root退出) |
-| `-mllvm -irobf-noroot` | 无Root检测(无root退出) |
-| `-mllvm -irobf-hidemaps` | 隐藏Maps文件(需Root) |
+| `-mllvm -irobf-no-aprotect` | 禁用 AProtect 启动输出（默认启用） |
+| `-mllvm -irobf-root` | Root检测 (有root退出) |
+| `-mllvm -irobf-noroot` | 无Root检测 (无root退出) |
+| `-mllvm -irobf-hidemaps` | 隐藏Maps文件 (需Root) |
 | `-mllvm -irobf-fakemaps` | 伪造Maps内容 |
 
-### 系统调用保护 (Syscall Protect)
+### 系统调用保护
 
 | 参数 | 说明 |
 |------|------|
@@ -169,28 +118,85 @@ int VMP_PROTECT main(int argc, char **argv) {
 | `recv` / `recvfrom` | 207 | 接收数据 |
 | `read` | 63 | 读取数据 |
 | `write` | 64 | 写入数据 |
+| `exit` / `_exit` | 93 | 退出进程 |
+| `open` / `openat` | 56 | 打开文件 |
+| `unlink` / `unlinkat` | 87/35 | 删除文件 |
+| `truncate` / `ftruncate` | 45/46 | 截断文件 |
+| `ptrace` | 117 | 进程跟踪 |
+| `execve` | 221 | 执行程序 |
 | `clock_gettime` | 223 | 获取时间 |
+| `memcmp` | - | 内存比较 (手动实现) |
+| `getenv` | - | 环境变量获取 (手动实现) |
+| `getaddrinfo` | - | 地址信息获取 (手动实现) |
+| `popen` | - | 管道打开 (手动实现) |
+| `system` | - | 系统命令 (手动实现) |
+| `execvp` / `execvpe` | - | 执行程序 (手动实现) |
+| `remove` | - | 删除文件 (手动实现) |
 
 ## Pass 执行顺序
 
+### 编译时 Pass 注入顺序
+
 ```
-1. SyscallProtect (系统调用保护)
-2. VMProtect (虚拟机保护)
-3. 检测注入 (反调试等)
-   └─ LdPreloadProtect
-   └─ BanDump
-4. ALLVM混淆 (代码混淆保护)
+1. 检测类Pass (最先注入，运行时最先执行)
+   └─ LdPreloadProtect    (LD_PRELOAD注入检测)
+   └─ VmProtectDetect     (VM虚拟机检测)
+   └─ UsbProtect          (USB调试禁用)
+   └─ IdaDetect           (IDA调试器检测)
+   └─ VpnDetect           (VPN连接检测)
+   └─ ProxyDetect         (代理/iptables检测)
+   └─ TimeDetect          (时间差调试检测)
+   └─ HostsDetect         (Hosts文件检测)
+   └─ MemDetect           (内存驻留检测)
+   └─ PtraceDetect        (Ptrace调试器检测)
+   └─ RootDetect          (Root检测)
+   └─ NoRootDetect        (无Root检测)
+
+2. SyscallProtect (系统调用保护)
+   └─ 替换libc函数为直接syscall
+
+3. VMProtect (虚拟机保护)
+   └─ 函数虚拟化保护
+
+4. OLLVM混淆 (代码混淆保护)
+   └─ HideMaps            (隐藏Maps文件)
+   └─ FakeMaps            (伪造Maps内容)
+   └─ BanDump             (禁用内存Dump)
    └─ ConstantIntEncryption
-   └─ IndirectGlobalVariable
    └─ ConstantFPEncryption
    └─ StringEncryption
+   └─ IndirectGlobalVariable
    └─ IndirectCall
    └─ Flattening
    └─ IndirectBranch
    └─ MsRttiEraser
 ```
 
-## Android.mk 完整示例
+### 运行时执行顺序
+
+```
+程序启动
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 1. 检测类Pass注入的代码              │
+│    (LD_PRELOAD检测、调试器检测等)    │
+│    检测到威胁时打印:                 │
+│    - A-protect (随机颜色)            │
+│    - Protection v1.6.0               │
+│    - [DEBUG] XXX detected!           │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 2. main() 函数执行                   │
+│    - SyscallProtect保护的函数调用    │
+│    - VMProtect虚拟化的函数执行       │
+│    - OLLVM混淆后的代码执行           │
+└─────────────────────────────────────┘
+```
+
+## Android.mk 示例
 
 ```makefile
 LOCAL_PATH := $(call my-dir)
@@ -204,9 +210,6 @@ LOCAL_CFLAGS := -w
 # === ALLVM 总开关 ===
 LOCAL_CFLAGS += -mllvm -irobf
 
-# === 调试输出 ===
-# LOCAL_CFLAGS += -mllvm -irobf-debug
-
 # === 代码混淆 ===
 LOCAL_CFLAGS += -mllvm -irobf-indbr
 LOCAL_CFLAGS += -mllvm -level-indbr=3
@@ -215,21 +218,17 @@ LOCAL_CFLAGS += -mllvm -level-icall=3
 LOCAL_CFLAGS += -mllvm -irobf-fla
 LOCAL_CFLAGS += -mllvm -irobf-indgv
 LOCAL_CFLAGS += -mllvm -level-indgv=3
-
-# === 常量加密 ===
 LOCAL_CFLAGS += -mllvm -irobf-cse
 LOCAL_CFLAGS += -mllvm -irobf-cie
 LOCAL_CFLAGS += -mllvm -level-cie=3
 LOCAL_CFLAGS += -mllvm -irobf-cfe
 LOCAL_CFLAGS += -mllvm -level-cfe=3
-
-# === RTTI 擦除 ===
 LOCAL_CFLAGS += -mllvm -irobf-rtti
 
 # === 系统调用保护 (仅 ARM64) ===
 LOCAL_CFLAGS += -mllvm -irobf-syscall
 
-# === VMP 虚拟机保护 (必须搭配 -frtti -fno-exceptions) ===
+# === VMP 虚拟机保护 ===
 # LOCAL_CFLAGS += -mllvm -irobf-vmp
 # LOCAL_CFLAGS += -frtti -fno-exceptions
 
@@ -244,10 +243,8 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 # LOCAL_CFLAGS += -mllvm -irobf-hosts
 # LOCAL_CFLAGS += -mllvm -irobf-mem
 # LOCAL_CFLAGS += -mllvm -irobf-ptrace
-# LOCAL_CFLAGS += -mllvm -irobf-inlinehook
-# LOCAL_CFLAGS += -mllvm -irobf-plthook
-# LOCAL_CFLAGS += -mllvm -irobf-memprotect
 # LOCAL_CFLAGS += -mllvm -irobf-bandump
+# LOCAL_CFLAGS += -mllvm -irobf-no-aprotect  # 禁用 AProtect 输出（默认启用）
 # LOCAL_CFLAGS += -mllvm -irobf-root
 # LOCAL_CFLAGS += -mllvm -irobf-noroot
 # LOCAL_CFLAGS += -mllvm -irobf-hidemaps
@@ -256,30 +253,42 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 include $(BUILD_EXECUTABLE)
 ```
 
-## 开发说明
+## 关键文件
 
-### 新增 Pass 步骤
-
-1. 在 `llvm\lib\Transforms\Obfuscation\` 创建 `NewPass.cpp`
-2. 在 `llvm\include\llvm\Transforms\Obfuscation\` 创建 `NewPass.h`
-3. 在 `llvm\lib\Transforms\Obfuscation\CMakeLists.txt` 添加源文件
-4. 在 `ObfuscationPassManager.cpp` 中注册 Pass
-
-### SyscallProtect 实现原理
-
-使用内联汇编直接调用 ARM64 的 `svc #0` 指令：
-
-```cpp
-InlineAsm *Asm = InlineAsm::get(AsmTy,
-    "svc #0",
-    "={x0},{x0},{x1},{x2},{x3},{x4},{x5},{x8},~{memory},~{cc}",
-    true, false);
-```
-
-参数通过寄存器传递：
-- x0-x5: 系统调用参数
-- x8: 系统调用号
-- 返回值在 x0
+| 文件 | 说明 |
+|------|------|
+| `llvm\lib\Transforms\Obfuscation\ObfuscationPassManager.cpp` | Pass 管理器 |
+| `llvm\lib\Transforms\Obfuscation\aVMP.cpp` | VMP 虚拟机保护 |
+| `llvm\lib\Transforms\Obfuscation\SyscallProtect.cpp` | 系统调用保护 |
+| `llvm\lib\Transforms\Obfuscation\Flattening.cpp` | 控制流平坦化 |
+| `llvm\lib\Transforms\Obfuscation\IndirectBranch.cpp` | 间接分支混淆 |
+| `llvm\lib\Transforms\Obfuscation\IndirectCall.cpp` | 间接调用混淆 |
+| `llvm\lib\Transforms\Obfuscation\IndirectGlobalVariable.cpp` | 间接全局变量混淆 |
+| `llvm\lib\Transforms\Obfuscation\StringEncryption.cpp` | 字符串加密 |
+| `llvm\lib\Transforms\Obfuscation\ConstantIntEncryption.cpp` | 整数常量加密 |
+| `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
+| `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
+| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | AProtect 保护 |
+| `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 禁用内存Dump |
+| `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
+| `llvm\lib\Transforms\Obfuscation\PtraceDetect.cpp` | Ptrace 反调试检测 |
+| `llvm\lib\Transforms\Obfuscation\MemDetect.cpp` | 内存检测 |
+| `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\FakeMaps.cpp` | 伪造 maps 文件 |
+| `llvm\lib\Transforms\Obfuscation\RootDetect.cpp` | Root 检测 |
+| `llvm\lib\Transforms\Obfuscation\NoRootDetect.cpp` | 非Root检测 |
+| `llvm\lib\Transforms\Obfuscation\VmProtectDetect.cpp` | VMProtect 检测 |
+| `llvm\lib\Transforms\Obfuscation\IdaDetect.cpp` | IDA Pro 检测 |
+| `llvm\lib\Transforms\Obfuscation\VpnDetect.cpp` | VPN 检测 |
+| `llvm\lib\Transforms\Obfuscation\ProxyDetect.cpp` | 代理检测 |
+| `llvm\lib\Transforms\Obfuscation\TimeDetect.cpp` | 时间检测 |
+| `llvm\lib\Transforms\Obfuscation\HostsDetect.cpp` | Hosts 文件检测 |
+| `llvm\lib\Transforms\Obfuscation\UsbProtect.cpp` | USB 保护 |
+| `llvm\lib\Transforms\Obfuscation\Utils.cpp` | 通用工具函数 |
+| `llvm\lib\Transforms\Obfuscation\CryptoUtils.cpp` | 加密工具函数 |
+| `llvm\lib\Transforms\Obfuscation\ObfuscationOptions.cpp` | 混淆选项 |
+| `llvm\lib\Transforms\Obfuscation\LegacyLowerSwitch.cpp` | Switch 降低转换 |
+| `llvm\include\llvm\Transforms\Obfuscation\` | 头文件目录 |
 
 ## 引用库
 
@@ -288,18 +297,42 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 | **LLVM 21.x** | https://github.com/llvm/llvm-project |
 | **OLLVM (obfuscator-llvm)** | https://github.com/obfuscator-llvm/obfuscator |
 | **Qt 6** | https://www.qt.io/download-open-source |
-
-## 致谢
-
-感谢以下开源项目对本项目的启发和贡献：
-
-| 项目 | 地址 |
-|------|------|
 | **xVMP** | https://github.com/amunmv/xvmp |
 
-特别感谢：**殇璃大牛**
-
 ## 更新日志
+
+### v1.6.0 (2026-06-09)
+- **VMP兼容性修复**:
+  - 修复VMP虚拟机保护与C++异常处理冲突导致崩溃的问题
+  - VMP现在要求使用 `-fno-exceptions -frtti` 编译选项
+  - UI自动注入VMP所需的编译选项
+- **VMP标准库支持增强**:
+  - 添加C++随机数库支持（std::random_device, std::mt19937等）
+  - 添加C++时间库支持（std::chrono）
+  - 跳过所有C++标准库模板实例化的虚拟化
+- **Pass注入顺序优化**:
+  - 检测类Pass优先注入
+  - AProtect打印在main之前执行（全局构造函数）
+  - SyscallProtect在VMProtect之前执行
+- **AProtect改进**:
+  - 改为注入到全局构造函数，避免与VMProtect冲突
+  - 移除禁用AProtect的选项，始终启用
+
+### v1.5.0 (2026-06-08)
+- **移除问题保护**:
+  - 移除 MemProtect（运行时崩溃）
+  - 移除 InlineHookDetect 和 PltHookDetect（检测逻辑问题）
+- **修复 SyscallProtect**:
+  - 修复无限递归问题，使用内联汇编直接调用 syscall
+  - 保留 read, write, exit 等核心函数的替换
+  - 移除 fopen 替换（无法避免递归）
+- **修复 PtraceDetect**:
+  - 修复双重 ptrace 调用导致的误报
+  - 改用检查 /proc/self/status 中的 TracerPid
+- **修复 UsbProtect**:
+  - 修复当系统文件不存在时的崩溃问题
+- **修复 VmProtectDetect**:
+  - 修复 PHI 节点使用错误
 
 ### v1.4.0 (2026-06-04)
 - **VMP 多函数虚拟化支持**:
@@ -329,12 +362,15 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 ### v1.1.0 (2026-05-25)
 - **新增 HideMaps Pass**: 通过 mount bind 隐藏 `/proc/self/maps` 文件，防止调试工具读取真实内存映射（需要root权限）
 - **新增 FakeMaps Pass**: 生成假的 `/proc/self/maps` 内容，欺骗调试工具显示虚假的内存映射信息
-- **新增 A-Protect 输出选项**: 增加 `-irobf-aprotect` 选项控制 A-Protect 打印，默认关闭
+- **AProtect 默认启用**: AProtect 输出现在默认启用，使用 `-irobf-no-aprotect` 禁用
 - **移除密钥验证**: 去掉卡密校验机制，无需注入 `-irobf-key`
 
 ## 作者
 
 **abcdefgjh**
+
+- **QQ**: 3986612313
+- **TG**: [@abcdefgjha](https://t.me/abcdefgjha)
 
 ## License
 
@@ -342,7 +378,7 @@ InlineAsm *Asm = InlineAsm::get(AsmTy,
 
 ```
 ALLVM Obfuscator 21.x - LLVM-based code obfuscation for Android NDK
-Copyright (C) 2024-2026  abcdefgjh
+Copyright (C) 2026  abcdefgjh
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

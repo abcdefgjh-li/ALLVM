@@ -52,7 +52,6 @@ Function* ProxyDetect::createProxyCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
-    Type *Int32Ty = Type::getInt32Ty(Ctx);
     PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
@@ -127,7 +126,7 @@ bool ProxyDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "Proxy/iptables");
     
     // 创建检测函数
     Function *CheckFunc = createProxyCheckFunc(M, ReportFunc);

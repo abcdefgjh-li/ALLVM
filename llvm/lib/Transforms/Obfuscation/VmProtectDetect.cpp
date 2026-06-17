@@ -176,7 +176,6 @@ Function* VmProtectDetect::createVMCheckFunc(Module &M, Function *ReportAndKillF
     Builder.SetInsertPoint(ContinueBB);
     Value *NextCounter = Builder.CreateAdd(LoopCounter, ConstantInt::get(Int32Ty, 1), "", true, true);
     LoopCounter->addIncoming(NextCounter, ContinueBB);
-    LoopCounter->addIncoming(NextCounter, FoundBB);
     Builder.CreateBr(LoopCondBB);
 
     Builder.SetInsertPoint(ExitBB);
@@ -311,7 +310,7 @@ bool VmProtectDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportAndKillFunc = DetectUtils::createReportAndKillFunc(M, "VM/Emulator");
     
     // 创建检测函数
     Function *CheckFunc = createVMCheckFunc(M, ReportAndKillFunc);

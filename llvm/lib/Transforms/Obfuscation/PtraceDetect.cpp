@@ -52,7 +52,9 @@ Function* PtraceDetect::createPtraceCheckFunc(Module &M, Function *reportFunc) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
+    Type *Int32Ty = Type::getInt32Ty(Ctx);
     Type *Int64Ty = Type::getInt64Ty(Ctx);
+    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
     Function *Func = Function::Create(
@@ -66,48 +68,100 @@ Function* PtraceDetect::createPtraceCheckFunc(Module &M, Function *reportFunc) {
     Func->addFnAttr(Attribute::NoInline);
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
-    BasicBlock *PtraceOkBB = BasicBlock::Create(Ctx, "ptrace_ok", Func);
+    BasicBlock *CheckStatusBB = BasicBlock::Create(Ctx, "check_status", Func);
     BasicBlock *DebuggedBB = BasicBlock::Create(Ctx, "debugged", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
     
-    // 尝试ptrace自己
-    FunctionCallee PtraceFunc = M.getOrInsertFunction(
-        "ptrace",
-        FunctionType::get(Int64Ty, {Int64Ty, Int64Ty, Int64Ty, Int64Ty}, false)
+    // 方法1: 检查 /proc/self/status 中的 TracerPid
+    // 这是更可靠的检测方式
+    FunctionCallee FopenFunc = M.getOrInsertFunction(
+        "fopen",
+        FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false)
     );
     
-    // PTRACE_TRACEME = 0
-    Value *PtraceRet = Builder.CreateCall(PtraceFunc, {
-        ConstantInt::get(Int64Ty, 0),
-        ConstantInt::get(Int64Ty, 0),
-        ConstantInt::get(Int64Ty, 0),
-        ConstantInt::get(Int64Ty, 0)
-    });
+    FunctionCallee FgetsFunc = M.getOrInsertFunction(
+        "fgets",
+        FunctionType::get(CharPtrTy, {CharPtrTy, Int32Ty, CharPtrTy}, false)
+    );
     
-    // ptrace返回-1表示失败（已经被调试）
-    Value *PtraceFailed = Builder.CreateICmpEQ(PtraceRet, ConstantInt::get(Int64Ty, -1));
-    Builder.CreateCondBr(PtraceFailed, DebuggedBB, PtraceOkBB);
+    FunctionCallee FcloseFunc = M.getOrInsertFunction(
+        "fclose",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
+    );
     
-    Builder.SetInsertPoint(PtraceOkBB);
+    FunctionCallee StrncmpFunc = M.getOrInsertFunction(
+        "strncmp",
+        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy, Int64Ty}, false)
+    );
     
-    // 再次ptrace自己（双重检测）
-    Value *PtraceRet2 = Builder.CreateCall(PtraceFunc, {
-        ConstantInt::get(Int64Ty, 0),
-        ConstantInt::get(Int64Ty, 0),
-        ConstantInt::get(Int64Ty, 0),
-        ConstantInt::get(Int64Ty, 0)
-    });
+    FunctionCallee AtoiFunc = M.getOrInsertFunction(
+        "atoi",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
+    );
     
-    Value *PtraceFailed2 = Builder.CreateICmpEQ(PtraceRet2, ConstantInt::get(Int64Ty, -1));
-    Builder.CreateCondBr(PtraceFailed2, DebuggedBB, ExitBB);
+    auto makeString = [&](const char *str) -> Constant* {
+        Constant *StrConst = ConstantDataArray::getString(Ctx, str);
+        GlobalVariable *StrGV = new GlobalVariable(
+            M, StrConst->getType(), true,
+            GlobalValue::PrivateLinkage, StrConst,
+            ".ptrace.str"
+        );
+        return ConstantExpr::getBitCast(StrGV, CharPtrTy);
+    };
+    
+    Constant *StatusPath = makeString("/proc/self/status");
+    Constant *ReadMode = makeString("r");
+    Constant *TracerPidStr = makeString("TracerPid:");
+    
+    // 打开 /proc/self/status
+    Value *Fp = Builder.CreateCall(FopenFunc, {StatusPath, ReadMode});
+    Value *FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(FpNotNull, CheckStatusBB, ExitBB);
+    
+    Builder.SetInsertPoint(CheckStatusBB);
+    
+    // 读取每一行
+    Type *BufTy = ArrayType::get(Type::getInt8Ty(Ctx), 256);
+    Value *Buf = Builder.CreateAlloca(BufTy, nullptr, "buf");
+    Value *BufPtr = Builder.CreateBitCast(Buf, CharPtrTy);
+    
+    // 循环读取
+    BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
+    BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
+    BasicBlock *CheckValueBB = BasicBlock::Create(Ctx, "check_value", Func);
+    
+    Builder.CreateBr(LoopBB);
+    
+    Builder.SetInsertPoint(LoopBB);
+    Value *Line = Builder.CreateCall(FgetsFunc, {BufPtr, ConstantInt::get(Int32Ty, 256), Fp});
+    Value *LineNotNull = Builder.CreateICmpNE(Line, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(LineNotNull, FoundBB, ExitBB);
+    
+    Builder.SetInsertPoint(FoundBB);
+    // 检查是否是 TracerPid 行
+    Value *CmpResult = Builder.CreateCall(StrncmpFunc, {BufPtr, TracerPidStr, ConstantInt::get(Int64Ty, 10)});
+    Value *IsTracerPidLine = Builder.CreateICmpEQ(CmpResult, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(IsTracerPidLine, CheckValueBB, LoopBB);
+    
+    Builder.SetInsertPoint(CheckValueBB);
+    // 获取 TracerPid 的值（跳过 "TracerPid:" 前缀）
+    Value *ValuePtr = Builder.CreateConstGEP1_64(BufTy, Buf, 10);
+    Value *ValuePtrChar = Builder.CreateBitCast(ValuePtr, CharPtrTy);
+    Value *TracerPid = Builder.CreateCall(AtoiFunc, {ValuePtrChar});
+    
+    // 如果 TracerPid != 0，说明被调试
+    Value *IsDebugged = Builder.CreateICmpNE(TracerPid, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(IsDebugged, DebuggedBB, ExitBB);
     
     Builder.SetInsertPoint(DebuggedBB);
     Builder.CreateCall(reportFunc);
     Builder.CreateBr(ExitBB);
     
     Builder.SetInsertPoint(ExitBB);
+    // 关闭文件
+    Builder.CreateCall(FcloseFunc, {Fp});
     Builder.CreateRetVoid();
     
     return Func;
@@ -124,7 +178,7 @@ bool PtraceDetect::runOnModule(Module &M) {
     }
 
     // 使用公共模块创建报告函数
-    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M);
+    Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "Ptrace Debugger");
     
     // 创建Ptrace检测函数
     Function *CheckFunc = createPtraceCheckFunc(M, ReportFunc);
