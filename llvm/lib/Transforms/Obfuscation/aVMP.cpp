@@ -1607,6 +1607,20 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
 
 
 void GOVMTranslator::handle_inst(Instruction *ins) {
+    if (CallBase *CB = dyn_cast<CallBase>(ins)) {
+        if (Function *Callee = CB->getCalledFunction()) {
+            if (Callee->isIntrinsic()) {
+                Intrinsic::ID IID = Callee->getIntrinsicID();
+                if (IID == Intrinsic::lifetime_start ||
+                    IID == Intrinsic::lifetime_end ||
+                    IID == Intrinsic::dbg_declare ||
+                    IID == Intrinsic::dbg_value ||
+                    IID == Intrinsic::dbg_assign) {
+                    return;
+                }
+            }
+        }
+    }
 
     // switch inst type
     if(AllocaInst * inst = dyn_cast<AllocaInst>(ins)){
