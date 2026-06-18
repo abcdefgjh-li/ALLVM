@@ -19,6 +19,8 @@
 #include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
+#include "clang/Driver/ELFWrapper.h"
+#include "clang/Driver/Job.h"
 #include "clang/Driver/MultilibBuilder.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/Tool.h"
@@ -593,10 +595,53 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addAllArgs(CmdArgs, {options::OPT_T, options::OPT_t});
 
-  const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
-  C.addCommand(std::make_unique<Command>(JA, *this,
-                                         ResponseFileSupport::AtFileCurCP(),
-                                         Exec, CmdArgs, Inputs, Output));
+  // 检查是否启用了 -firobf-linker
+  bool EnableLinkerWrapper = Args.hasArg(options::OPT_firobf_linker);
+
+  // 加壳仅对可执行文件生效，不对共享库(.so)、目标文件(.o)、静态库(.a)生效
+  // IsShared 表示 -shared (生成 .so)
+  if (EnableLinkerWrapper && !IsShared) {
+    // 链接输出先写到临时文件，然后由 ELFWrapperCommand 加壳后输出到最终路径
+    const char *FinalOutput = Output.getFilename();
+    SmallString<128> TempOutput(FinalOutput);
+    llvm::sys::path::replace_extension(TempOutput, "elf-wrapper-tmp");
+    const char *TempOutputArg = Args.MakeArgString(TempOutput);
+
+    // 替换 CmdArgs 中最后的 "-o" 参数值为临时文件路径
+    for (int i = CmdArgs.size() - 1; i >= 1; i--) {
+      if (strcmp(CmdArgs[i - 1], "-o") == 0) {
+        CmdArgs[i] = TempOutputArg;
+        break;
+      }
+    }
+
+    const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
+
+    // 获取 clang 自身路径（用于编译壳程序）
+    SmallString<128> ClangExePath(getToolChain().getDriver().Dir);
+    llvm::sys::path::append(ClangExePath, "clang");
+#ifdef _WIN32
+    llvm::sys::path::replace_extension(ClangExePath, "exe");
+#endif
+
+    auto WrapCmd = std::make_unique<ELFWrapperCommand>(
+        JA, *this, ResponseFileSupport::AtFileCurCP(),
+        Exec, CmdArgs, Inputs, Output);
+    WrapCmd->TempOutputPath = TempOutputArg;
+    WrapCmd->FinalOutputPath = FinalOutput;
+    WrapCmd->TargetTripleStr = Triple.str();
+    WrapCmd->ClangExePath = ClangExePath.str();
+    // 从 ToolChain 获取 sysroot
+    WrapCmd->SysrootPath = ToolChain.getDriver().SysRoot.empty()
+                               ? ToolChain.computeSysRoot()
+                               : std::string(ToolChain.getDriver().SysRoot);
+    C.addCommand(std::move(WrapCmd));
+  } else {
+    const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
+    C.addCommand(std::make_unique<Command>(JA, *this,
+                                           ResponseFileSupport::AtFileCurCP(),
+                                           Exec, CmdArgs, Inputs, Output));
+  }
 }
 
 void tools::gnutools::Assembler::ConstructJob(Compilation &C,

@@ -20,6 +20,7 @@ add_clang_library(clangDriver
   Distro.cpp
   Driver.cpp
   DriverOptions.cpp
+  ELFWrapper.cpp
   Job.cpp
   Multilib.cpp
   MultilibBuilder.cpp

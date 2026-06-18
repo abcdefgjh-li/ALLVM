@@ -214,6 +214,11 @@ EnableBanDump("irobf-bandump", cl::init(false), cl::NotHidden,
               cl::desc("Enable anti-dump protection."),
               cl::ZeroOrMore);
 
+static cl::opt<bool>
+EnableLinkerWrapper("irobf-linker", cl::init(false), cl::NotHidden,
+                    cl::desc("Enable ELF linker wrapper (ChaCha20 encrypt + fork exec + erase header). Only applies to final executables."),
+                    cl::ZeroOrMore);
+
 static cl::opt<std::string>
 SamsaraConfigPath("samsara-cfg", cl::init(std::string{}), cl::NotHidden,
                   cl::desc("Samsara config path."),
@@ -344,7 +349,7 @@ namespace llvm {
 			    EnableVmProtectDetect || EnableUsbProtect || EnableIdaDetect || EnableVpnDetect ||
 			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect ||
 			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect ||
-			    EnableSyscallProtect || EnableBanDump ||
+			    EnableSyscallProtect || EnableBanDump || EnableLinkerWrapper ||
 			    !SamsaraConfigPath.empty();
 
 			if (hasObfuscation) {
@@ -386,6 +391,7 @@ namespace llvm {
 			if (EnableHideMaps) errs() << "  + HideMaps\n";
 			if (EnableFakeMaps) errs() << "  + FakeMaps\n";
 			if (EnableBanDump) errs() << "  + BanDump\n";
+			if (EnableLinkerWrapper) errs() << "  + LinkerWrapper\n";
 			errs() << "========================================\n";
 			}
 

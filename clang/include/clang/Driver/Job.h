@@ -256,6 +256,31 @@ public:
   void setEnvironment(llvm::ArrayRef<const char *> NewEnvironment) override;
 };
 
+/// ELFWrapperCommand - 先执行链接器，然后对输出 ELF 进行加壳
+/// 加壳逻辑内嵌在 clang 中，不需要外部工具
+class ELFWrapperCommand : public Command {
+public:
+  /// 链接器输出的临时文件路径
+  std::string TempOutputPath;
+  /// 最终输出路径
+  std::string FinalOutputPath;
+  /// 目标三元组
+  std::string TargetTripleStr;
+  /// clang 可执行文件路径
+  std::string ClangExePath;
+  /// NDK sysroot 路径
+  std::string SysrootPath;
+
+  ELFWrapperCommand(const Action &Source, const Tool &Creator,
+                    ResponseFileSupport ResponseSupport, const char *Executable,
+                    const llvm::opt::ArgStringList &Arguments,
+                    ArrayRef<InputInfo> Inputs, ArrayRef<InputInfo> Outputs,
+                    const char *PrependArg = nullptr);
+
+  int Execute(ArrayRef<std::optional<StringRef>> Redirects,
+              std::string *ErrMsg, bool *ExecutionFailed) const override;
+};
+
 /// JobList - A sequence of jobs to perform.
 class JobList {
 public:

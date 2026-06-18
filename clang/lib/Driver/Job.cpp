@@ -9,6 +9,7 @@
 #include "clang/Driver/Job.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Driver/Driver.h"
+#include "clang/Driver/ELFWrapper.h"
 #include "clang/Driver/InputInfo.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
@@ -453,3 +454,39 @@ void JobList::Print(raw_ostream &OS, const char *Terminator, bool Quote,
 }
 
 void JobList::clear() { Jobs.clear(); }
+
+//===----------------------------------------------------------------------===//
+// ELFWrapperCommand implementation
+//===----------------------------------------------------------------------===//
+
+ELFWrapperCommand::ELFWrapperCommand(
+    const Action &Source, const Tool &Creator,
+    ResponseFileSupport ResponseSupport, const char *Executable,
+    const llvm::opt::ArgStringList &Arguments, ArrayRef<InputInfo> Inputs,
+    ArrayRef<InputInfo> Outputs, const char *PrependArg)
+    : Command(Source, Creator, ResponseSupport, Executable, Arguments, Inputs,
+              Outputs, PrependArg) {}
+
+int ELFWrapperCommand::Execute(ArrayRef<std::optional<StringRef>> Redirects,
+                                std::string *ErrMsg,
+                                bool *ExecutionFailed) const {
+  // 第一步：执行链接器命令（输出到临时文件）
+  int LinkResult = Command::Execute(Redirects, ErrMsg, ExecutionFailed);
+  if (LinkResult != 0) {
+    return LinkResult;
+  }
+
+  // 第二步：对链接器输出执行 ELF 加壳
+  bool WrapResult = driver::performELFWrapping(
+      TempOutputPath, FinalOutputPath, TargetTripleStr, ClangExePath,
+      SysrootPath);
+
+  if (!WrapResult) {
+    // 加壳失败，直接将临时文件复制为最终输出
+    llvm::sys::fs::copy_file(TempOutputPath, FinalOutputPath);
+    llvm::errs() << "Warning: [irobf-linker] ELF wrapping failed, "
+                    "using unwrapped binary\n";
+  }
+
+  return 0;
+}
