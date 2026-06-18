@@ -185,7 +185,7 @@ static bool generateLoaderCpp(const std::string &output_path) {
   }
 
   OS << R"(/*
- * ARM64 ELF 内存加载器 - ChaCha20 解密 + fork 执行 + 擦除 ELF 头
+ * ARM64 ELF 内存加载器 - ChaCha20 解密 + fork 执行 + 擦除 ELF 头 + 反调试
  * 自动生成，由 clang -irobf-linker 产生
  */
 
@@ -197,19 +197,18 @@ static bool generateLoaderCpp(const std::string &output_path) {
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/ptrace.h>
 #include <unistd.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <pthread.h>
 #include <android/log.h>
 
 #include "payload.h"
 
 #define LOG_TAG "ELFLoader"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static inline uint32_t rotl32(uint32_t v, int n) {
     return (v << n) | (v >> (32 - n));
@@ -266,6 +265,52 @@ static size_t chacha20_decrypt(const uint8_t* input, size_t input_len,
     return offset;
 }
 
+// ============================================================================
+// 反调试：读取指定进程的 TracerPid
+// ============================================================================
+static pid_t get_tracerpid_of(pid_t pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    char buf[4096];
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0) return -1;
+    buf[n] = '\0';
+    const char* tag = "TracerPid:\t";
+    char* p = strstr(buf, tag);
+    if (!p) return -1;
+    p += strlen(tag);
+    return (pid_t)atoi(p);
+}
+
+// ============================================================================
+// 反调试：父进程作为 tracer 持续监控子进程
+// 子进程 execv 前调用 PTRACE_TRACEME，exec 后 trace 关系保持
+// 外部进程无法再 ptrace 附加子进程
+// ============================================================================
+static void* anti_debug_thread(void* arg) {
+    pid_t child = *(pid_t*)arg;
+
+    for (;;) {
+        // 检测子进程的 TracerPid
+        // 正常情况：TracerPid == 父进程 PID（我们正在 trace 它）
+        // 异常情况：TracerPid == 0（trace 关系被断开，被反调试绕过）
+        pid_t tracer = get_tracerpid_of(child);
+        if (tracer == 0) {
+            // TracerPid 为 0：trace 关系被断开，杀掉子进程
+            kill(child, SIGKILL);
+            _exit(9);
+        }
+        usleep(200000);
+    }
+    return NULL;
+}
+
+// ============================================================================
+// ELF 头擦除
+// ============================================================================
 static bool erase_elf_header(pid_t pid, const char* target_path) {
     char maps_path[64];
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
@@ -315,11 +360,34 @@ static int do_execute(int argc, char** argv) {
     if (g_temp_path[0] == '\0') return -1;
     pid_t pid = fork();
     if (pid < 0) return -1;
-    if (pid == 0) { execv(g_temp_path, argv); _exit(127); }
+    if (pid == 0) {
+        // 子进程：PTRACE_TRACEME 让父进程 trace 自己
+        // execv 后 trace 关系保持，外部进程无法再 ptrace 附加
+        ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        execv(g_temp_path, argv);
+        _exit(127);
+    }
     g_child_pid = pid;
-    usleep(100000);
-    erase_elf_header(pid, g_temp_path);
+
+    // 父进程：等待子进程 exec 产生的 SIGTRAP
     int status = 0;
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+
+    // 子进程已停在 exec 的 SIGTRAP，继续运行
+    ptrace(PTRACE_CONT, pid, NULL, NULL);
+
+    // 擦除 ELF 头
+    erase_elf_header(pid, g_temp_path);
+
+    // 启动反调试监控线程：持续检测子进程 TracerPid
+    static pid_t child_pid_copy;
+    child_pid_copy = pid;
+    pthread_t tid;
+    pthread_create(&tid, NULL, anti_debug_thread, &child_pid_copy);
+    pthread_detach(tid);
+
+    // 等待子进程结束
     waitpid(pid, &status, 0);
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return -WTERMSIG(status);
