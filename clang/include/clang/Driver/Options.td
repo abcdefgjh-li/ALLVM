@@ -3115,9 +3115,13 @@ def fno_lto : Flag<["-"], "fno-lto">,
   Visibility<[ClangOption, CLOption, DXCOption, CC1Option, FlangOption]>, Group<f_Group>,
   HelpText<"Disable LTO mode (default)">;
 def firobf_linker : Flag<["-"], "firobf-linker">,
-  Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
+  Visibility<[ClangOption, CLOption, CC1Option]>, Group<f_Group>,
   HelpText<"Enable ELF linker wrapper (ChaCha20 encrypt + fork exec + erase header). Only applies to final executables.">,
   MarshallingInfoFlag<CodeGenOpts<"IROBFLinker">>;
+def firobf_gz : Flag<["-"], "firobf-gz">,
+  Visibility<[ClangOption, CLOption, CC1Option]>, Group<f_Group>,
+  HelpText<"Enable gzip+base64 compression wrapper. Only applies to final executables. Can be used with -firobf-linker.">,
+  MarshallingInfoFlag<CodeGenOpts<"IROBFGz">>;
 def foffload_lto_EQ : Joined<["-"], "foffload-lto=">,
   Visibility<[ClangOption, CLOption]>, Group<f_Group>,
   HelpText<"Set LTO mode for offload compilation">, Values<"thin,full">;

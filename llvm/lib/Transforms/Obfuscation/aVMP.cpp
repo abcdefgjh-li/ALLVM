@@ -1442,7 +1442,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                     Value *cstrPtr = IRBcallFunction.CreatePointerCast(target_func_args[1], PointerType::get(Mod->getContext(), 0));
                     Value *firstChar = IRBcallFunction.CreateLoad(Type::getInt8Ty(Mod->getContext()), cstrPtr);
                     Value *firstCharInt = IRBcallFunction.CreateSExt(firstChar, Type::getInt32Ty(Mod->getContext()));
-                    Value *preFmt = IRBcallFunction.CreateGlobalStringPtr("[VMP_CTOR_PRE] this=%p cstr=%p first=%d\n");
+                    Value *preFmt = IRBcallFunction.CreateGlobalString("[VMP_CTOR_PRE] this=%p cstr=%p first=%d\n");
                     IRBcallFunction.CreateCall(printf_func, {preFmt, objPtr, cstrPtr, firstCharInt});
                 }
                 resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
@@ -1454,7 +1454,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                     Value *word1 = IRBcallFunction.CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr8);
                     Value *objPtr16 = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), objPtr, 16);
                     Value *word2 = IRBcallFunction.CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr16);
-                    Value *postFmt = IRBcallFunction.CreateGlobalStringPtr("[VMP_CTOR_POST] this=%p w0=%llx w1=%llx w2=%llx\n");
+                    Value *postFmt = IRBcallFunction.CreateGlobalString("[VMP_CTOR_POST] this=%p w0=%llx w1=%llx w2=%llx\n");
                     IRBcallFunction.CreateCall(printf_func, {postFmt, objPtr, word0, word1, word2});
                 }
             } else {

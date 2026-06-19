@@ -106,12 +106,50 @@ QString HelpDocument::generateHelpContent() {
 | **隐藏 Maps 保护** | `-irobf-hidemaps` | Root 环境下生成假 maps 并 bind mount 到 `/proc/self/maps` |
 | **伪造 Maps 内容** | `-irobf-fakemaps` | 生成伪造的 maps 内容用于迷惑分析 |
 
+### ELF 加壳
+
+| 功能 | 参数 | 说明 |
+|------|------|------|
+| **ELF 加壳** | `-firobf-linker` | 使用 ChaCha20 加密 ELF 并添加环境变量校验 |
+| **GZ 压缩壳** | `-firobf-gz` | 使用 gzip+base64 压缩 ELF，生成 shell 脚本包装器 |
+
+> **注意**：启用加壳时会自动注入环境变量检测（`-irobf-envcheck` 或 `-irobf-gzcheck`）。加壳前会自动剥离符号表。
+
 ### 其他功能
 
 | 功能 | 参数 | 说明 |
 |------|------|------|
 | **A-Protect 输出** | `-irobf-aprotect` | 输出 A-Protect 保护信息 |
 | **调试日志** | `-irobf-debug` | 输出混淆调试信息 |
+
+---
+
+## ELF 加壳详解
+
+### ELF 加壳 (-firobf-linker)
+
+1. 使用 `llvm-strip` 自动剥离符号表
+2. 使用 ChaCha20 加密 ELF
+3. 生成带环境变量校验的加壳可执行文件
+4. 设置 `lc` 环境变量，内嵌代码校验
+
+### GZ 压缩壳 (-firobf-gz)
+
+1. 使用 `llvm-strip` 自动剥离符号表
+2. 使用 gzip + base64 压缩 ELF
+3. 生成 shell 脚本包装器
+4. 设置 `lc_gz` 环境变量，内嵌代码校验
+
+### 环境变量检测
+
+启用加壳时会自动注入以下检测：
+
+| 功能 | 参数 | 说明 |
+|------|------|------|
+| **Linker 环境检测** | `-irobf-envcheck` | 校验 `lc` 环境变量（ELF 加壳自动注入） |
+| **GZ 环境检测** | `-irobf-gzcheck` | 校验 `lc_gz` 环境变量（GZ 压缩壳自动注入） |
+
+> **重要**：如果加壳程序被脱壳，环境变量将缺失，程序会被终止。
 
 ---
 
@@ -181,6 +219,7 @@ LOCAL_CFLAGS += -fno-exceptions -frtti
 4. **VMP**：VMP 保护会显著增加代码体积，仅对关键函数使用。需要禁用异常处理（-fno-exceptions）
 5. **Root 检测**：Root 检测和非 Root 检测互斥，只能选择其一
 6. **A-Protect**：A-Protect 输出现在默认启用，在程序启动时打印保护信息
+7. **加壳**：ELF 加壳和 GZ 压缩壳可同时启用。加壳前会自动剥离符号表。脱壳后程序将因环境变量缺失而被终止。
 
 ---
 

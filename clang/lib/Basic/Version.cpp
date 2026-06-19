@@ -140,7 +140,7 @@ namespace clang {
 			OS << " " << repo;
 		}
 
-		OS << "\nA-protect\nBy abcdefgjh.\n" << getRandomSignature() << "\n";
+		OS << "\nA-protector\nBy abcdefgjh.\n" << getRandomSignature() << "\n";
 		//OS << "XR 定制版 Production by 小二ˣʳ QQ群：478626908 TG群：@XRWZ666\n崇文尚理，知行合一；山野万里，藏尽温柔与星光。\n";
 		return buf;
 	}

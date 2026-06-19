@@ -32,6 +32,8 @@
 #include "llvm/Transforms/Obfuscation/NoRootDetect.h"
 #include "llvm/Transforms/Obfuscation/SyscallProtect.h"
 #include "llvm/Transforms/Obfuscation/BanDump.h"
+#include "llvm/Transforms/Obfuscation/EnvCheck.h"
+#include "llvm/Transforms/Obfuscation/GzEnvCheck.h"
 #include "llvm/IR/Module.h"
 
 
@@ -219,6 +221,16 @@ EnableLinkerWrapper("irobf-linker", cl::init(false), cl::NotHidden,
                     cl::desc("Enable ELF linker wrapper (ChaCha20 encrypt + fork exec + erase header). Only applies to final executables."),
                     cl::ZeroOrMore);
 
+static cl::opt<bool>
+EnableEnvCheck("irobf-envcheck", cl::init(false), cl::NotHidden,
+               cl::desc("Enable environment variable check (requires linker wrapper)."),
+               cl::ZeroOrMore);
+
+static cl::opt<bool>
+EnableGzEnvCheck("irobf-gzcheck", cl::init(false), cl::NotHidden,
+                 cl::desc("Enable gz environment variable check (requires gz wrapper)."),
+                 cl::ZeroOrMore);
+
 static cl::opt<std::string>
 SamsaraConfigPath("samsara-cfg", cl::init(std::string{}), cl::NotHidden,
                   cl::desc("Samsara config path."),
@@ -350,6 +362,7 @@ namespace llvm {
 			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect ||
 			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect ||
 			    EnableSyscallProtect || EnableBanDump || EnableLinkerWrapper ||
+			    EnableEnvCheck || EnableGzEnvCheck ||
 			    !SamsaraConfigPath.empty();
 
 			if (hasObfuscation) {
@@ -357,11 +370,11 @@ namespace llvm {
 			}
 
 			if (!EnableIRObfuscation) {
-			bool Changed = run(M);
-			return Changed;
-		}
+				bool Changed = run(M);
+				return Changed;
+			}
 
-		const auto Options(getOptions());
+			const auto Options(getOptions());
 			unsigned   pointerSize = M.getDataLayout().getTypeAllocSize(
 			                             PointerType::getUnqual(M.getContext()));
 
@@ -392,6 +405,8 @@ namespace llvm {
 			if (EnableFakeMaps) errs() << "  + FakeMaps\n";
 			if (EnableBanDump) errs() << "  + BanDump\n";
 			if (EnableLinkerWrapper) errs() << "  + LinkerWrapper\n";
+			if (EnableEnvCheck) errs() << "  + EnvCheck\n";
+			if (EnableGzEnvCheck) errs() << "  + GzEnvCheck\n";
 			errs() << "========================================\n";
 			}
 
@@ -457,6 +472,14 @@ namespace llvm {
 
 			if (EnableBanDump) {
 				add(llvm::createBanDumpPass());
+			}
+
+			if (EnableEnvCheck) {
+				add(llvm::createEnvCheckPass());
+			}
+
+			if (EnableGzEnvCheck) {
+				add(llvm::createGzEnvCheckPass());
 			}
 
 		// 只有启用对应选项时才添加混淆Pass

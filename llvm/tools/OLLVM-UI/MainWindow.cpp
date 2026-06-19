@@ -196,15 +196,41 @@ void MainWindow::onInjectFlags() {
     }
 
     QStringList flags;
+    QStringList ldflags;  // linker flags (通过 LOCAL_LDFLAGS 传递)
+    QStringList cflagsForWrapper;  // 壳子选项（需要在编译阶段传递以启用检测）
+    bool hasLinker = false;
+    bool hasGz = false;
+    
     auto passChecks = m_mainTab->passChecks();
     for (const auto &pc : passChecks) {
         if (pc.chk->isChecked()) {
-            flags << "-mllvm" << "-" + pc.flag;
+            // linker 和 gz 选项通过 LOCAL_LDFLAGS 传递
+            if (pc.flag == "firobf-linker") {
+                ldflags << "-" + pc.flag;
+                cflagsForWrapper << "-" + pc.flag;
+                hasLinker = true;
+            } else if (pc.flag == "firobf-gz") {
+                ldflags << "-" + pc.flag;
+                cflagsForWrapper << "-" + pc.flag;
+                hasGz = true;
+            } else {
+                flags << "-mllvm" << "-" + pc.flag;
+            }
         }
         if (pc.levelCombo && pc.chk->isChecked()) {
             int lvl = pc.levelCombo->currentIndex() + 1;
             flags << "-mllvm" << "-level-" + pc.flag.mid(6) + "=" + QString::number(lvl);
         }
+    }
+
+    // 启用壳子时自动注入对应的环境变量检测
+    if (hasLinker) {
+        flags << "-mllvm" << "-irobf-envcheck";
+        appendLog("[自动注入] linker 壳启用，自动添加环境变量检测 (-irobf-envcheck)", "#00d4aa");
+    }
+    if (hasGz) {
+        flags << "-mllvm" << "-irobf-gzcheck";
+        appendLog("[自动注入] gz 壳启用，自动添加环境变量检测 (-irobf-gzcheck)", "#00d4aa");
     }
 
     bool hasVmp = false;
@@ -215,13 +241,15 @@ void MainWindow::onInjectFlags() {
         }
     }
 
-    if (flags.isEmpty()) {
+    if (flags.isEmpty() && ldflags.isEmpty()) {
         QMessageBox::warning(this, "错误", "请至少选择一个混淆功能！");
         return;
     }
 
     QStringList injectFlags;
-    injectFlags << "-mllvm" << "-irobf" << flags;
+    if (!flags.isEmpty()) {
+        injectFlags << "-mllvm" << "-irobf" << flags;
+    }
     
     // VMP需要禁用异常
     if (hasVmp) {
@@ -253,12 +281,26 @@ void MainWindow::onInjectFlags() {
                 newLines.append("LOCAL_CFLAGS += " + injectFlags.join(' '));
                 newLines.append("LOCAL_CPPFLAGS += " + injectFlags.join(' '));
             }
+            // 壳子选项也需要在编译阶段传递（用于自动启用检测）
+            if (!cflagsForWrapper.isEmpty()) {
+                newLines.append("LOCAL_CFLAGS += " + cflagsForWrapper.join(' '));
+            }
+            if (!ldflags.isEmpty()) {
+                newLines.append("LOCAL_LDFLAGS += " + ldflags.join(' '));
+            }
         }
 
         if (trimmed.startsWith("LOCAL_CFLAGS") && trimmed.contains("-mllvm") && trimmed.contains("-irobf")) {
             continue;
         }
         if (trimmed.startsWith("LOCAL_CPPFLAGS") && trimmed.contains("-mllvm") && trimmed.contains("-irobf")) {
+            continue;
+        }
+        if (trimmed.startsWith("LOCAL_LDFLAGS") && (trimmed.contains("-firobf-linker") || trimmed.contains("-firobf-gz"))) {
+            continue;
+        }
+        // 跳过之前注入的壳子编译选项
+        if (trimmed.startsWith("LOCAL_CFLAGS") && (trimmed.contains("-firobf-linker") || trimmed.contains("-firobf-gz"))) {
             continue;
         }
 
@@ -273,8 +315,16 @@ void MainWindow::onInjectFlags() {
     f.close();
 
     appendLog("[注入] 已注入混淆标志", "#ffffff;background:#8B8000;padding:2px 4px;border-radius:2px");
-    appendLog("  LOCAL_CFLAGS += " + injectFlags.join(' '), "#ffffff;background:#5a4a00;padding:2px 4px;border-radius:2px");
-    appendLog("  LOCAL_CPPFLAGS += " + injectFlags.join(' '), "#ffffff;background:#5a4a00;padding:2px 4px;border-radius:2px");
+    if (!injectFlags.isEmpty()) {
+        appendLog("  LOCAL_CFLAGS += " + injectFlags.join(' '), "#ffffff;background:#5a4a00;padding:2px 4px;border-radius:2px");
+        appendLog("  LOCAL_CPPFLAGS += " + injectFlags.join(' '), "#ffffff;background:#5a4a00;padding:2px 4px;border-radius:2px");
+    }
+    if (!cflagsForWrapper.isEmpty()) {
+        appendLog("  LOCAL_CFLAGS += " + cflagsForWrapper.join(' ') + "  (壳子选项，用于启用检测)", "#ffffff;background:#5a4a00;padding:2px 4px;border-radius:2px");
+    }
+    if (!ldflags.isEmpty()) {
+        appendLog("  LOCAL_LDFLAGS += " + ldflags.join(' '), "#ffffff;background:#5a4a00;padding:2px 4px;border-radius:2px");
+    }
 
     m_mainTab->loadMkContent();
     m_tabWidget->setCurrentIndex(1);

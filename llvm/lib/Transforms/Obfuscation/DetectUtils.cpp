@@ -33,7 +33,6 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     
     Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
-    Type *Int64Ty = Type::getInt64Ty(Ctx);
     PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
@@ -62,81 +61,16 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
         FunctionType::get(Int32Ty, {CharPtrTy}, false)
     );
     
-    // ========== 打印 A-protect 标识（带随机颜色）==========
-    // 生成随机颜色
-    FunctionCallee TimeFunc = M.getOrInsertFunction(
-        "time", FunctionType::get(Int64Ty, {Int64Ty}, false));
-    FunctionCallee SrandFunc = M.getOrInsertFunction(
-        "srand", FunctionType::get(VoidTy, {Int32Ty}, false));
-    FunctionCallee RandFunc = M.getOrInsertFunction(
-        "rand", FunctionType::get(Int32Ty, {}, false));
-    FunctionCallee ClockFunc = M.getOrInsertFunction(
-        "clock", FunctionType::get(Int64Ty, {}, false));
-    
-    Value *TimeArg = ConstantInt::get(Int64Ty, 0);
-    CallInst *TimeCall = Builder.CreateCall(TimeFunc, {TimeArg});
-    CallInst *ClockCall = Builder.CreateCall(ClockFunc, {});
-    
-    Value *TimeAsInt = Builder.CreateIntCast(TimeCall, Int32Ty, false);
-    Value *ClockAsInt = Builder.CreateIntCast(ClockCall, Int32Ty, false);
-    Value *Seed = Builder.CreateXor(TimeAsInt, ClockAsInt);
-    Builder.CreateCall(SrandFunc, {Seed});
-    
-    // 颜色数组
-    const char *Colors[] = {
-        "\033[31m", "\033[32m", "\033[33m", "\033[34m",
-        "\033[35m", "\033[36m", "\033[91m", "\033[92m",
-        "\033[93m", "\033[94m", "\033[95m", "\033[96m"
-    };
-    const int NumColors = 12;
-    
-    ArrayType *ColorsArrayTy = ArrayType::get(CharPtrTy, NumColors);
-    std::vector<Constant *> ColorConstants;
-    
-    for (int i = 0; i < NumColors; ++i) {
-        Constant *ColorStr = ConstantDataArray::getString(Ctx, Colors[i]);
-        GlobalVariable *ColorGV = new GlobalVariable(
-            M, ColorStr->getType(), true, GlobalValue::PrivateLinkage,
-            ColorStr, ".detect.color." + Twine(i));
-        ColorConstants.push_back(ConstantExpr::getBitCast(ColorGV, CharPtrTy));
-    }
-    
-    Constant *ColorsInit = ConstantArray::get(ColorsArrayTy, ColorConstants);
-    GlobalVariable *ColorsArray = new GlobalVariable(
-        M, ColorsArrayTy, true, GlobalValue::PrivateLinkage,
-        ColorsInit, ".detect.colors");
-    
-    CallInst *RandCall = Builder.CreateCall(RandFunc, {});
-    Value *ColorIndex = Builder.CreateSRem(RandCall, ConstantInt::get(Int32Ty, NumColors));
-    
-    Value *ColorsPtr = Builder.CreateBitCast(ColorsArray, PointerType::get(Ctx, 0));
-    Value *ColorElemPtr = Builder.CreateInBoundsGEP(ColorsArrayTy, ColorsPtr,
-        {ConstantInt::get(Int64Ty, 0), ColorIndex});
-    Value *ColorStrPtr = Builder.CreateLoad(CharPtrTy, ColorElemPtr);
-    
-    // 打印 A-protect
-    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protect");
+    // 打印 A-protector（白色）
+    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protector\n");
     GlobalVariable *AProtectGV = new GlobalVariable(
         M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
         AProtectStr, ".detect.apstr");
     Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
-    
-    Constant *ResetStr = ConstantDataArray::getString(Ctx, "\033[0m\n");
-    GlobalVariable *ResetGV = new GlobalVariable(
-        M, ResetStr->getType(), true, GlobalValue::PrivateLinkage,
-        ResetStr, ".detect.reset");
-    Constant *ResetPtr = ConstantExpr::getBitCast(ResetGV, CharPtrTy);
-    
-    Constant *FormatStr = ConstantDataArray::getString(Ctx, "%s%s%s");
-    GlobalVariable *FormatGV = new GlobalVariable(
-        M, FormatStr->getType(), true, GlobalValue::PrivateLinkage,
-        FormatStr, ".detect.format");
-    Constant *FormatPtr = ConstantExpr::getBitCast(FormatGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {FormatPtr, ColorStrPtr, AProtectPtr, ResetPtr});
+    Builder.CreateCall(PrintfFunc, {AProtectPtr});
     
     // 打印版本号
-    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.6.0\n");
+    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
     GlobalVariable *VersionGV = new GlobalVariable(
         M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
         VersionStr, ".detect.version");
@@ -632,6 +566,559 @@ bool DetectUtils::injectToMain(Module &M, Function *checkFunc, const DetectOptio
     }
     
     return true;
+}
+
+Function* DetectUtils::createPtraceSelfAttachFunc(Module &M, Function *reportFunc) {
+    LLVMContext &Ctx = M.getContext();
+
+    Type *VoidTy = Type::getVoidTy(Ctx);
+    Type *Int8Ty = Type::getInt8Ty(Ctx);
+    Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int64Ty = Type::getInt64Ty(Ctx);
+    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
+
+    // ===== 创建监控线程函数 =====
+    // 线程参数：子进程PID
+    FunctionType *MonitorThreadTy = FunctionType::get(VoidTy, {CharPtrTy}, false);
+    Function *MonitorThread = Function::Create(
+        MonitorThreadTy,
+        GlobalValue::InternalLinkage,
+        M.getDataLayout().getProgramAddressSpace(),
+        "ptrace_monitor_thread",
+        &M
+    );
+    MonitorThread->addFnAttr(Attribute::NoInline);
+
+    {
+        BasicBlock *MonEntryBB = BasicBlock::Create(Ctx, "entry", MonitorThread);
+        BasicBlock *MonLoopBB = BasicBlock::Create(Ctx, "loop", MonitorThread);
+        BasicBlock *MonOpenOkBB = BasicBlock::Create(Ctx, "open_ok", MonitorThread);
+        BasicBlock *MonOpenFailBB = BasicBlock::Create(Ctx, "open_fail", MonitorThread);
+        BasicBlock *MonReadLoopBB = BasicBlock::Create(Ctx, "read_loop", MonitorThread);
+        BasicBlock *MonCheckLineBB = BasicBlock::Create(Ctx, "check_line", MonitorThread);
+        BasicBlock *MonParseBB = BasicBlock::Create(Ctx, "parse", MonitorThread);
+        BasicBlock *MonSkipSpaceBB = BasicBlock::Create(Ctx, "skip_space", MonitorThread);
+        BasicBlock *MonCheckPidBB = BasicBlock::Create(Ctx, "check_pid", MonitorThread);
+        BasicBlock *MonTracerZeroBB = BasicBlock::Create(Ctx, "tracer_zero", MonitorThread);
+        BasicBlock *MonTracerOkBB = BasicBlock::Create(Ctx, "tracer_ok", MonitorThread);
+        BasicBlock *MonCloseBB = BasicBlock::Create(Ctx, "close", MonitorThread);
+
+        IRBuilder<> Builder(MonEntryBB);
+
+        // 获取子进程PID参数
+        Argument *ChildPidArg = &*MonitorThread->arg_begin();
+        Value *ChildPid = Builder.CreatePtrToInt(ChildPidArg, Int32Ty, "child_pid");
+
+        // sleep 1秒后进入循环
+        FunctionCallee UsleepFunc = M.getOrInsertFunction(
+            "usleep", FunctionType::get(Int32Ty, {Int32Ty}, false));
+        Builder.CreateCall(UsleepFunc, {ConstantInt::get(Int32Ty, 1000000)});
+        Builder.CreateBr(MonLoopBB);
+
+        // ===== 循环：持续检测 =====
+        Builder.SetInsertPoint(MonLoopBB);
+
+        // 构造 /proc/<child_pid>/status 路径
+        FunctionCallee SprintfFunc = M.getOrInsertFunction(
+            "sprintf", FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy}, true));
+
+        Constant *StatusFmt = createGlobalString(M, "/proc/%d/status", ".ptrace.status_fmt");
+        Type *PathBufTy = ArrayType::get(Int8Ty, 256);
+        Value *PathBuf = Builder.CreateAlloca(PathBufTy, nullptr, "status_path");
+        Value *PathBufPtr = Builder.CreateBitCast(PathBuf, CharPtrTy);
+        Builder.CreateCall(SprintfFunc, {PathBufPtr, StatusFmt, ChildPid});
+
+        // 打开文件
+        FunctionCallee FopenFunc = M.getOrInsertFunction(
+            "fopen", FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false));
+        Constant *ReadMode = createGlobalString(M, "r", ".ptrace.readmode");
+        Value *Fp = Builder.CreateCall(FopenFunc, {PathBufPtr, ReadMode});
+        Value *FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
+        Builder.CreateCondBr(FpNotNull, MonOpenOkBB, MonOpenFailBB);
+
+        Builder.SetInsertPoint(MonOpenFailBB);
+        // 无法打开文件，sleep后重试
+        Builder.CreateCall(UsleepFunc, {ConstantInt::get(Int32Ty, 2000000)});
+        Builder.CreateBr(MonLoopBB);
+
+        Builder.SetInsertPoint(MonOpenOkBB);
+        Type *LineBufTy = ArrayType::get(Int8Ty, 512);
+        Value *LineBuf = Builder.CreateAlloca(LineBufTy, nullptr, "linebuf");
+        Value *LineBufPtr = Builder.CreateBitCast(LineBuf, CharPtrTy);
+
+        Builder.CreateBr(MonReadLoopBB);
+
+        // ===== 逐行读取 =====
+        Builder.SetInsertPoint(MonReadLoopBB);
+        FunctionCallee FgetsFunc = M.getOrInsertFunction(
+            "fgets", FunctionType::get(CharPtrTy, {CharPtrTy, Int32Ty, CharPtrTy}, false));
+        Value *Line = Builder.CreateCall(FgetsFunc, {LineBufPtr, ConstantInt::get(Int32Ty, 512), Fp});
+        Value *LineNotNull = Builder.CreateICmpNE(Line, ConstantPointerNull::get(CharPtrTy));
+        Builder.CreateCondBr(LineNotNull, MonCheckLineBB, MonCloseBB);
+
+        Builder.SetInsertPoint(MonCheckLineBB);
+        FunctionCallee StrstrFunc = M.getOrInsertFunction(
+            "strstr", FunctionType::get(CharPtrTy, {CharPtrTy, CharPtrTy}, false));
+        Constant *TracerPidNeedle = createGlobalString(M, "TracerPid:", ".ptrace.tracerpid");
+        Value *Found = Builder.CreateCall(StrstrFunc, {LineBufPtr, TracerPidNeedle});
+        Value *FoundNotNull = Builder.CreateICmpNE(Found, ConstantPointerNull::get(CharPtrTy));
+        Builder.CreateCondBr(FoundNotNull, MonParseBB, MonReadLoopBB);
+
+        Builder.SetInsertPoint(MonParseBB);
+        Constant *ColonNeedle = createGlobalString(M, ":", ".ptrace.colon");
+        Value *ColonPos = Builder.CreateCall(StrstrFunc, {LineBufPtr, ColonNeedle});
+        Value *ColonNotNull = Builder.CreateICmpNE(ColonPos, ConstantPointerNull::get(CharPtrTy));
+
+        BasicBlock *ParseOkBB = BasicBlock::Create(Ctx, "parse_ok", MonitorThread);
+        Builder.CreateCondBr(ColonNotNull, ParseOkBB, MonReadLoopBB);
+
+        Builder.SetInsertPoint(ParseOkBB);
+        Value *ColonPlusOne = Builder.CreateGEP(Int8Ty, ColonPos, ConstantInt::get(Int64Ty, 1));
+        Builder.CreateBr(MonSkipSpaceBB);
+
+        // 跳过空白
+        Builder.SetInsertPoint(MonSkipSpaceBB);
+        PHINode *CurrentPtr = Builder.CreatePHI(CharPtrTy, 2, "ptr");
+        CurrentPtr->addIncoming(ColonPlusOne, ParseOkBB);
+
+        FunctionCallee IsspaceFunc = M.getOrInsertFunction(
+            "isspace", FunctionType::get(Int32Ty, {Int32Ty}, false));
+        Value *CharVal = Builder.CreateLoad(Int8Ty, CurrentPtr);
+        Value *CharInt = Builder.CreateSExt(CharVal, Int32Ty);
+        Value *IsSpace = Builder.CreateCall(IsspaceFunc, {CharInt});
+        Value *IsSpaceBool = Builder.CreateICmpNE(IsSpace, ConstantInt::get(Int32Ty, 0));
+        Value *NextPtr = Builder.CreateGEP(Int8Ty, CurrentPtr, ConstantInt::get(Int64Ty, 1));
+        CurrentPtr->addIncoming(NextPtr, MonSkipSpaceBB);
+        Builder.CreateCondBr(IsSpaceBool, MonSkipSpaceBB, MonCheckPidBB);
+
+        // 检查PID值
+        Builder.SetInsertPoint(MonCheckPidBB);
+        FunctionCallee StrtoulFunc = M.getOrInsertFunction(
+            "strtoul", FunctionType::get(Int64Ty, {CharPtrTy, CharPtrTy, Int32Ty}, false));
+        Value *PidValue = Builder.CreateCall(StrtoulFunc,
+            {CurrentPtr, ConstantPointerNull::get(CharPtrTy), ConstantInt::get(Int32Ty, 10)});
+
+        // TracerPid == 0 → trace关系断开 → 被调试器剥离
+        Value *IsZero = Builder.CreateICmpEQ(PidValue, ConstantInt::get(Int64Ty, 0));
+        Builder.CreateCondBr(IsZero, MonTracerZeroBB, MonTracerOkBB);
+
+        // TracerPid == 0：kill子进程 + 调用report
+        Builder.SetInsertPoint(MonTracerZeroBB);
+        FunctionCallee KillFunc = M.getOrInsertFunction(
+            "kill", FunctionType::get(Int32Ty, {Int32Ty, Int32Ty}, false));
+        Builder.CreateCall(KillFunc, {ChildPid, ConstantInt::get(Int32Ty, 9)});
+        Builder.CreateCall(reportFunc);
+        Builder.CreateUnreachable();
+
+        // TracerPid != 0：正常，关闭文件，sleep后继续循环
+        Builder.SetInsertPoint(MonTracerOkBB);
+        FunctionCallee FcloseFunc = M.getOrInsertFunction(
+            "fclose", FunctionType::get(Int32Ty, {CharPtrTy}, false));
+        Builder.CreateCall(FcloseFunc, {Fp});
+        Builder.CreateCall(UsleepFunc, {ConstantInt::get(Int32Ty, 2000000)});
+        Builder.CreateBr(MonLoopBB);
+
+        Builder.SetInsertPoint(MonCloseBB);
+        Builder.CreateCall(FcloseFunc, {Fp});
+        Builder.CreateCall(UsleepFunc, {ConstantInt::get(Int32Ty, 2000000)});
+        Builder.CreateBr(MonLoopBB);
+    }
+
+    // ===== 创建主函数：fork + PTRACE_TRACEME + waitpid + PTRACE_CONT =====
+    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
+    Function *Func = Function::Create(
+        FuncTy,
+        GlobalValue::InternalLinkage,
+        M.getDataLayout().getProgramAddressSpace(),
+        "ptrace_self_attach",
+        &M
+    );
+    Func->addFnAttr(Attribute::NoInline);
+
+    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
+    BasicBlock *ForkDoneBB = BasicBlock::Create(Ctx, "fork_done", Func);
+    BasicBlock *ChildBB = BasicBlock::Create(Ctx, "child", Func);
+    BasicBlock *ParentBB = BasicBlock::Create(Ctx, "parent", Func);
+    BasicBlock *WaitDoneBB = BasicBlock::Create(Ctx, "wait_done", Func);
+    BasicBlock *ContDoneBB = BasicBlock::Create(Ctx, "cont_done", Func);
+    BasicBlock *StartMonitorBB = BasicBlock::Create(Ctx, "start_monitor", Func);
+    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
+
+    IRBuilder<> Builder(EntryBB);
+
+    // fork()
+    FunctionCallee ForkFunc = M.getOrInsertFunction(
+        "fork", FunctionType::get(Int32Ty, {}, false));
+    Value *ForkRet = Builder.CreateCall(ForkFunc, {});
+    Builder.CreateBr(ForkDoneBB);
+
+    // 判断父子进程
+    Builder.SetInsertPoint(ForkDoneBB);
+    PHINode *PidPhi = Builder.CreatePHI(Int32Ty, 1, "pid");
+    PidPhi->addIncoming(ForkRet, EntryBB);
+
+    Value *IsChild = Builder.CreateICmpEQ(PidPhi, ConstantInt::get(Int32Ty, 0));
+    Builder.CreateCondBr(IsChild, ChildBB, ParentBB);
+
+    // ===== 子进程：PTRACE_TRACEME =====
+    Builder.SetInsertPoint(ChildBB);
+
+    // ptrace(PTRACE_TRACEME, 0, NULL, NULL)
+    // PTRACE_TRACEME = 0
+    FunctionCallee PtraceFunc = M.getOrInsertFunction(
+        "ptrace",
+        FunctionType::get(Int64Ty, {Int64Ty, Int64Ty, Int64Ty, Int64Ty}, false));
+
+    Builder.CreateCall(PtraceFunc, {
+        ConstantInt::get(Int64Ty, 0),   // PTRACE_TRACEME
+        ConstantInt::get(Int64Ty, 0),
+        ConstantInt::get(Int64Ty, 0),
+        ConstantInt::get(Int64Ty, 0)
+    });
+
+    // 子进程直接返回，继续执行程序正常逻辑
+    // raise(SIGSTOP) 让父进程有机会 waitpid
+    FunctionCallee RaiseFunc = M.getOrInsertFunction(
+        "raise", FunctionType::get(Int32Ty, {Int32Ty}, false));
+    Builder.CreateCall(RaiseFunc, {ConstantInt::get(Int32Ty, 19)}); // SIGSTOP = 19
+
+    Builder.CreateRetVoid();
+
+    // ===== 父进程：waitpid + PTRACE_CONT =====
+    Builder.SetInsertPoint(ParentBB);
+
+    // waitpid(child_pid, &status, 0)
+    FunctionCallee WaitpidFunc = M.getOrInsertFunction(
+        "waitpid",
+        FunctionType::get(Int32Ty, {Int32Ty, CharPtrTy, Int32Ty}, false));
+
+    Value *StatusAlloca = Builder.CreateAlloca(Int32Ty, nullptr, "status");
+    Value *StatusPtr = Builder.CreateBitCast(StatusAlloca, CharPtrTy);
+    Builder.CreateCall(WaitpidFunc, {PidPhi, StatusPtr, ConstantInt::get(Int32Ty, 0)});
+    Builder.CreateBr(WaitDoneBB);
+
+    Builder.SetInsertPoint(WaitDoneBB);
+
+    // ptrace(PTRACE_CONT, child_pid, NULL, NULL)
+    // PTRACE_CONT = 7
+    Value *ChildPidInt64 = Builder.CreateSExt(PidPhi, Int64Ty);
+    Builder.CreateCall(PtraceFunc, {
+        ConstantInt::get(Int64Ty, 7),   // PTRACE_CONT
+        ChildPidInt64,
+        ConstantInt::get(Int64Ty, 0),
+        ConstantInt::get(Int64Ty, 0)
+    });
+    Builder.CreateBr(ContDoneBB);
+
+    Builder.SetInsertPoint(ContDoneBB);
+
+    // 启动监控线程
+    Builder.CreateBr(StartMonitorBB);
+
+    Builder.SetInsertPoint(StartMonitorBB);
+
+    // 创建pthread线程运行监控函数
+    Type *PthreadTy = StructType::create(Ctx, "pthread_t");
+    Value *Thread = Builder.CreateAlloca(PthreadTy, nullptr, "monitor_thread");
+
+    FunctionCallee PthreadCreateFunc = M.getOrInsertFunction(
+        "pthread_create",
+        FunctionType::get(Int32Ty, {CharPtrTy, CharPtrTy, CharPtrTy, CharPtrTy}, false));
+
+    // 将子进程PID作为线程参数传递（转为指针）
+    Value *ChildPidAsPtr = Builder.CreateIntToPtr(PidPhi, CharPtrTy, "pid_as_ptr");
+
+    Value *ThreadPtr = Builder.CreateBitCast(Thread, CharPtrTy);
+    Value *MonitorFuncPtr = Builder.CreateBitCast(MonitorThread, CharPtrTy);
+
+    Builder.CreateCall(PthreadCreateFunc, {
+        ThreadPtr,
+        ConstantPointerNull::get(CharPtrTy),
+        MonitorFuncPtr,
+        ChildPidAsPtr
+    });
+
+    Builder.CreateBr(ExitBB);
+
+    Builder.SetInsertPoint(ExitBB);
+    Builder.CreateRetVoid();
+
+    return Func;
+}
+
+Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, const std::string &envKey) {
+    LLVMContext &Ctx = M.getContext();
+
+    Type *VoidTy = Type::getVoidTy(Ctx);
+    Type *Int8Ty = Type::getInt8Ty(Ctx);
+    Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int64Ty = Type::getInt64Ty(Ctx);
+    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
+
+    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
+    Function *Func = Function::Create(
+        FuncTy,
+        GlobalValue::InternalLinkage,
+        M.getDataLayout().getProgramAddressSpace(),
+        "check_env_var",
+        &M
+    );
+
+    Func->addFnAttr(Attribute::NoInline);
+    Func->addFnAttr(Attribute::OptimizeNone);
+
+    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
+    BasicBlock *GetEnvOkBB = BasicBlock::Create(Ctx, "getenv_ok", Func);
+    BasicBlock *GetEnvFailBB = BasicBlock::Create(Ctx, "getenv_fail", Func);
+    BasicBlock *CmpLoopBB = BasicBlock::Create(Ctx, "cmp_loop", Func);
+    BasicBlock *CmpBodyBB = BasicBlock::Create(Ctx, "cmp_body", Func);
+    BasicBlock *MismatchBB = BasicBlock::Create(Ctx, "mismatch", Func);
+    BasicBlock *MatchBB = BasicBlock::Create(Ctx, "match", Func);
+    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
+
+    IRBuilder<> Builder(EntryBB);
+
+    // 内嵌密钥：如果传入了密钥则直接使用，否则使用占位符
+    std::string keyToUse = envKey.empty() ? std::string(ENV_KEY_PLACEHOLDER, 32) : envKey;
+    Constant *KeyStr = ConstantDataArray::getString(Ctx, keyToUse, /*AddNull=*/false);
+    GlobalVariable *KeyGV = new GlobalVariable(
+        M, KeyStr->getType(), true,
+        GlobalValue::PrivateLinkage, KeyStr,
+        ".env.key"
+    );
+    KeyGV->setSection(".AProtect.rodata");
+
+    // 环境变量名 "lc"
+    Constant *EnvNameStr = ConstantDataArray::getString(Ctx, "lc");
+    GlobalVariable *EnvNameGV = new GlobalVariable(
+        M, EnvNameStr->getType(), true,
+        GlobalValue::PrivateLinkage, EnvNameStr,
+        ".env.name"
+    );
+    EnvNameGV->setSection(".AProtect.rodata");
+
+    // getenv("lc")
+    FunctionCallee GetenvFunc = M.getOrInsertFunction(
+        "getenv",
+        FunctionType::get(CharPtrTy, {CharPtrTy}, false)
+    );
+
+    Value *EnvNamePtr = ConstantExpr::getBitCast(EnvNameGV, CharPtrTy);
+    Value *EnvVal = Builder.CreateCall(GetenvFunc, {EnvNamePtr});
+
+    // 调试输出（仅在 -irobf-debug 开启时生成）
+    if (isIRObfuscationDebugEnabled()) {
+        FunctionCallee PrintfFunc = M.getOrInsertFunction(
+            "printf",
+            FunctionType::get(Int32Ty, {CharPtrTy}, true)
+        );
+        Constant *DbgStr = ConstantDataArray::getString(Ctx, "[EnvCheck] getenv(lc)=%p\n");
+        GlobalVariable *DbgGV = new GlobalVariable(
+            M, DbgStr->getType(), true, GlobalValue::PrivateLinkage,
+            DbgStr, ".env.dbg");
+        Constant *DbgPtr = ConstantExpr::getBitCast(DbgGV, CharPtrTy);
+        Builder.CreateCall(PrintfFunc, {DbgPtr, EnvVal});
+    }
+
+    // 检查 getenv 返回值是否为 NULL
+    Value *EnvNotNull = Builder.CreateICmpNE(EnvVal, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(EnvNotNull, GetEnvOkBB, GetEnvFailBB);
+
+    // getenv 返回 NULL → 环境变量不存在 → kill
+    Builder.SetInsertPoint(GetEnvFailBB);
+    Builder.CreateCall(reportFunc);
+    Builder.CreateUnreachable();
+
+    // getenv 返回非空 → 逐字节比较
+    Builder.SetInsertPoint(GetEnvOkBB);
+
+    // 循环变量 i
+    Value *Zero = ConstantInt::get(Int64Ty, 0);
+    Value *ThirtyTwo = ConstantInt::get(Int64Ty, 32);
+
+    Builder.CreateBr(CmpLoopBB);
+
+    Builder.SetInsertPoint(CmpLoopBB);
+    PHINode *IPhi = Builder.CreatePHI(Int64Ty, 2, "i");
+    IPhi->addIncoming(Zero, GetEnvOkBB);
+
+    // i < 32 ?
+    Value *ILt32 = Builder.CreateICmpSLT(IPhi, ThirtyTwo);
+    Builder.CreateCondBr(ILt32, CmpBodyBB, MatchBB);
+
+    Builder.SetInsertPoint(CmpBodyBB);
+
+    // 读取 env_val[i]
+    Value *EnvCharPtr = Builder.CreateGEP(Int8Ty, EnvVal, IPhi);
+    Value *EnvChar = Builder.CreateLoad(Int8Ty, EnvCharPtr);
+
+    // 读取 key[i]
+    Value *KeyPtr = Builder.CreateGEP(KeyGV->getValueType(), KeyGV,
+        {ConstantInt::get(Int64Ty, 0), IPhi});
+    Value *KeyChar = Builder.CreateLoad(Int8Ty, KeyPtr);
+
+    // 比较
+    Value *CharsEqual = Builder.CreateICmpEQ(EnvChar, KeyChar);
+    Value *INext = Builder.CreateAdd(IPhi, ConstantInt::get(Int64Ty, 1));
+    IPhi->addIncoming(INext, CmpBodyBB);
+    Builder.CreateCondBr(CharsEqual, CmpLoopBB, MismatchBB);
+
+    // 不匹配 → kill
+    Builder.SetInsertPoint(MismatchBB);
+    Builder.CreateCall(reportFunc);
+    Builder.CreateUnreachable();
+
+    // 全部匹配 → 清除环境变量 → 正常退出
+    Builder.SetInsertPoint(MatchBB);
+
+    // unsetenv("lc") - 清除环境变量
+    FunctionCallee UnsetenvFunc = M.getOrInsertFunction(
+        "unsetenv",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
+    );
+    Builder.CreateCall(UnsetenvFunc, {EnvNamePtr});
+
+    Builder.CreateBr(ExitBB);
+
+    Builder.SetInsertPoint(ExitBB);
+    Builder.CreateRetVoid();
+
+    return Func;
+}
+
+Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, const std::string &envKey) {
+    LLVMContext &Ctx = M.getContext();
+
+    Type *VoidTy = Type::getVoidTy(Ctx);
+    Type *Int8Ty = Type::getInt8Ty(Ctx);
+    Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int64Ty = Type::getInt64Ty(Ctx);
+    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
+
+    FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
+    Function *Func = Function::Create(
+        FuncTy,
+        GlobalValue::InternalLinkage,
+        M.getDataLayout().getProgramAddressSpace(),
+        "check_gz_env_var",
+        &M
+    );
+
+    Func->addFnAttr(Attribute::NoInline);
+    Func->addFnAttr(Attribute::OptimizeNone);
+
+    BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
+    BasicBlock *GetEnvOkBB = BasicBlock::Create(Ctx, "getenv_ok", Func);
+    BasicBlock *GetEnvFailBB = BasicBlock::Create(Ctx, "getenv_fail", Func);
+    BasicBlock *CmpLoopBB = BasicBlock::Create(Ctx, "cmp_loop", Func);
+    BasicBlock *CmpBodyBB = BasicBlock::Create(Ctx, "cmp_body", Func);
+    BasicBlock *MismatchBB = BasicBlock::Create(Ctx, "mismatch", Func);
+    BasicBlock *MatchBB = BasicBlock::Create(Ctx, "match", Func);
+    BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
+
+    IRBuilder<> Builder(EntryBB);
+
+    // 内嵌密钥：如果传入了密钥则直接使用，否则使用占位符
+    std::string keyToUse = envKey.empty() ? std::string(GZ_ENV_KEY_PLACEHOLDER, 32) : envKey;
+    Constant *KeyStr = ConstantDataArray::getString(Ctx, keyToUse, /*AddNull=*/false);
+    GlobalVariable *KeyGV = new GlobalVariable(
+        M, KeyStr->getType(), true,
+        GlobalValue::PrivateLinkage, KeyStr,
+        ".gz.env.key"
+    );
+    KeyGV->setSection(".AProtect.rodata");
+
+    // 环境变量名 "lc_gz"
+    Constant *EnvNameStr = ConstantDataArray::getString(Ctx, "lc_gz");
+    GlobalVariable *EnvNameGV = new GlobalVariable(
+        M, EnvNameStr->getType(), true,
+        GlobalValue::PrivateLinkage, EnvNameStr,
+        ".gz.env.name"
+    );
+    EnvNameGV->setSection(".AProtect.rodata");
+
+    // getenv("lc_gz")
+    FunctionCallee GetenvFunc = M.getOrInsertFunction(
+        "getenv",
+        FunctionType::get(CharPtrTy, {CharPtrTy}, false)
+    );
+
+    Value *EnvNamePtr = ConstantExpr::getBitCast(EnvNameGV, CharPtrTy);
+    Value *EnvVal = Builder.CreateCall(GetenvFunc, {EnvNamePtr});
+
+    // 调试输出（仅在 -irobf-debug 开启时生成）
+    if (isIRObfuscationDebugEnabled()) {
+        FunctionCallee PrintfFunc = M.getOrInsertFunction(
+            "printf",
+            FunctionType::get(Int32Ty, {CharPtrTy}, true)
+        );
+        Constant *DbgStr = ConstantDataArray::getString(Ctx, "[GzEnvCheck] getenv(lc_gz)=%p\n");
+        GlobalVariable *DbgGV = new GlobalVariable(
+            M, DbgStr->getType(), true, GlobalValue::PrivateLinkage,
+            DbgStr, ".gz.env.dbg");
+        Constant *DbgPtr = ConstantExpr::getBitCast(DbgGV, CharPtrTy);
+        Builder.CreateCall(PrintfFunc, {DbgPtr, EnvVal});
+    }
+
+    // 检查 getenv 返回值是否为 NULL
+    Value *EnvNotNull = Builder.CreateICmpNE(EnvVal, ConstantPointerNull::get(CharPtrTy));
+    Builder.CreateCondBr(EnvNotNull, GetEnvOkBB, GetEnvFailBB);
+
+    // getenv 返回 NULL → 环境变量不存在 → kill
+    Builder.SetInsertPoint(GetEnvFailBB);
+    Builder.CreateCall(reportFunc);
+    Builder.CreateUnreachable();
+
+    // getenv 返回非空 → 逐字节比较
+    Builder.SetInsertPoint(GetEnvOkBB);
+
+    Value *Zero = ConstantInt::get(Int64Ty, 0);
+    Value *ThirtyTwo = ConstantInt::get(Int64Ty, 32);
+
+    Builder.CreateBr(CmpLoopBB);
+
+    Builder.SetInsertPoint(CmpLoopBB);
+    PHINode *IPhi = Builder.CreatePHI(Int64Ty, 2, "i");
+    IPhi->addIncoming(Zero, GetEnvOkBB);
+
+    Value *ILt32 = Builder.CreateICmpSLT(IPhi, ThirtyTwo);
+    Builder.CreateCondBr(ILt32, CmpBodyBB, MatchBB);
+
+    Builder.SetInsertPoint(CmpBodyBB);
+
+    Value *EnvCharPtr = Builder.CreateGEP(Int8Ty, EnvVal, IPhi);
+    Value *EnvChar = Builder.CreateLoad(Int8Ty, EnvCharPtr);
+
+    Value *KeyPtr = Builder.CreateGEP(KeyGV->getValueType(), KeyGV,
+        {ConstantInt::get(Int64Ty, 0), IPhi});
+    Value *KeyChar = Builder.CreateLoad(Int8Ty, KeyPtr);
+
+    Value *CharsEqual = Builder.CreateICmpEQ(EnvChar, KeyChar);
+    Value *INext = Builder.CreateAdd(IPhi, ConstantInt::get(Int64Ty, 1));
+    IPhi->addIncoming(INext, CmpBodyBB);
+    Builder.CreateCondBr(CharsEqual, CmpLoopBB, MismatchBB);
+
+    // 不匹配 → kill
+    Builder.SetInsertPoint(MismatchBB);
+    Builder.CreateCall(reportFunc);
+    Builder.CreateUnreachable();
+
+    // 全部匹配 → 清除环境变量 → 正常退出
+    Builder.SetInsertPoint(MatchBB);
+
+    // unsetenv("lc_gz") - 清除环境变量
+    FunctionCallee UnsetenvFunc = M.getOrInsertFunction(
+        "unsetenv",
+        FunctionType::get(Int32Ty, {CharPtrTy}, false)
+    );
+    Builder.CreateCall(UnsetenvFunc, {EnvNamePtr});
+
+    Builder.CreateBr(ExitBB);
+
+    Builder.SetInsertPoint(ExitBB);
+    Builder.CreateRetVoid();
+
+    return Func;
 }
 
 Function* DetectUtils::createRandomThreadAttrFunc(Module &M) {

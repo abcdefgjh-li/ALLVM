@@ -476,16 +476,41 @@ int ELFWrapperCommand::Execute(ArrayRef<std::optional<StringRef>> Redirects,
     return LinkResult;
   }
 
-  // 第二步：对链接器输出执行 ELF 加壳
-  bool WrapResult = driver::performELFWrapping(
-      TempOutputPath, FinalOutputPath, TargetTripleStr, ClangExePath,
-      SysrootPath);
+  std::string current_path = TempOutputPath;
 
-  if (!WrapResult) {
-    // 加壳失败，直接将临时文件复制为最终输出
+  // 第二步：如果启用了 ELF 加壳
+  if (EnableLinker) {
+    std::string linker_output = EnableGz
+        ? (TempOutputPath + ".linker-wrapped")
+        : FinalOutputPath;
+
+    bool WrapResult = driver::performELFWrapping(
+        current_path, linker_output, TargetTripleStr, ClangExePath,
+        SysrootPath, DebugMode);
+    if (!WrapResult) {
+      llvm::sys::fs::copy_file(current_path, linker_output);
+      llvm::errs() << "Warning: [irobf-linker] ELF wrapping failed, "
+                      "using unwrapped binary\n";
+    }
+    current_path = linker_output;
+  }
+
+  // 第三步：如果启用了 gzip 压缩壳
+  if (EnableGz) {
+    bool GzResult = driver::performGzWrapping(
+        current_path, FinalOutputPath, TargetTripleStr, ClangExePath,
+        SysrootPath, DebugMode);
+    if (!GzResult) {
+      llvm::sys::fs::copy_file(current_path, FinalOutputPath);
+      llvm::errs() << "Warning: [irobf-gz] Gz wrapping failed, "
+                      "using unwrapped binary\n";
+    }
+    current_path = FinalOutputPath;
+  }
+
+  // 如果两个都没启用（不应该到这里），直接复制
+  if (!EnableLinker && !EnableGz) {
     llvm::sys::fs::copy_file(TempOutputPath, FinalOutputPath);
-    llvm::errs() << "Warning: [irobf-linker] ELF wrapping failed, "
-                    "using unwrapped binary\n";
   }
 
   return 0;

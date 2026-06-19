@@ -270,6 +270,12 @@ public:
   std::string ClangExePath;
   /// NDK sysroot 路径
   std::string SysrootPath;
+  /// 是否启用 ELF 加壳 (ChaCha20 + fork + ptrace)
+  bool EnableLinker = false;
+  /// 是否启用 gzip 压缩壳
+  bool EnableGz = false;
+  /// 是否开启调试输出
+  bool DebugMode = false;
 
   ELFWrapperCommand(const Action &Source, const Tool &Creator,
                     ResponseFileSupport ResponseSupport, const char *Executable,

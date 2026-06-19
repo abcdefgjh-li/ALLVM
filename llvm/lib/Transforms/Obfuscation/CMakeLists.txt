@@ -31,6 +31,8 @@ add_llvm_library(LLVMObfuscation
   SyscallProtect.cpp
   BanDump.cpp
   DetectUtils.cpp
+  EnvCheck.cpp
+  GzEnvCheck.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Transforms/Obfuscation

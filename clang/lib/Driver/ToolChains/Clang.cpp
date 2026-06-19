@@ -7996,6 +7996,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     assert(Output.isNothing() && "Invalid output.");
   }
 
+  // 开启壳子时自动启用环境变量检测
+  if (Args.hasArg(options::OPT_firobf_linker)) {
+    CmdArgs.push_back("-mllvm");
+    CmdArgs.push_back("-irobf-envcheck");
+  }
+  if (Args.hasArg(options::OPT_firobf_gz)) {
+    CmdArgs.push_back("-mllvm");
+    CmdArgs.push_back("-irobf-gzcheck");
+  }
+
   addDashXForInput(Args, Input, CmdArgs);
 
   ArrayRef<InputInfo> FrontendInputs = Input;

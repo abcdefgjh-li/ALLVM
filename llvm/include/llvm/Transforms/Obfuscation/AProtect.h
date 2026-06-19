@@ -1,8 +1,8 @@
-//===- AProtect.h - A-protect Pass头文件 -----------------------===//
+//===- AProtect.h - A-protector Pass头文件 ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
-// A-protect 输出注入 Pass
+// A-protector 输出注入 Pass
 //
 //===----------------------------------------------------------------------===//
 

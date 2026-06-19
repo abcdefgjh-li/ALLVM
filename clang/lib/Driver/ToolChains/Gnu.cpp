@@ -595,12 +595,22 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addAllArgs(CmdArgs, {options::OPT_T, options::OPT_t});
 
-  // 检查是否启用了 -firobf-linker
+  // 检查是否启用了 -firobf-linker 或 -firobf-gz
   bool EnableLinkerWrapper = Args.hasArg(options::OPT_firobf_linker);
+  bool EnableGzWrapper = Args.hasArg(options::OPT_firobf_gz);
+
+  // 检查是否启用了 -mllvm -irobf-debug
+  bool DebugMode = false;
+  for (const Arg *A : Args.filtered(options::OPT_mllvm)) {
+    if (StringRef(A->getValue(0)) == "-irobf-debug") {
+      DebugMode = true;
+      break;
+    }
+  }
 
   // 加壳仅对可执行文件生效，不对共享库(.so)、目标文件(.o)、静态库(.a)生效
   // IsShared 表示 -shared (生成 .so)
-  if (EnableLinkerWrapper && !IsShared) {
+  if ((EnableLinkerWrapper || EnableGzWrapper) && !IsShared) {
     // 链接输出先写到临时文件，然后由 ELFWrapperCommand 加壳后输出到最终路径
     const char *FinalOutput = Output.getFilename();
     SmallString<128> TempOutput(FinalOutput);
@@ -635,6 +645,9 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     WrapCmd->SysrootPath = ToolChain.getDriver().SysRoot.empty()
                                ? ToolChain.computeSysRoot()
                                : std::string(ToolChain.getDriver().SysRoot);
+    WrapCmd->EnableLinker = EnableLinkerWrapper;
+    WrapCmd->EnableGz = EnableGzWrapper;
+    WrapCmd->DebugMode = DebugMode;
     C.addCommand(std::move(WrapCmd));
   } else {
     const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());

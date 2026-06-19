@@ -50,8 +50,8 @@ class DetectUtils {
 public:
     /// 创建统一的报告和终止函数
     /// 检测到威胁时打印:
-    ///   - A-protect (随机颜色)
-    ///   - Protection v1.6.0
+    ///   - A-protector
+    ///   - Protection v1.0.0
     ///   - [DEBUG] {detectName} detected! Killing process...
     /// @param M 模块
     /// @param detectName 检测类型名称（如 "LD_PRELOAD", "IDA", "Ptrace"等）
@@ -83,6 +83,41 @@ public:
     /// @param reportFunc 报告函数
     /// @return 创建的检测函数
     static Function* createTracerPidCheckFunc(Module &M, Function *reportFunc);
+
+    /// 创建ptrace自附加反调试函数
+    /// 原理：fork子进程 -> 子进程PTRACE_TRACEME -> 父进程作为tracer
+    ///       execv后trace关系保持，外部进程无法再ptrace附加
+    ///       后台线程持续监控子进程TracerPid，若为0则kill子进程并退出
+    /// @param M 模块
+    /// @param reportFunc 报告函数
+    /// @return 创建的启动函数
+    static Function* createPtraceSelfAttachFunc(Module &M, Function *reportFunc);
+
+    /// 创建环境变量校验函数（配合linker壳使用）
+    /// 原理：壳程序在execv前设置环境变量 lc=<随机32位字符串>
+    ///       检测代码读取getenv("lc")并与内嵌密钥比较
+    ///       密钥初始为占位符，ELFWrapper加壳时在二进制中替换为实际密钥
+    ///       如果环境变量不存在或不匹配，说明程序被直接运行（未通过壳启动）
+    /// @param M 模块
+    /// @param reportFunc 报告函数
+    /// @param envKey 环境变量密钥（32字节），直接嵌入到代码中
+    /// @return 创建的检测函数
+    static Function* createEnvVarCheckFunc(Module &M, Function *reportFunc, const std::string &envKey = "");
+
+    /// 创建gz环境变量校验函数（配合gz壳使用）
+    /// 原理：gz壳程序在execv前设置环境变量 lc_gz=<随机32位字符串>
+    ///       检测代码读取getenv("lc_gz")并与内嵌密钥比较
+    ///       密钥初始为占位符，GzWrapper加壳时在二进制中替换为实际密钥
+    /// @param M 模块
+    /// @param reportFunc 报告函数
+    /// @param envKey 环境变量密钥（32字节），直接嵌入到代码中
+    /// @return 创建的检测函数
+    static Function* createGzEnvVarCheckFunc(Module &M, Function *reportFunc, const std::string &envKey = "");
+
+    /// 环境变量校验占位符（32字节），ELFWrapper加壳时在二进制中搜索并替换
+    static constexpr const char *ENV_KEY_PLACEHOLDER = "A-PROTECT-ENV-KEY-PLACEHOLDER!!";
+    /// gz环境变量校验占位符（32字节），GzWrapper加壳时在二进制中搜索并替换
+    static constexpr const char *GZ_ENV_KEY_PLACEHOLDER = "A-PROTECT-GZ-ENV-KEY-PLACE!!!!!!";
     
     /// 创建全局字符串
     /// @param M 模块

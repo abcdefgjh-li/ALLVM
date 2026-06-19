@@ -220,6 +220,25 @@ void MainTab::setupUI() {
         });
     }
 
+    // ELF 加壳选项（通过 LOCAL_LDFLAGS 传递）
+    auto *linkerChk = new QCheckBox("ELF 加壳", obfGroup);
+    linkerChk->setToolTip("-firobf-linker（ChaCha20加密 + fork执行 + ptrace反调试 + 环境变量校验）");
+    connect(linkerChk, &QCheckBox::toggled, this, &MainTab::onOptionChanged);
+    obfLayout->addWidget(linkerChk, row, col);
+    m_passChecks.append({linkerChk, nullptr, "firobf-linker"});
+
+    col++;
+    if (col >= 3) { col = 0; row++; }
+
+    auto *gzChk = new QCheckBox("GZ 压缩壳", obfGroup);
+    gzChk->setToolTip("-firobf-gz（gzip+base64压缩壳 + 环境变量校验，可与ELF加壳同时启用）");
+    connect(gzChk, &QCheckBox::toggled, this, &MainTab::onOptionChanged);
+    obfLayout->addWidget(gzChk, row, col);
+    m_passChecks.append({gzChk, nullptr, "firobf-gz"});
+
+    col++;
+    if (col >= 3) { col = 0; row++; }
+
     auto *vmpChk = new QCheckBox("VMP 虚拟机保护", obfGroup);
     vmpChk->setToolTip("-mllvm -irobf-vmp（需要 __attribute__((annotate(\"vmp\"))) 或 -irobf-vm_functions=func1;func2）");
     connect(vmpChk, &QCheckBox::toggled, this, [this](bool checked) {
@@ -279,18 +298,15 @@ void MainTab::onRefreshMkInfo() {
 
 void MainTab::loadDefaultNdk() {
     QString appDir = QCoreApplication::applicationDirPath();
-    QStringList candidates = {
-        appDir + "/../../../android-ndk-r30-beta1-windows",
-        appDir + "/../android-ndk-r30-beta1-windows",
-        appDir + "/../../android-ndk-r30-beta1-windows",
-    };
 
-    QDir ndkDir(QCoreApplication::applicationDirPath());
-    ndkDir.cdUp();
-    ndkDir.cdUp();
-    ndkDir.cdUp();
-    QString rootPath = ndkDir.absolutePath();
-    candidates.prepend(rootPath + "/android-ndk-r30-beta1-windows");
+    // 搜索顺序：先当前目录本身，再当前目录的子目录，最后上级目录
+    QStringList candidates = {
+        appDir,  // 当前目录本身（ollvm-ui.exe 可能就在 ndk-build 同目录）
+        appDir + "/android-ndk-r30-beta1-windows",  // 当前目录的子目录
+        appDir + "/../android-ndk-r30-beta1-windows", // 上级目录
+        appDir + "/../../android-ndk-r30-beta1-windows",
+        appDir + "/../../../android-ndk-r30-beta1-windows",
+    };
 
     for (const auto &path : candidates) {
         QString ndkBuildPath = path + "/ndk-build.cmd";

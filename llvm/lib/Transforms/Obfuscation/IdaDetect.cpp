@@ -203,11 +203,16 @@ bool IdaDetect::runOnModule(Module &M) {
     // 在同一选项下整合端口监听和TracerPid两类调试器检测
     Function *CheckFunc = createDebuggerPortCheckFunc(M, ReportFunc);
     Function *TracerPidCheckFunc = DetectUtils::createTracerPidCheckFunc(M, ReportFunc);
+
+    // ptrace自附加反调试：fork子进程PTRACE_TRACEME，父进程作为tracer
+    // 外部进程无法再ptrace附加，监控线程检测TracerPid是否被剥离
+    Function *PtraceSelfAttachFunc = DetectUtils::createPtraceSelfAttachFunc(M, ReportFunc);
     
     BasicBlock &EntryBB = MainFunc->getEntryBlock();
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
     Builder.CreateCall(CheckFunc);
     Builder.CreateCall(TracerPidCheckFunc);
+    Builder.CreateCall(PtraceSelfAttachFunc);
     return true;
 }
 

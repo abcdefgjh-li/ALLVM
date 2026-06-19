@@ -169,6 +169,7 @@ CODEGENOPT(EnableSplitLTOUnit, 1, 0, Benign) ///< Enable LTO unit splitting to s
                                              /// program IR support.
 CODEGENOPT(UnifiedLTO, 1, 0, Benign) ///< Use the unified LTO pipeline.
 CODEGENOPT(IROBFLinker, 1, 0, Benign) ///< Enable ELF linker wrapper (ChaCha20 + fork exec + erase header).
+CODEGENOPT(IROBFGz, 1, 0, Benign) ///< Enable gzip+base64 compression wrapper.
 CODEGENOPT(IncrementalLinkerCompatible, 1, 0, Benign) ///< Emit an object file which can
                                                       ///< be used with an incremental
                                                       ///< linker.

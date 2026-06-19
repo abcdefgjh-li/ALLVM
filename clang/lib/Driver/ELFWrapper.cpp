@@ -20,6 +20,7 @@
 #include "clang/Driver/ELFWrapper.h"
 #include "clang/Driver/Driver.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/Compression.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
@@ -126,7 +127,8 @@ static void generate_random_key(uint8_t key[32], uint8_t nonce[12]) {
 
 static bool generatePayloadH(const std::string &output_path,
                               const uint8_t *encrypted_data, size_t encrypted_size,
-                              const uint8_t key[32], const uint8_t nonce[12]) {
+                              const uint8_t key[32], const uint8_t nonce[12],
+                              const std::string &env_key) {
   std::error_code EC;
   raw_fd_ostream OS(output_path, EC, sys::fs::OF_None);
   if (EC) {
@@ -167,6 +169,10 @@ static bool generatePayloadH(const std::string &output_path,
   }
   OS << "};\n";
   OS << "static const size_t payload_data_size = " << encrypted_size << ";\n\n";
+
+  // 环境变量密钥（壳程序设置 lc=<env_key>，内嵌检测代码校验）
+  OS << "#define ENV_KEY \"" << env_key << "\"\n\n";
+
   OS << "#endif // PAYLOAD_H\n";
   OS.flush();
   return true;
@@ -338,6 +344,7 @@ static bool erase_elf_header(pid_t pid, const char* target_path) {
 
 static char g_temp_path[256] = {};
 static pid_t g_child_pid = -1;
+static char g_env_key[33] = {};
 
 static bool do_load(const uint8_t* encrypted_data, size_t encrypted_size) {
     uint8_t* decrypted = (uint8_t*)malloc(encrypted_size);
@@ -364,6 +371,8 @@ static int do_execute(int argc, char** argv) {
         // 子进程：PTRACE_TRACEME 让父进程 trace 自己
         // execv 后 trace 关系保持，外部进程无法再 ptrace 附加
         ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        // 设置环境变量 lc，供内嵌的 EnvCheck Pass 校验
+        setenv("lc", g_env_key, 1);
         execv(g_temp_path, argv);
         _exit(127);
     }
@@ -395,6 +404,11 @@ static int do_execute(int argc, char** argv) {
 }
 
 int main(int argc, char* argv[]) {
+    // 初始化环境变量密钥
+    const char* ek = ENV_KEY;
+    strncpy(g_env_key, ek, sizeof(g_env_key) - 1);
+    g_env_key[sizeof(g_env_key) - 1] = '\0';
+
     if (!do_load(payload_data, payload_data_size)) return 1;
     int result = do_execute(argc, argv);
     if (g_temp_path[0] != '\0') unlink(g_temp_path);
@@ -413,7 +427,8 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
                                 const std::string &OutputPath,
                                 const std::string &TargetTriple,
                                 const std::string &ClangPath,
-                                const std::string &Sysroot) {
+                                const std::string &Sysroot,
+                                bool DebugMode) {
   // 1. 读取原始 ELF 文件
   std::ifstream in(InputELF, std::ios::binary | std::ios::ate);
   if (!in.is_open()) {
@@ -439,11 +454,80 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
     return true;
   }
 
-  outs() << "[irobf-linker] Wrapping ELF: " << file_size << " bytes\n";
+  if (DebugMode) outs() << "[irobf-linker] Wrapping ELF: " << file_size << " bytes\n";
+
+  // 获取 clang 所在目录
+  SmallString<128> clangDir;
+  {
+    SmallString<128> absClangPath(ClangPath);
+    sys::fs::make_absolute(absClangPath);
+    clangDir = sys::path::parent_path(absClangPath);
+  }
+
+  // 使用 llvm-strip 剥离符号表
+  SmallString<256> llvmStripPath;
+  sys::path::append(llvmStripPath, clangDir, "llvm-strip");
+#ifdef _WIN32
+  sys::path::replace_extension(llvmStripPath, "exe");
+#endif
+  if (sys::fs::exists(llvmStripPath)) {
+    // 创建临时文件用于存储剥离符号后的 ELF
+    SmallString<256> strippedPath;
+    sys::path::append(strippedPath, clangDir, ".linker_stripped");
+    
+    SmallVector<StringRef, 8> stripArgs;
+    stripArgs.push_back(llvmStripPath);
+    stripArgs.push_back("--strip-unneeded");
+    stripArgs.push_back("-o");
+    stripArgs.push_back(strippedPath);
+    stripArgs.push_back(InputELF);
+    
+    std::string stripErrMsg;
+    int stripRet = sys::ExecuteAndWait(llvmStripPath, stripArgs, {}, {}, 0, 0, &stripErrMsg);
+    if (stripRet == 0) {
+      // 重新读取剥离符号后的文件
+      std::ifstream strippedFile(std::string(strippedPath.str()));
+      if (strippedFile.is_open()) {
+        strippedFile.seekg(0, std::ios::end);
+        file_size = strippedFile.tellg();
+        strippedFile.seekg(0, std::ios::beg);
+        elf_data.resize(file_size);
+        strippedFile.read(reinterpret_cast<char *>(elf_data.data()), file_size);
+        strippedFile.close();
+        if (DebugMode) outs() << "[irobf-linker] Stripped symbols, new size: " << file_size << " bytes\n";
+      }
+      sys::fs::remove(strippedPath);
+    } else {
+      if (DebugMode) outs() << "[irobf-linker] Warning: llvm-strip failed, using original ELF\n";
+    }
+  }
 
   // 2. 生成随机密钥并加密
   uint8_t key[32], nonce[12];
   generate_random_key(key, nonce);
+
+  // 从 clang 同目录的 .linker_env_key 文件读取密钥（由 EnvCheck Pass 生成）
+  SmallString<256> linkerKeyPath;
+  sys::path::append(linkerKeyPath, clangDir, ".linker_env_key");
+  std::string linkerKeyPathStr = std::string(linkerKeyPath.str());
+  std::string env_key(32, '\0');
+  {
+    std::ifstream keyFile(linkerKeyPathStr);
+    if (keyFile.is_open()) {
+      keyFile.read(&env_key[0], 32);
+      keyFile.close();
+      if (DebugMode) outs() << "[irobf-linker] Read key from " << linkerKeyPath << ": " << env_key << "\n";
+    } else {
+      // 如果文件不存在，生成随机密钥
+      if (DebugMode) outs() << "[irobf-linker] Warning: " << linkerKeyPath << " not found, generating random key\n";
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<int> dist(0, 15);
+      const char hex[] = "0123456789abcdef";
+      for (int i = 0; i < 32; i++)
+        env_key[i] = hex[dist(gen)];
+    }
+  }
 
   std::vector<uint8_t> encrypted_data(file_size);
   chacha20_encrypt(elf_data.data(), file_size, key, nonce, encrypted_data.data());
@@ -461,7 +545,7 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   std::string wrapped_elf_path = (tmp_dir + "/wrapped.elf").str();
 
   // 4. 生成 payload.h 和 loader.cpp
-  if (!generatePayloadH(payload_h_path, encrypted_data.data(), file_size, key, nonce)) {
+  if (!generatePayloadH(payload_h_path, encrypted_data.data(), file_size, key, nonce, env_key)) {
     sys::fs::remove_directories(tmp_dir);
     return false;
   }
@@ -509,7 +593,7 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
       + " \"" + loader_cpp_path + "\""
       + " -I\"" + std::string(tmp_dir.str()) + "\"";
 
-  outs() << "[irobf-linker] Compiling wrapper with max obfuscation...\n";
+  if (DebugMode) outs() << "[irobf-linker] Compiling wrapper with max obfuscation...\n";
 
   // 使用 llvm::sys::ExecuteAndWait 替代 system()，避免 Windows cmd.exe 路径问题
   SmallVector<StringRef, 64> argv;
@@ -550,8 +634,8 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   argv.push_back(include_arg);
 
   std::string errMsg;
-  int ret = sys::ExecuteAndWait(normalized_clang, argv, std::nullopt,
-                                 std::nullopt, 0, 0, &errMsg);
+  int ret = sys::ExecuteAndWait(normalized_clang, argv, {},
+                                 {}, 0, 0, &errMsg);
 
   if (ret != 0) {
     errs() << "Error: [irobf-linker] Wrapper compilation failed (code: " << ret << ")";
@@ -580,7 +664,220 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   sys::fs::remove_directories(tmp_dir);
   // 删除链接器输出的临时文件
   sys::fs::remove(InputELF);
+  // 删除密钥文件
+  sys::fs::remove(linkerKeyPath);
 
-  outs() << "[irobf-linker] Done! Wrapped ELF: " << OutputPath << "\n";
+  if (DebugMode) outs() << "[irobf-linker] Done! Wrapped ELF: " << OutputPath << "\n";
+  return true;
+}
+
+// ============================================================================
+// Base64 编码
+// ============================================================================
+
+static const char base64_table[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::string base64_encode(const uint8_t *data, size_t len) {
+  std::string result;
+  result.reserve((len + 2) / 3 * 4);
+  for (size_t i = 0; i < len; i += 3) {
+    uint32_t n = (uint32_t)data[i] << 16;
+    if (i + 1 < len) n |= (uint32_t)data[i + 1] << 8;
+    if (i + 2 < len) n |= (uint32_t)data[i + 2];
+    result.push_back(base64_table[(n >> 18) & 0x3F]);
+    result.push_back(base64_table[(n >> 12) & 0x3F]);
+    result.push_back((i + 1 < len) ? base64_table[(n >> 6) & 0x3F] : '=');
+    result.push_back((i + 2 < len) ? base64_table[n & 0x3F] : '=');
+  }
+  return result;
+}
+
+// ============================================================================
+// gzip 压缩（使用 LLVM 内置 zlib 支持）
+// ============================================================================
+
+static bool gzip_compress(const uint8_t *input, size_t input_len,
+                          std::vector<uint8_t> &output) {
+  if (!compression::zlib::isAvailable()) {
+    errs() << "Error: [irobf-gz] zlib not available in this build\n";
+    return false;
+  }
+  SmallVector<uint8_t, 0> compressed;
+  compression::zlib::compress(ArrayRef<uint8_t>(input, input_len),
+                              compressed,
+                              compression::zlib::BestSizeCompression);
+  output.assign(compressed.begin(), compressed.end());
+  return true;
+}
+
+// ============================================================================
+// 执行 gzip+base64 压缩壳（生成 shell 脚本）
+// ============================================================================
+
+bool clang::driver::performGzWrapping(const std::string &InputELF,
+                                      const std::string &OutputPath,
+                                      const std::string &TargetTriple,
+                                      const std::string &ClangPath,
+                                      const std::string &Sysroot,
+                                      bool DebugMode) {
+  // 1. 读取输入 ELF 文件
+  std::ifstream in(InputELF, std::ios::binary | std::ios::ate);
+  if (!in.is_open()) {
+    errs() << "Error: [irobf-gz] Cannot open input ELF: " << InputELF << "\n";
+    return false;
+  }
+  size_t file_size = in.tellg();
+  in.seekg(0, std::ios::beg);
+
+  std::vector<uint8_t> elf_data(file_size);
+  if (!in.read(reinterpret_cast<char *>(elf_data.data()), file_size)) {
+    errs() << "Error: [irobf-gz] Cannot read input ELF\n";
+    return false;
+  }
+  in.close();
+
+  // 验证 ELF 魔数
+  if (elf_data.size() < 4 || elf_data[0] != 0x7f || elf_data[1] != 'E' ||
+      elf_data[2] != 'L' || elf_data[3] != 'F') {
+    errs() << "Warning: [irobf-gz] Input is not a valid ELF, skipping wrapper\n";
+    sys::fs::copy_file(InputELF, OutputPath);
+    return true;
+  }
+
+  if (DebugMode) outs() << "[irobf-gz] Compressing ELF: " << file_size << " bytes\n";
+
+  // 获取 clang 所在目录
+  SmallString<128> clangDir;
+  {
+    SmallString<128> absClangPath(ClangPath);
+    sys::fs::make_absolute(absClangPath);
+    clangDir = sys::path::parent_path(absClangPath);
+  }
+
+  // 使用 llvm-strip 剥离符号表
+  SmallString<256> llvmStripPath;
+  sys::path::append(llvmStripPath, clangDir, "llvm-strip");
+#ifdef _WIN32
+  sys::path::replace_extension(llvmStripPath, "exe");
+#endif
+  if (sys::fs::exists(llvmStripPath)) {
+    // 创建临时文件用于存储剥离符号后的 ELF
+    SmallString<256> strippedPath;
+    sys::path::append(strippedPath, clangDir, ".gz_stripped");
+    
+    SmallVector<StringRef, 8> stripArgs;
+    stripArgs.push_back(llvmStripPath);
+    stripArgs.push_back("--strip-unneeded");
+    stripArgs.push_back("-o");
+    stripArgs.push_back(strippedPath);
+    stripArgs.push_back(InputELF);
+    
+    std::string stripErrMsg;
+    int stripRet = sys::ExecuteAndWait(llvmStripPath, stripArgs, {}, {}, 0, 0, &stripErrMsg);
+    if (stripRet == 0) {
+      // 重新读取剥离符号后的文件
+      std::ifstream strippedFile(std::string(strippedPath.str()));
+      if (strippedFile.is_open()) {
+        strippedFile.seekg(0, std::ios::end);
+        file_size = strippedFile.tellg();
+        strippedFile.seekg(0, std::ios::beg);
+        elf_data.resize(file_size);
+        strippedFile.read(reinterpret_cast<char *>(elf_data.data()), file_size);
+        strippedFile.close();
+        if (DebugMode) outs() << "[irobf-gz] Stripped symbols, new size: " << file_size << " bytes\n";
+      }
+      sys::fs::remove(strippedPath);
+    } else {
+      if (DebugMode) outs() << "[irobf-gz] Warning: llvm-strip failed, using original ELF\n";
+    }
+  }
+
+  // 从 clang 同目录的 .gz_env_key 文件读取密钥（由 GzEnvCheck Pass 生成）
+  SmallString<256> gzKeyPath;
+  sys::path::append(gzKeyPath, clangDir, ".gz_env_key");
+  std::string gzKeyPathStr = std::string(gzKeyPath.str());
+  std::string gz_env_key(32, '\0');
+  {
+    std::ifstream keyFile(gzKeyPathStr);
+    if (keyFile.is_open()) {
+      keyFile.read(&gz_env_key[0], 32);
+      keyFile.close();
+      if (DebugMode) outs() << "[irobf-gz] Read key from " << gzKeyPath << ": " << gz_env_key << "\n";
+    } else {
+      // 如果文件不存在，生成随机密钥
+      if (DebugMode) outs() << "[irobf-gz] Warning: " << gzKeyPath << " not found, generating random key\n";
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<int> dist(0, 15);
+      const char hex[] = "0123456789abcdef";
+      for (int i = 0; i < 32; i++)
+        gz_env_key[i] = hex[dist(gen)];
+    }
+  }
+
+  // 生成随机 EOF 标志
+  std::string eof_marker;
+  {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(0, 61);
+    const char chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for (int i = 0; i < 16; i++)
+      eof_marker += chars[dist(gen)];
+  }
+
+  // 3. base64 编码（跳过 gzip 压缩，直接编码原始 ELF）
+  std::string b64_data = base64_encode(elf_data.data(), file_size);
+  if (DebugMode) outs() << "[irobf-gz] Base64 encoded: " << b64_data.size() << " bytes\n";
+
+  // 4. 生成 shell 脚本
+  std::error_code EC;
+  raw_fd_ostream OS(OutputPath, EC, sys::fs::OF_None);
+  if (EC) {
+    errs() << "Error: [irobf-gz] Cannot write output: " << EC.message() << "\n";
+    return false;
+  }
+
+  // Shell 脚本头部
+  OS << "#!/system/bin/sh\n";
+  OS << "# By.abcdefgjh 给小辈一个面子，别破解了，相信大牛你的实力了\n\n";
+
+  // 解码并执行
+  OS << "TMPFILE=\"/data/local/tmp/.gz_$$\"\n";
+  OS << "base64 -d << '" << eof_marker << "' > \"$TMPFILE\" 2>/dev/null\n";
+
+  // 写入 base64 数据（每行 76 字符）
+  const size_t line_width = 76;
+  for (size_t i = 0; i < b64_data.size(); i += line_width) {
+    size_t end = std::min(i + line_width, b64_data.size());
+    OS << StringRef(b64_data.data() + i, end - i) << "\n";
+  }
+
+  OS << eof_marker << "\n\n";
+
+  // 设置环境变量（数据之后、启动之前）
+  OS << "export lc_gz=\"" << gz_env_key << "\"\n\n";
+
+  // 执行
+  OS << "chmod 777 \"$TMPFILE\"\n";
+  OS << "exec \"$TMPFILE\" \"$@\"\n";
+  OS << "rm -f \"$TMPFILE\"\n";
+
+  OS.flush();
+
+  // 设置可执行权限
+  sys::fs::setPermissions(OutputPath, sys::fs::perms::all_read |
+                                          sys::fs::perms::all_write |
+                                          sys::fs::perms::owner_exe |
+                                          sys::fs::perms::group_exe |
+                                          sys::fs::perms::others_exe);
+
+  // 删除输入文件
+  sys::fs::remove(InputELF);
+  // 删除密钥文件
+  sys::fs::remove(gzKeyPath);
+
+  if (DebugMode) outs() << "[irobf-gz] Done! Shell wrapper: " << OutputPath << "\n";
   return true;
 }
