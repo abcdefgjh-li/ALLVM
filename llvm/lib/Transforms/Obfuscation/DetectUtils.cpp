@@ -60,37 +60,40 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
         "fflush",
         FunctionType::get(Int32Ty, {CharPtrTy}, false)
     );
-    
-    // 打印 A-protector（白色）
-    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protector\n");
-    GlobalVariable *AProtectGV = new GlobalVariable(
-        M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
-        AProtectStr, ".detect.apstr");
-    Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
-    Builder.CreateCall(PrintfFunc, {AProtectPtr});
-    
-    // 打印版本号
-    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
-    GlobalVariable *VersionGV = new GlobalVariable(
-        M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
-        VersionStr, ".detect.version");
-    Constant *VersionPtr = ConstantExpr::getBitCast(VersionGV, CharPtrTy);
-    Builder.CreateCall(PrintfFunc, {VersionPtr});
-    
-    // 打印检测信息
-    std::string detectMsg = "[DEBUG] " + detectName + " detected! Killing process...\n";
-    Constant *MsgStr = ConstantDataArray::getString(Ctx, detectMsg);
-    GlobalVariable *MsgGV = new GlobalVariable(
-        M, MsgStr->getType(), true,
-        GlobalValue::PrivateLinkage, MsgStr,
-        ".detect.debug.msg"
-    );
-    MsgGV->setSection(".AProtect.rodata");
-    Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-    
-    Builder.CreateCall(PrintfFunc, {MsgPtr});
-    Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
-    
+
+    // 打印检测信息（仅在 debug 模式下）
+    if (isIRObfuscationDebugEnabled()) {
+        // 打印 A-protector（白色）
+        Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protector\n");
+        GlobalVariable *AProtectGV = new GlobalVariable(
+            M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
+            AProtectStr, ".detect.apstr");
+        Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
+        Builder.CreateCall(PrintfFunc, {AProtectPtr});
+
+        // 打印版本号
+        Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
+        GlobalVariable *VersionGV = new GlobalVariable(
+            M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
+            VersionStr, ".detect.version");
+        Constant *VersionPtr = ConstantExpr::getBitCast(VersionGV, CharPtrTy);
+        Builder.CreateCall(PrintfFunc, {VersionPtr});
+
+        // 打印检测信息
+        std::string detectMsg = "[DEBUG] " + detectName + " detected! Killing process...\n";
+        Constant *MsgStr = ConstantDataArray::getString(Ctx, detectMsg);
+        GlobalVariable *MsgGV = new GlobalVariable(
+            M, MsgStr->getType(), true,
+            GlobalValue::PrivateLinkage, MsgStr,
+            ".detect.debug.msg"
+        );
+        MsgGV->setSection(".AProtect.rodata");
+        Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
+
+        Builder.CreateCall(PrintfFunc, {MsgPtr});
+        Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
+    }
+
     // 获取进程ID并终止
     FunctionCallee GetpidFunc = M.getOrInsertFunction(
         "getpid",

@@ -992,17 +992,18 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     // 完整支持异常处理
     bool isInvoke = isa<InvokeInst>(inst);
     Function *debugCallee = inst->getCalledFunction();
-    errs() << "[CALL_MAP] funcid=" << curr_func_id
-           << " invoke=" << (isInvoke ? 1 : 0)
-           << " indirect=" << (inst->isIndirectCall() ? 1 : 0);
-    if (debugCallee) {
-        errs() << " callee=" << debugCallee->getName();
-    } else {
-        errs() << " callee=<indirect>";
-    }
-    errs() << " ret_type=" << *inst->getType() << "\n";
 
     if (isIRObfuscationDebugEnabled()) {
+        errs() << "[CALL_MAP] funcid=" << curr_func_id
+               << " invoke=" << (isInvoke ? 1 : 0)
+               << " indirect=" << (inst->isIndirectCall() ? 1 : 0);
+        if (debugCallee) {
+            errs() << " callee=" << debugCallee->getName();
+        } else {
+            errs() << " callee=<indirect>";
+        }
+        errs() << " ret_type=" << *inst->getType() << "\n";
+
         errs() << "[handle_callinst] Processing callinst #" << curr_func_id << "\n";
         if (isInvoke) {
             errs() << "[handle_callinst]   This is an InvokeInst (exception handling enabled)\n";
@@ -1115,11 +1116,9 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             if (ConstantExpr *CE = dyn_cast<ConstantExpr>(currarg)) {
                 if (CE->getOpcode() == Instruction::GetElementPtr) {
                     target_func_args.push_back(currarg);
-                    if (traceSelectedArgs) {
+                    if (isIRObfuscationDebugEnabled()) {
                         errs() << "[handle_callinst][" << tracedCallName << "] const-gep-direct arg " << idx
                                << " value=" << *currarg << "\n";
-                    }
-                    if (isIRObfuscationDebugEnabled()) {
                         errs() << "[handle_callinst] Arg " << idx << " is ConstantExpr GEP, passing directly\n";
                     }
                     continue;
@@ -1130,7 +1129,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                         // It's a function pointer or global value being bitcast
                         // Use the BitCast result directly - LLVM will handle the address
                         target_func_args.push_back(currarg);
-                        if (traceSelectedArgs) {
+                        if (isIRObfuscationDebugEnabled()) {
                             errs() << "[handle_callinst][" << tracedCallName << "] const-bitcast arg " << idx
                                    << " value=" << *currarg << "\n";
                         }
@@ -1142,7 +1141,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             if (isa<Function>(currarg)) {
                 // It's a direct function pointer (like std::endl)
                 target_func_args.push_back(currarg);
-                if (traceSelectedArgs) {
+                if (isIRObfuscationDebugEnabled()) {
                     errs() << "[handle_callinst][" << tracedCallName << "] function arg " << idx
                            << " value=" << *currarg << "\n";
                 }
@@ -1155,14 +1154,14 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                     Constant *DecayPtr = ConstantExpr::getGetElementPtr(
                         GV->getValueType(), GV, DecayIndices);
                     target_func_args.push_back(DecayPtr);
-                    if (traceSelectedArgs) {
+                    if (isIRObfuscationDebugEnabled()) {
                         errs() << "[handle_callinst][" << tracedCallName << "] global-array arg " << idx
                                << " decayed_from=" << *currarg << "\n";
                     }
                     continue;
                 }
             }
-            if (traceSelectedArgs) {
+            if (isIRObfuscationDebugEnabled()) {
                 errs() << "[handle_callinst][" << tracedCallName << "] const arg " << idx
                        << " value=" << *currarg << "\n";
             }
@@ -1171,7 +1170,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         }
 
         if (value_map.find(currarg) == value_map.end()) {
-            if (traceSelectedArgs) {
+            if (isIRObfuscationDebugEnabled()) {
                 errs() << "[handle_callinst][" << tracedCallName << "] arg " << idx
                        << " missing in value_map: " << *currarg << "\n";
             }
@@ -1229,8 +1228,6 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                         errs() << "[handle_callinst] Detected sret arg " << idx
                                << " at data_seg[" << sret_result_offset
                                << "] size=" << sret_result_size << "\n";
-                    }
-                    if (traceSelectedArgs) {
                         errs() << "[handle_callinst][" << tracedCallName << "] sret arg " << idx
                                << " result_offset=" << sret_result_offset
                                << " result_size=" << sret_result_size
@@ -1267,7 +1264,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                 aggregateAreaOffset = resolveAllocaAreaOffset(originalValue);
             }
 
-            if (traceSelectedArgs) {
+            if (isIRObfuscationDebugEnabled()) {
                 errs() << "[handle_callinst][" << tracedCallName << "] arg " << idx
                        << " offset=" << curroffset
                        << " currarg=" << *currarg;
@@ -1309,7 +1306,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             }
             // #endregion
         } else {
-            if (traceSelectedArgs) {
+            if (isIRObfuscationDebugEnabled()) {
                 errs() << "[handle_callinst][" << tracedCallName << "] non-pointer arg " << idx
                        << " offset=" << curroffset
                        << " currarg=" << *currarg << "\n";
@@ -1988,42 +1985,58 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         // 遍历参数，处理 ConstantExpr GEP 和 GetElementPtrInst (like stdout)
         for (unsigned idx = 0; idx < inst->arg_size(); idx++) {
             Value *currarg = inst->getArgOperand(idx);
-            errs() << "[Translator]   Arg " << idx << ": " << *currarg << "\n";
-            errs() << "[Translator]     Type: " << *currarg->getType() << "\n";
-            errs() << "[Translator]     IsConstant: " << isa<Constant>(currarg) << "\n";
-            errs() << "[Translator]     IsConstantExpr: " << isa<ConstantExpr>(currarg) << "\n";
-            errs() << "[Translator]     IsGetElementPtrInst: " << isa<GetElementPtrInst>(currarg) << "\n";
+            if (isIRObfuscationDebugEnabled()) {
+                errs() << "[Translator]   Arg " << idx << ": " << *currarg << "\n";
+                errs() << "[Translator]     Type: " << *currarg->getType() << "\n";
+                errs() << "[Translator]     IsConstant: " << isa<Constant>(currarg) << "\n";
+                errs() << "[Translator]     IsConstantExpr: " << isa<ConstantExpr>(currarg) << "\n";
+                errs() << "[Translator]     IsGetElementPtrInst: " << isa<GetElementPtrInst>(currarg) << "\n";
+            }
 
             // 处理 ConstantExpr GEP
             if (ConstantExpr *CE = dyn_cast<ConstantExpr>(currarg)) {
-                errs() << "[Translator]     Opcode: " << CE->getOpcodeName() << "\n";
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[Translator]     Opcode: " << CE->getOpcodeName() << "\n";
+                }
                 if (CE->getOpcode() == Instruction::GetElementPtr) {
-                    errs() << "[Translator]   Found ConstantExpr GEP in arg " << idx << ", calling packValue...\n";
+                    if (isIRObfuscationDebugEnabled()) {
+                        errs() << "[Translator]   Found ConstantExpr GEP in arg " << idx << ", calling packValue...\n";
+                    }
                     // 调用 packValue 来填充 gep_value_map
                     std::vector<uint8_t> packed = packValue(currarg, &value_map);
                 }
             }
             // 处理 GetElementPtrInst (like stdout)
             else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(currarg)) {
-                errs() << "[Translator]     Found GetElementPtrInst in arg " << idx << "\n";
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[Translator]     Found GetElementPtrInst in arg " << idx << "\n";
+                }
                 Value *ptrOperand = GEP->getPointerOperand();
-                errs() << "[Translator]       Pointer operand: " << *ptrOperand << "\n";
+                if (isIRObfuscationDebugEnabled()) {
+                    errs() << "[Translator]       Pointer operand: " << *ptrOperand << "\n";
+                }
                 if (GlobalVariable *GV = dyn_cast<GlobalVariable>(ptrOperand)) {
-                    errs() << "[Translator]       Pointer is GlobalVariable: " << GV->getName() << "\n";
+                    if (isIRObfuscationDebugEnabled()) {
+                        errs() << "[Translator]       Pointer is GlobalVariable: " << GV->getName() << "\n";
+                    }
                     // 将全局变量添加到 gv_value_map
                     if (gv_value_map.find(GV) == gv_value_map.end()) {
                         gv_value_map.insert({GV, curr_data_offset});
                         insert_to_value_map(&value_map, GV, curr_data_offset);
                         int res_size = modDataLayout->getTypeAllocSize(GV->getValueType());
                         curr_data_offset += res_size;
-                        errs() << "[Translator]       Added GV to gv_value_map: offset=" << curr_data_offset - res_size << "\n";
+                        if (isIRObfuscationDebugEnabled()) {
+                            errs() << "[Translator]       Added GV to gv_value_map: offset=" << curr_data_offset - res_size << "\n";
+                        }
                     }
 
                     // 计算 GEP 的偏移量
                     APInt gep_offset(64, 0);
                     if (GEP->accumulateConstantOffset(*modDataLayout, gep_offset)) {
                         int offset_val = gep_offset.getSExtValue();
-                        errs() << "[Translator]       GEP offset: " << offset_val << "\n";
+                        if (isIRObfuscationDebugEnabled()) {
+                            errs() << "[Translator]       GEP offset: " << offset_val << "\n";
+                        }
 
                         // 将 GEP 信息添加到 gep_info_map
                         int data_offset = curr_data_offset;
@@ -2035,8 +2048,10 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
                         info.gep_offset = offset_val;
                         gep_info_map.insert({data_offset, info});
 
-                        errs() << "[Translator]       Added GEP to gep_info_map: data_offset=" << data_offset
-                               << ", gep_offset=" << offset_val << "\n";
+                        if (isIRObfuscationDebugEnabled()) {
+                            errs() << "[Translator]       Added GEP to gep_info_map: data_offset=" << data_offset
+                                   << ", gep_offset=" << offset_val << "\n";
+                        }
                     }
                 }
             }
@@ -2368,28 +2383,30 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
 
         std::vector<uint8_t> hex_code;
         ins_to_hex(hex_code, pack_op(INSERTVALUE_OP), packed_res, packed_agg, packed_val, packed_offset, packed_size);
-        errs() << "[INSERTVALUE_TRANSLATOR] " << *inst << "\n";
-        errs() << "[INSERTVALUE_DETAIL] res_size=" << res_size
-               << " indices=" << inst->getNumIndices()
-               << " offset=" << offset
-               << " agg_type=" << *inst->getAggregateOperand()->getType()
-               << " inserted_type=" << *inst->getInsertedValueOperand()->getType()
-               << " packed_res=" << packed_res.size()
-               << " packed_agg=" << packed_agg.size()
-               << " packed_val=" << packed_val.size()
-               << " packed_offset=" << packed_offset.size()
-               << " packed_size=" << packed_size.size()
-               << " total_bytes=" << hex_code.size() << "\n";
-        errs() << "[INSERTVALUE_DETAIL] agg_is_const=" << isa<Constant>(inst->getAggregateOperand())
-               << " agg_is_constexpr=" << isa<ConstantExpr>(inst->getAggregateOperand())
-               << " agg_is_aggregate_zero=" << isa<ConstantAggregateZero>(inst->getAggregateOperand())
-               << " agg_is_poison=" << isa<PoisonValue>(inst->getAggregateOperand())
-               << " agg_is_undef=" << isa<UndefValue>(inst->getAggregateOperand())
-               << " inserted_is_const=" << isa<Constant>(inst->getInsertedValueOperand())
-               << " inserted_is_constexpr=" << isa<ConstantExpr>(inst->getInsertedValueOperand())
-               << "\n";
-        errs() << "[INSERTVALUE_DETAIL] agg_operand=" << *inst->getAggregateOperand() << "\n";
-        errs() << "[INSERTVALUE_DETAIL] inserted_operand=" << *inst->getInsertedValueOperand() << "\n";
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[INSERTVALUE_TRANSLATOR] " << *inst << "\n";
+            errs() << "[INSERTVALUE_DETAIL] res_size=" << res_size
+                   << " indices=" << inst->getNumIndices()
+                   << " offset=" << offset
+                   << " agg_type=" << *inst->getAggregateOperand()->getType()
+                   << " inserted_type=" << *inst->getInsertedValueOperand()->getType()
+                   << " packed_res=" << packed_res.size()
+                   << " packed_agg=" << packed_agg.size()
+                   << " packed_val=" << packed_val.size()
+                   << " packed_offset=" << packed_offset.size()
+                   << " packed_size=" << packed_size.size()
+                   << " total_bytes=" << hex_code.size() << "\n";
+            errs() << "[INSERTVALUE_DETAIL] agg_is_const=" << isa<Constant>(inst->getAggregateOperand())
+                   << " agg_is_constexpr=" << isa<ConstantExpr>(inst->getAggregateOperand())
+                   << " agg_is_aggregate_zero=" << isa<ConstantAggregateZero>(inst->getAggregateOperand())
+                   << " agg_is_poison=" << isa<PoisonValue>(inst->getAggregateOperand())
+                   << " agg_is_undef=" << isa<UndefValue>(inst->getAggregateOperand())
+                   << " inserted_is_const=" << isa<Constant>(inst->getInsertedValueOperand())
+                   << " inserted_is_constexpr=" << isa<ConstantExpr>(inst->getInsertedValueOperand())
+                   << "\n";
+            errs() << "[INSERTVALUE_DETAIL] agg_operand=" << *inst->getAggregateOperand() << "\n";
+            errs() << "[INSERTVALUE_DETAIL] inserted_operand=" << *inst->getInsertedValueOperand() << "\n";
+        }
         vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
     }
 
