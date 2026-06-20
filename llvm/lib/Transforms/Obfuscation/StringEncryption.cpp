@@ -74,6 +74,11 @@ namespace {
 		std::vector<CSPEntry *> ConstantStringPool;  ///< 常量字符串池
 		std::map<GlobalVariable *, CSPEntry *> CSPEntryMap;  ///< 全局变量到条目的映射
 		std::map<GlobalVariable *, CSUser *> CSUserMap;  ///< 全局变量到用户的映射
+		std::map<GlobalVariable *, CSPEntry *> DecryptedCSPEntryMap;  ///< 解密缓冲区到条目的反向映射
+		std::map<GlobalVariable *, CSUser *> DecryptedCSUserMap;  ///< 解密用户缓冲区到用户的反向映射
+		std::map<const CSUser *, SmallVector<CSPEntry *, 8>> UserReferencedEntries;  ///< 每个全局用户依赖的底层字符串
+		std::map<GlobalVariable *, SmallVector<CSPEntry *, 8>> GlobalReferencedEntries;  ///< 任意全局变量依赖的底层字符串
+		SmallPtrSet<CSPEntry *, 16> PinnedEntries;  ///< 被指针表/聚合引用的条目，不能激进擦除
 		GlobalVariable *EncryptedStringTable = nullptr;  ///< 加密字符串表全局变量
 		std::set<GlobalVariable *> MaybeDeadGlobalVars;  ///< 可能死亡的全局变量集合
 
@@ -102,6 +107,11 @@ namespace {
 			ConstantStringPool.clear();
 			CSPEntryMap.clear();
 			CSUserMap.clear();
+			DecryptedCSPEntryMap.clear();
+			DecryptedCSUserMap.clear();
+			UserReferencedEntries.clear();
+			GlobalReferencedEntries.clear();
+			PinnedEntries.clear();
 			MaybeDeadGlobalVars.clear();
 			return false;
 		}
@@ -134,6 +144,9 @@ namespace {
 		 * @return 如果适合加密返回true
 		 */
 		static bool isValidToEncrypt(GlobalVariable *GV);
+		static GlobalVariable *extractReferencedGlobal(Value *V);
+		CSPEntry *resolveCSPEntryGlobal(GlobalVariable *GV);
+		CSUser *resolveCSUserGlobal(GlobalVariable *GV);
 		
 		/**
 		 * @brief 获取全局变量指向的解密后的全局变量
@@ -219,6 +232,17 @@ namespace {
 		 * @param Ty 类型
 		 */
 		void lowerGlobalConstantArray(ConstantArray *CA, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
+		void collectPinnedEntries(Constant *CV, SmallPtrSetImpl<Constant *> &Visited);
+		void collectReferencedEntries(Constant *CV, SmallPtrSetImpl<Constant *> &Visited,
+		                             SmallPtrSetImpl<CSPEntry *> &Entries);
+
+		/**
+		 * @brief 在当前基本块结束前擦除解密缓冲区，避免明文长期驻留
+		 * @param BB 需要插入擦除逻辑的基本块
+		 * @param GV 需要擦除的全局缓冲区
+		 */
+		void scheduleWipeAtBlockEnd(BasicBlock *BB, GlobalVariable *GV);
+		static bool shouldSkipBlockEndWipe(BasicBlock *BB, Instruction *InsertBefore);
 	};
 } // namespace llvm
 
@@ -303,6 +327,7 @@ bool StringEncryption::runOnModule(Module &M) {
 				Entry->DecStatus = DecStatus;
 				ConstantStringPool.push_back(Entry);
 				CSPEntryMap[&GV] = Entry;
+				DecryptedCSPEntryMap[DecGV] = Entry;
 				collectConstantStringUser(&GV, ConstantStringUsers);
 			} else {
 				Type *EltTy = CDS->getElementType();
@@ -330,6 +355,7 @@ bool StringEncryption::runOnModule(Module &M) {
 					Entry->DecStatus = DecStatus;
 					ConstantStringPool.push_back(Entry);
 					CSPEntryMap[&GV] = Entry;
+					DecryptedCSPEntryMap[DecGV] = Entry;
 					collectConstantStringUser(&GV, ConstantStringUsers);
 				}
 			}
@@ -385,6 +411,10 @@ bool StringEncryption::runOnModule(Module &M) {
 
 	for (GlobalVariable *GV : ConstantStringUsers) {
 		if (isValidToEncrypt(GV)) {
+			if (GV->hasInitializer()) {
+				SmallPtrSet<Constant *, 16> Visited;
+				collectPinnedEntries(GV->getInitializer(), Visited);
+			}
 			Type *EltType = GV->getValueType();
 			Constant *ZeroInit = Constant::getNullValue(EltType);
 			GlobalVariable *DecGV = new GlobalVariable(M, EltType, false, GlobalValue::PrivateLinkage,
@@ -400,6 +430,37 @@ bool StringEncryption::runOnModule(Module &M) {
 			User->DecStatus = DecStatus;
 			User->InitFunc = buildInitFunction(&M, User);
 			CSUserMap[GV] = User;
+			DecryptedCSUserMap[DecGV] = User;
+		}
+	}
+
+	for (auto &KV : CSUserMap) {
+		CSUser *User = KV.second;
+		if (!User || !User->GV || !User->GV->hasInitializer()) {
+			continue;
+		}
+		SmallPtrSet<Constant *, 16> Visited;
+		SmallPtrSet<CSPEntry *, 16> Entries;
+		collectReferencedEntries(User->GV->getInitializer(), Visited, Entries);
+		auto &Collected = UserReferencedEntries[User];
+		for (CSPEntry *Entry : Entries) {
+			Collected.push_back(Entry);
+		}
+	}
+
+	for (GlobalVariable &GV : M.globals()) {
+		if (!GV.hasInitializer()) {
+			continue;
+		}
+		SmallPtrSet<Constant *, 16> Visited;
+		SmallPtrSet<CSPEntry *, 16> Entries;
+		collectReferencedEntries(GV.getInitializer(), Visited, Entries);
+		if (Entries.empty()) {
+			continue;
+		}
+		auto &Collected = GlobalReferencedEntries[&GV];
+		for (CSPEntry *Entry : Entries) {
+			Collected.push_back(Entry);
 		}
 	}
 
@@ -438,6 +499,84 @@ bool StringEncryption::runOnModule(Module &M) {
 	EncryptedStringTable->setSection(".AProtect.rodata");
 	EncryptedStringTable->setMetadata("noobf", MDNode::get(Ctx, {}));
 
+	auto remapConstantRef = [&](auto &&Self, Constant *C) -> Constant * {
+		if (!C) {
+			return nullptr;
+		}
+
+		if (auto *StrGV = dyn_cast<GlobalVariable>(C)) {
+			if (CSPEntry *Entry = resolveCSPEntryGlobal(StrGV)) {
+				if (StrGV != Entry->DecGV) {
+					MaybeDeadGlobalVars.insert(StrGV);
+				}
+				return Entry->DecGV;
+			}
+			if (CSUser *User = resolveCSUserGlobal(StrGV)) {
+				if (StrGV != User->DecGV) {
+					MaybeDeadGlobalVars.insert(StrGV);
+				}
+				return User->DecGV;
+			}
+			return C;
+		}
+
+		if (auto *CE = dyn_cast<ConstantExpr>(C)) {
+			Constant *Base = cast<Constant>(CE->getOperand(0));
+			Constant *NewBase = Self(Self, Base);
+			if (NewBase == Base) {
+				return C;
+			}
+			switch (CE->getOpcode()) {
+			case Instruction::GetElementPtr: {
+				SmallVector<Constant *, 4> Indices;
+				for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
+					Indices.push_back(cast<Constant>(CE->getOperand(i)));
+				}
+				return ConstantExpr::getGetElementPtr(cast<GlobalVariable>(NewBase)->getValueType(),
+				                                      NewBase, Indices);
+			}
+			case Instruction::BitCast:
+				return ConstantExpr::getBitCast(NewBase, CE->getType());
+			case Instruction::AddrSpaceCast:
+				return ConstantExpr::getAddrSpaceCast(NewBase, CE->getType());
+			default:
+				return C;
+			}
+		}
+
+		if (auto *CA = dyn_cast<ConstantArray>(C)) {
+			SmallVector<Constant *, 16> NewOperands;
+			bool ChangedOperands = false;
+			for (unsigned i = 0; i < CA->getNumOperands(); ++i) {
+				Constant *Op = CA->getOperand(i);
+				Constant *NewOp = Self(Self, Op);
+				NewOperands.push_back(NewOp);
+				ChangedOperands |= (NewOp != Op);
+			}
+			if (ChangedOperands) {
+				return ConstantArray::get(cast<ArrayType>(CA->getType()), NewOperands);
+			}
+			return C;
+		}
+
+		if (auto *CS = dyn_cast<ConstantStruct>(C)) {
+			SmallVector<Constant *, 16> NewOperands;
+			bool ChangedOperands = false;
+			for (unsigned i = 0; i < CS->getNumOperands(); ++i) {
+				Constant *Op = CS->getOperand(i);
+				Constant *NewOp = Self(Self, Op);
+				NewOperands.push_back(NewOp);
+				ChangedOperands |= (NewOp != Op);
+			}
+			if (ChangedOperands) {
+				return ConstantStruct::get(cast<StructType>(CS->getType()), NewOperands);
+			}
+			return C;
+		}
+
+		return C;
+	};
+
 	for (GlobalVariable &GV : M.globals()) {
 		if (!GV.hasInitializer())
 			continue;
@@ -445,115 +584,10 @@ bool StringEncryption::runOnModule(Module &M) {
 		Constant *Init = GV.getInitializer();
 		if (!Init)
 			continue;
-		
-		// 处理初始化器直接是另一个全局变量（字符串）的情况
-		if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
-			auto Iter = CSPEntryMap.find(StrGV);
-			if (Iter != CSPEntryMap.end()) {
-				GV.setInitializer(Iter->second->DecGV);
-				MaybeDeadGlobalVars.insert(StrGV);
-			}
-		}
-		
-		// 处理初始化器是GlobalVariable的情况（如 const char* ptr = &str）
-		// 在 LLVM 21 中，初始化器可能是 GlobalValue 类型
-		if (GlobalValue *GVInit = dyn_cast<GlobalValue>(Init)) {
-			if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(GVInit)) {
-				if (isIRObfuscationDebugEnabled()) {
-					errs() << "[DEBUG] CSE: Init is GlobalVariable: " << StrGV->getName() << "\n";
-					errs() << "[DEBUG] CSE: CSPEntryMap size = " << CSPEntryMap.size() << "\n";
-					errs() << "[DEBUG] CSE: Looking for " << StrGV->getName() << " in CSPEntryMap\n";
-				}
-				auto Iter = CSPEntryMap.find(StrGV);
-				if (Iter != CSPEntryMap.end()) {
-					if (isIRObfuscationDebugEnabled()) {
-						errs() << "[DEBUG] CSE: Found in CSPEntryMap, replacing with DecGV\n";
-						errs() << "[DEBUG] CSE: DecGV name = " << Iter->second->DecGV->getName() << "\n";
-					}
-					GV.setInitializer(Iter->second->DecGV);
-					MaybeDeadGlobalVars.insert(StrGV);
-				} else {
-					if (isIRObfuscationDebugEnabled()) {
-						errs() << "[DEBUG] CSE: NOT found in CSPEntryMap!\n";
-						// 打印 CSPEntryMap 中的所有键
-						errs() << "[DEBUG] CSE: CSPEntryMap keys:\n";
-						for (auto &Entry : CSPEntryMap) {
-							errs() << "[DEBUG] CSE:   - " << Entry.first->getName() << "\n";
-						}
-					}
-				}
-			}
-		}
-		
-		// 处理初始化器是ConstantExpr的情况（如 const char* ptr = &str[0]）
-		if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Init)) {
-			if (isIRObfuscationDebugEnabled()) {
-				errs() << "[DEBUG] CSE: Found ConstantExpr global: " << GV.getName() 
-				       << " opcode=" << CE->getOpcodeName() << "\n";
-			}
-			if (CE->getOpcode() == Instruction::GetElementPtr || 
-			    CE->getOpcode() == Instruction::BitCast) {
-				if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(CE->getOperand(0))) {
-					if (isIRObfuscationDebugEnabled()) {
-						errs() << "[DEBUG] CSE: ConstantExpr points to: " << StrGV->getName() << "\n";
-					}
-					auto Iter = CSPEntryMap.find(StrGV);
-					if (Iter != CSPEntryMap.end()) {
-						if (isIRObfuscationDebugEnabled()) {
-							errs() << "[DEBUG] CSE: Found in CSPEntryMap, replacing...\n";
-						}
-						// 创建新的ConstantExpr指向解密后的全局变量
-						if (CE->getOpcode() == Instruction::GetElementPtr) {
-							SmallVector<Constant *, 4> NewIndices;
-							for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
-								NewIndices.push_back(CE->getOperand(i));
-							}
-							Constant *NewCE = ConstantExpr::getGetElementPtr(
-								Iter->second->DecGV->getValueType(),
-								Iter->second->DecGV,
-								NewIndices);
-							GV.setInitializer(NewCE);
-						} else {
-							Constant *NewCE = ConstantExpr::getBitCast(
-								Iter->second->DecGV,
-								CE->getType());
-							GV.setInitializer(NewCE);
-						}
-						MaybeDeadGlobalVars.insert(StrGV);
-					} else {
-						if (isIRObfuscationDebugEnabled()) {
-							errs() << "[DEBUG] CSE: NOT found in CSPEntryMap\n";
-						}
-					}
-				}
-			}
-		}
-		
-		SmallVector<Constant *, 16> NewOperands;
-		bool HasStringRef = false;
-		
-		if (ConstantArray *CA = dyn_cast<ConstantArray>(Init)) {
-			for (unsigned i = 0; i < CA->getNumOperands(); ++i) {
-				Constant *Op = CA->getOperand(i);
-				if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Op)) {
-					auto Iter = CSPEntryMap.find(StrGV);
-					if (Iter != CSPEntryMap.end()) {
-						NewOperands.push_back(Iter->second->DecGV);
-						MaybeDeadGlobalVars.insert(StrGV);
-						HasStringRef = true;
-					} else {
-						NewOperands.push_back(Op);
-					}
-				} else {
-					NewOperands.push_back(Op);
-				}
-			}
-			
-			if (HasStringRef) {
-				ArrayType *ArrTy = CA->getType();
-				Constant *NewInit = ConstantArray::get(ArrTy, NewOperands);
-				GV.setInitializer(NewInit);
-			}
+
+		Constant *NewInit = remapConstantRef(remapConstantRef, Init);
+		if (NewInit != Init) {
+			GV.setInitializer(NewInit);
 		}
 	}
 
@@ -654,7 +688,6 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
 	BasicBlock *LoopBr0 = BasicBlock::Create(Ctx, "LoopBr0", DecFunc);
 	BasicBlock *LoopBr1 = BasicBlock::Create(Ctx, "LoopBr1", DecFunc);
 	BasicBlock *LoopEnd = BasicBlock::Create(Ctx, "LoopEnd", DecFunc);
-	BasicBlock *UpdateDecStatus = BasicBlock::Create(Ctx, "UpdateDecStatus", DecFunc);
 	BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", DecFunc);
 
 	IRB.SetInsertPoint(Enter);
@@ -663,10 +696,9 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
 	ConstantInt *KeySizeBytesConst = ConstantInt::get(Type::getInt32Ty(Ctx), KeySizeInBytes);
 
 	Value *EncPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeySizeBytesConst);
-	Value *DecStatus = IRB.CreateLoad(
-	                       Entry->DecStatus->getValueType(), Entry->DecStatus);
-	Value *IsDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1));
-	IRB.CreateCondBr(IsDecrypted, Exit, LoopBody);
+	Value *DecStatus = IRB.CreateLoad(Type::getInt32Ty(Ctx), Entry->DecStatus, "dec_status");
+	Value *AlreadyDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1), "already_decrypted");
+	IRB.CreateCondBr(AlreadyDecrypted, Exit, LoopBody);
 
 	IRB.SetInsertPoint(LoopBody);
 	PHINode *LoopCounter = IRB.CreatePHI(IRB.getInt32Ty(), 2);
@@ -757,13 +789,10 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
 
 	uint32_t DataSize = Entry->IsUTF16 ? static_cast<uint32_t>(Entry->Data16.size()) : static_cast<uint32_t>(Entry->Data.size());
 	Value *Cond = IRB.CreateICmpEQ(NewCounter, IRB.getInt32(static_cast<uint32_t>(DataSize)));
-	IRB.CreateCondBr(Cond, UpdateDecStatus, LoopBody);
-
-	IRB.SetInsertPoint(UpdateDecStatus);
-	IRB.CreateStore(IRB.getInt32(1), Entry->DecStatus);
-	IRB.CreateBr(Exit);
+	IRB.CreateCondBr(Cond, Exit, LoopBody);
 
 	IRB.SetInsertPoint(Exit);
+	IRB.CreateStore(IRB.getInt32(1), Entry->DecStatus);
 	IRB.CreateRetVoid();
 
 	return DecFunc;
@@ -792,16 +821,15 @@ Function *StringEncryption::buildInitFunction(Module *M, const StringEncryption:
 	thiz->addAttrs(NoCaptureAttrBuilder);
 
 	BasicBlock *Enter = BasicBlock::Create(Ctx, "Enter", InitFunc);
-	BasicBlock *InitBlock = BasicBlock::Create(Ctx, "InitBlock", InitFunc);
+	BasicBlock *InitBody = BasicBlock::Create(Ctx, "InitBody", InitFunc);
 	BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", InitFunc);
 
 	IRB.SetInsertPoint(Enter);
-	Value *DecStatus = IRB.CreateLoad(
-	                       User->DecStatus->getValueType(), User->DecStatus);
-	Value *IsDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1));
-	IRB.CreateCondBr(IsDecrypted, Exit, InitBlock);
+	Value *DecStatus = IRB.CreateLoad(Type::getInt32Ty(Ctx), User->DecStatus, "dec_status");
+	Value *AlreadyInitialized = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1), "already_initialized");
+	IRB.CreateCondBr(AlreadyInitialized, Exit, InitBody);
 
-	IRB.SetInsertPoint(InitBlock);
+	IRB.SetInsertPoint(InitBody);
 	Constant *Init = User->GV->getInitializer();
 	lowerGlobalConstant(Init, IRB, User->DecGV, User->Ty);
 	IRB.CreateStore(IRB.getInt32(1), User->DecStatus);
@@ -825,12 +853,53 @@ void StringEncryption::lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value
 		return;
 	}
 
+	std::function<Constant *(Constant *)> remapLeafConstant = [&](Constant *Leaf) -> Constant * {
+		if (!Leaf) {
+			return Leaf;
+		}
+		if (auto *GV = dyn_cast<GlobalVariable>(Leaf)) {
+			if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
+				return Entry->DecGV;
+			}
+			if (CSUser *User = resolveCSUserGlobal(GV)) {
+				return User->DecGV;
+			}
+			return Leaf;
+		}
+		if (auto *CE = dyn_cast<ConstantExpr>(Leaf)) {
+			Constant *Base = cast<Constant>(CE->getOperand(0));
+			Constant *NewBase = remapLeafConstant(Base);
+			if (NewBase == Base) {
+				return Leaf;
+			}
+			switch (CE->getOpcode()) {
+			case Instruction::GetElementPtr: {
+				SmallVector<Constant *, 4> Indices;
+				for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
+					Indices.push_back(cast<Constant>(CE->getOperand(i)));
+				}
+				if (auto *NewGV = dyn_cast<GlobalVariable>(NewBase)) {
+					return ConstantExpr::getGetElementPtr(NewGV->getValueType(), NewGV, Indices);
+				}
+				return Leaf;
+			}
+			case Instruction::BitCast:
+				return ConstantExpr::getBitCast(NewBase, CE->getType());
+			case Instruction::AddrSpaceCast:
+				return ConstantExpr::getAddrSpaceCast(NewBase, CE->getType());
+			default:
+				return Leaf;
+			}
+		}
+		return Leaf;
+	};
+
 	if (ConstantArray *CA = dyn_cast<ConstantArray>(CV)) {
 		lowerGlobalConstantArray(CA, IRB, Ptr, Ty);
 	} else if (ConstantStruct *CS = dyn_cast<ConstantStruct>(CV)) {
 		lowerGlobalConstantStruct(CS, IRB, Ptr, Ty);
 	} else {
-		IRB.CreateStore(CV, Ptr);
+		IRB.CreateStore(remapLeafConstant(CV), Ptr);
 	}
 }
 
@@ -866,6 +935,104 @@ void StringEncryption::lowerGlobalConstantStruct(ConstantStruct *CS, IRBuilder<>
 	}
 }
 
+void StringEncryption::collectPinnedEntries(Constant *CV, SmallPtrSetImpl<Constant *> &Visited) {
+	if (!CV || !Visited.insert(CV).second) {
+		return;
+	}
+
+	if (auto *GV = dyn_cast<GlobalVariable>(CV)) {
+		auto Iter = CSPEntryMap.find(GV);
+		if (Iter != CSPEntryMap.end()) {
+			PinnedEntries.insert(Iter->second);
+		}
+	}
+
+	for (unsigned i = 0; i < CV->getNumOperands(); ++i) {
+		if (auto *Nested = dyn_cast<Constant>(CV->getOperand(i))) {
+			collectPinnedEntries(Nested, Visited);
+		}
+	}
+}
+
+void StringEncryption::collectReferencedEntries(Constant *CV,
+                                               SmallPtrSetImpl<Constant *> &Visited,
+                                               SmallPtrSetImpl<CSPEntry *> &Entries) {
+	if (!CV || !Visited.insert(CV).second) {
+		return;
+	}
+
+	if (auto *GV = dyn_cast<GlobalVariable>(CV)) {
+		if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
+			Entries.insert(Entry);
+		}
+	}
+
+	for (unsigned i = 0; i < CV->getNumOperands(); ++i) {
+		if (auto *Nested = dyn_cast<Constant>(CV->getOperand(i))) {
+			collectReferencedEntries(Nested, Visited, Entries);
+		}
+	}
+}
+
+void StringEncryption::scheduleWipeAtBlockEnd(BasicBlock *BB, GlobalVariable *GV) {
+	if (!BB || !GV || !BB->getTerminator()) {
+		return;
+	}
+
+	const Module *M = BB->getModule();
+	if (!M) {
+		return;
+	}
+
+	const DataLayout &DL = M->getDataLayout();
+	uint64_t Size = DL.getTypeAllocSize(GV->getValueType());
+	if (Size == 0) {
+		return;
+	}
+
+	IRBuilder<> IRB(BB->getTerminator());
+	Value *Buf = IRB.CreateBitCast(GV, PointerType::get(BB->getContext(), 0));
+	IRB.CreateMemSet(Buf, IRB.getInt8(0), Size, MaybeAlign(GV->getAlignment()));
+
+	if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
+		if (Entry->DecStatus) {
+			IRB.CreateStore(IRB.getInt32(0), Entry->DecStatus);
+		}
+		return;
+	}
+	if (CSUser *User = resolveCSUserGlobal(GV)) {
+		if (User->DecStatus) {
+			IRB.CreateStore(IRB.getInt32(0), User->DecStatus);
+		}
+	}
+}
+
+bool StringEncryption::shouldSkipBlockEndWipe(BasicBlock *BB, Instruction *InsertBefore) {
+	if (!BB) {
+		return true;
+	}
+	Instruction *Term = BB->getTerminator();
+	if (!Term) {
+		return true;
+	}
+	// If the current use is the terminator itself (most notably an invoke),
+	// inserting the wipe "at block end" would place it before the use.
+	if (InsertBefore && InsertBefore == Term) {
+		return true;
+	}
+	if (Function *F = BB->getParent()) {
+		if (F->getReturnType()->isPointerTy()) {
+			return true;
+		}
+	}
+	if (auto *Ret = dyn_cast<ReturnInst>(Term)) {
+		if (Value *RetVal = Ret->getReturnValue()) {
+			return RetVal->getType()->isPointerTy();
+		}
+	}
+	return false;
+}
+
 /**
  * @brief 处理函数中的常量字符串使用
  * @param F 要处理的函数
@@ -878,224 +1045,179 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 	}
 	LLVMContext &Ctx = F->getContext();
 	LowerConstantExpr(*F);
-	SmallPtrSet<GlobalVariable *, 16> DecryptedGV;
+	SmallPtrSet<GlobalVariable *, 16> LiveBuffers;
 	bool Changed = false;
-	for (BasicBlock &BB : *F) {
-		DecryptedGV.clear();
-		for (Instruction &Inst : BB) {
-			if (PHINode *PHI = dyn_cast<PHINode>(&Inst)) {
-			for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
-				if (GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i))) {
-					auto Iter1 = CSPEntryMap.find(GV);
-					auto Iter2 = CSUserMap.find(GV);
-					if (Iter2 != CSUserMap.end()) {
-						CSUser *User = Iter2->second;
-						if (DecryptedGV.count(GV) > 0) {
-							Inst.replaceUsesOfWith(GV, User->DecGV);
-						} else {
-							BasicBlock *IncBB = PHI->getIncomingBlock(i);
-							if (!IncBB) continue;
-							Instruction *InsertPoint = IncBB->getTerminator();
-							if (!InsertPoint) continue;
-							IRBuilder<> IRB(InsertPoint);
-							fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-							Inst.replaceUsesOfWith(GV, User->DecGV);
-							MaybeDeadGlobalVars.insert(GV);
-							DecryptedGV.insert(GV);
-						}
-						Changed = true;
-					} else if (Iter1 != CSPEntryMap.end()) {
-						CSPEntry *Entry = Iter1->second;
-						if (DecryptedGV.count(GV) > 0) {
-							Inst.replaceUsesOfWith(GV, Entry->DecGV);
-						} else {
-							BasicBlock *IncBB2 = PHI->getIncomingBlock(i);
-							if (!IncBB2) continue;
-							Instruction *InsertPoint = IncBB2->getTerminator();
-							if (!InsertPoint) continue;
-							IRBuilder<> IRB(InsertPoint);
 
-							Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-							                                  PointerType::get(Ctx, 0));
-							Value *Data = IRB.CreateInBoundsGEP(
-							                  EncryptedStringTable->getValueType(),
-							                  EncryptedStringTable,
-							{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-							fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+	auto getSafeInsertPoint = [](Instruction *Inst) -> Instruction * {
+		if (!Inst) {
+			return nullptr;
+		}
+		if (!Inst->isEHPad()) {
+			return Inst;
+		}
+		BasicBlock *BB = Inst->getParent();
+		if (!BB) {
+			return Inst;
+		}
+		BasicBlock *PrevBB = BB->getPrevNode();
+		if (!PrevBB) {
+			return Inst;
+		}
+		return &*PrevBB->getFirstInsertionPt();
+	};
 
-							Inst.replaceUsesOfWith(GV, Entry->DecGV);
-							MaybeDeadGlobalVars.insert(GV);
-							DecryptedGV.insert(GV);
-						}
-						Changed = true;
-					}
-				} else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(PHI->getIncomingValue(i))) {
-					if (GlobalVariable *GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
-						auto Iter1 = CSPEntryMap.find(GV);
-						auto Iter2 = CSUserMap.find(GV);
-						if (Iter2 != CSUserMap.end()) {
-							CSUser *User = Iter2->second;
-							if (DecryptedGV.count(GV) > 0) {
-								GEP->replaceUsesOfWith(GV, User->DecGV);
-							} else {
-								BasicBlock *IncBB3 = PHI->getIncomingBlock(i);
-								if (!IncBB3) continue;
-								Instruction *InsertPoint = IncBB3->getTerminator();
-								if (!InsertPoint) continue;
-								IRBuilder<> IRB(InsertPoint);
-								fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-								GEP->replaceUsesOfWith(GV, User->DecGV);
-								MaybeDeadGlobalVars.insert(GV);
-								DecryptedGV.insert(GV);
-							}
-							Changed = true;
-						} else if (Iter1 != CSPEntryMap.end()) {
-							CSPEntry *Entry = Iter1->second;
-							if (DecryptedGV.count(GV) > 0) {
-								GEP->replaceUsesOfWith(GV, Entry->DecGV);
-							} else {
-								BasicBlock *IncBB4 = PHI->getIncomingBlock(i);
-								if (!IncBB4) continue;
-								Instruction *InsertPoint = IncBB4->getTerminator();
-								if (!InsertPoint) continue;
-								IRBuilder<> IRB(InsertPoint);
-
-								Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-								                                  PointerType::get(Ctx, 0));
-								Value *Data = IRB.CreateInBoundsGEP(
-								                  EncryptedStringTable->getValueType(),
-								                  EncryptedStringTable,
-								{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-								fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-
-								GEP->replaceUsesOfWith(GV, Entry->DecGV);
-								MaybeDeadGlobalVars.insert(GV);
-								DecryptedGV.insert(GV);
-							}
-							Changed = true;
-						}
-					}
+	auto ensureUserReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB, CSUser *User) {
+		if (!InsertBefore || !WipeBB || !User || LiveBuffers.count(User->DecGV) > 0) {
+			return;
+		}
+		IRBuilder<> IRB(getSafeInsertPoint(InsertBefore));
+		auto UserEntriesIt = UserReferencedEntries.find(User);
+		if (UserEntriesIt != UserReferencedEntries.end()) {
+			for (CSPEntry *Entry : UserEntriesIt->second) {
+				if (!Entry || LiveBuffers.count(Entry->DecGV) > 0) {
+					continue;
 				}
+				Value *OutBuf = IRB.CreateBitCast(Entry->DecGV, PointerType::get(Ctx, 0));
+				Value *Data = IRB.CreateInBoundsGEP(
+				                  EncryptedStringTable->getValueType(),
+				                  EncryptedStringTable,
+				                  {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+				fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+				if (PinnedEntries.count(Entry) == 0 && !shouldSkipBlockEndWipe(WipeBB, InsertBefore)) {
+					scheduleWipeAtBlockEnd(WipeBB, Entry->DecGV);
+				}
+				LiveBuffers.insert(Entry->DecGV);
+			}
+		}
+		fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+		LiveBuffers.insert(User->DecGV);
+	};
+
+	auto ensureEntryReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB, CSPEntry *Entry) {
+		if (!InsertBefore || !WipeBB || !Entry || LiveBuffers.count(Entry->DecGV) > 0) {
+			return;
+		}
+		IRBuilder<> IRB(getSafeInsertPoint(InsertBefore));
+		Value *OutBuf = IRB.CreateBitCast(Entry->DecGV, PointerType::get(Ctx, 0));
+		Value *Data = IRB.CreateInBoundsGEP(
+		                  EncryptedStringTable->getValueType(),
+		                  EncryptedStringTable,
+		                  {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+		fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+		if (PinnedEntries.count(Entry) == 0 && !shouldSkipBlockEndWipe(WipeBB, InsertBefore)) {
+			scheduleWipeAtBlockEnd(WipeBB, Entry->DecGV);
+		}
+		LiveBuffers.insert(Entry->DecGV);
+	};
+
+	auto ensureGlobalEntriesReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB,
+	                                    GlobalVariable *GV) {
+		if (!InsertBefore || !WipeBB || !GV) {
+			return;
+		}
+		auto It = GlobalReferencedEntries.find(GV);
+		if (It == GlobalReferencedEntries.end()) {
+			return;
+		}
+		for (CSPEntry *Entry : It->second) {
+			ensureEntryReady(InsertBefore, WipeBB, Entry);
+		}
+	};
+
+	auto rewriteResolvedGlobal = [&](Instruction &Inst, Value *Carrier, GlobalVariable *From,
+	                                 GlobalVariable *To) {
+		if (!From || !To || From == To) {
+			return;
+		}
+		if (auto *GEP = dyn_cast<GetElementPtrInst>(Carrier)) {
+			GEP->replaceUsesOfWith(From, To);
+		} else if (auto *CE = dyn_cast<ConstantExpr>(Carrier)) {
+			Constant *NewConst = nullptr;
+			switch (CE->getOpcode()) {
+			case Instruction::GetElementPtr: {
+				SmallVector<Constant *, 4> Indices;
+				for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
+					Indices.push_back(cast<Constant>(CE->getOperand(i)));
+				}
+				NewConst = ConstantExpr::getGetElementPtr(To->getValueType(), To, Indices);
+				break;
+			}
+			case Instruction::BitCast:
+				NewConst = ConstantExpr::getBitCast(To, CE->getType());
+				break;
+			case Instruction::AddrSpaceCast:
+				NewConst = ConstantExpr::getAddrSpaceCast(To, CE->getType());
+				break;
+			default:
+				break;
+			}
+			if (NewConst) {
+				Inst.replaceUsesOfWith(CE, NewConst);
 			}
 		} else {
+			Inst.replaceUsesOfWith(From, To);
+		}
+		MaybeDeadGlobalVars.insert(From);
+	};
+
+	auto handleResolvedOperand = [&](Instruction &Inst, Value *Carrier,
+	                                 Instruction *InsertBefore, BasicBlock *WipeBB) {
+		GlobalVariable *GV = extractReferencedGlobal(Carrier);
+		if (!GV) {
+			return false;
+		}
+
+		ensureGlobalEntriesReady(InsertBefore, WipeBB, GV);
+
+		if (CSUser *User = resolveCSUserGlobal(GV)) {
+			if (F == User->InitFunc) {
+				return false;
+			}
+			ensureUserReady(InsertBefore, WipeBB, User);
+			rewriteResolvedGlobal(Inst, Carrier, GV, User->DecGV);
+			return true;
+		}
+
+		if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
+			ensureEntryReady(InsertBefore, WipeBB, Entry);
+			rewriteResolvedGlobal(Inst, Carrier, GV, Entry->DecGV);
+			return true;
+		}
+
+		if (auto *DirectGV = dyn_cast<GlobalVariable>(Carrier)) {
+			if (CSPEntry *PointedEntry = getPointedCSPEntry(DirectGV)) {
+				if (isIRObfuscationDebugEnabled()) {
+					errs() << "[DEBUG] CSE: Found pointer to encrypted string: " << DirectGV->getName()
+					       << " -> " << PointedEntry->DecGV->getName() << "\n";
+				}
+				ensureEntryReady(InsertBefore, WipeBB, PointedEntry);
+				return true;
+			}
+			if (CSUser *PointedUser = getPointedCSUser(DirectGV)) {
+				if (isIRObfuscationDebugEnabled()) {
+					errs() << "[DEBUG] CSE: Found pointer to CSUser string: " << DirectGV->getName()
+					       << " -> " << PointedUser->DecGV->getName() << "\n";
+				}
+				ensureUserReady(InsertBefore, WipeBB, PointedUser);
+				return true;
+			}
+		}
+
+		return false;
+	};
+
+	for (BasicBlock &BB : *F) {
+		LiveBuffers.clear();
+		Instruction *BlockInsertPoint = &*BB.getFirstInsertionPt();
+		for (Instruction &Inst : BB) {
+			if (PHINode *PHI = dyn_cast<PHINode>(&Inst)) {
+				for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
+					Changed |= handleResolvedOperand(Inst, PHI->getIncomingValue(i),
+					                                 BlockInsertPoint, &BB);
+				}
+			} else {
 				for (User::op_iterator op = Inst.op_begin(); op != Inst.op_end(); ++op) {
-					if (GlobalVariable *GV = dyn_cast<GlobalVariable>(*op)) {
-						auto Iter1 = CSPEntryMap.find(GV);
-						auto Iter2 = CSUserMap.find(GV);
-						if (Iter2 != CSUserMap.end()) {
-							CSUser *User = Iter2->second;
-							if (DecryptedGV.count(GV) > 0) {
-								Inst.replaceUsesOfWith(GV, User->DecGV);
-							} else {
-
-								IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
-								fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-								Inst.replaceUsesOfWith(GV, User->DecGV);
-								MaybeDeadGlobalVars.insert(GV);
-								DecryptedGV.insert(GV);
-							}
-							Changed = true;
-						} else if (Iter1 != CSPEntryMap.end()) {
-							CSPEntry *Entry = Iter1->second;
-							if (DecryptedGV.count(GV) > 0) {
-								Inst.replaceUsesOfWith(GV, Entry->DecGV);
-							} else {
-								IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
-
-								Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-							                                  PointerType::get(Ctx, 0));
-							Value *Data = IRB.CreateInBoundsGEP(
-							                  EncryptedStringTable->getValueType(),
-							                  EncryptedStringTable,
-							{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-							fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-
-							Inst.replaceUsesOfWith(GV, Entry->DecGV);
-								MaybeDeadGlobalVars.insert(GV);
-								DecryptedGV.insert(GV);
-							}
-							Changed = true;
-						} else {
-							// 检查全局变量的初始化器是否指向加密的字符串
-							// 这是处理 const char* ptr = "string" 的情况
-							if (CSPEntry *PointedEntry = getPointedCSPEntry(GV)) {
-								if (isIRObfuscationDebugEnabled()) {
-									errs() << "[DEBUG] CSE: Found pointer to encrypted string: " << GV->getName() 
-									       << " -> " << PointedEntry->DecGV->getName() << "\n";
-								}
-								if (DecryptedGV.count(GV) > 0) {
-									// 已经解密过，不需要再解密
-								} else {
-									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
-									Value *OutBuf = IRB.CreateBitCast(PointedEntry->DecGV, PointerType::get(Ctx, 0));
-									Value *Data = IRB.CreateInBoundsGEP(
-										EncryptedStringTable->getValueType(),
-										EncryptedStringTable,
-										{IRB.getInt32(0), IRB.getInt32(PointedEntry->Offset)});
-									fixEH(IRB.CreateCall(PointedEntry->DecFunc, {OutBuf, Data}));
-									DecryptedGV.insert(GV);
-									if (isIRObfuscationDebugEnabled()) {
-										errs() << "[DEBUG] CSE: Inserted decrypt call for " << GV->getName() << "\n";
-									}
-								}
-								Changed = true;
-							} else if (CSUser *PointedUser = getPointedCSUser(GV)) {
-								if (isIRObfuscationDebugEnabled()) {
-									errs() << "[DEBUG] CSE: Found pointer to CSUser string: " << GV->getName() 
-									       << " -> " << PointedUser->DecGV->getName() << "\n";
-								}
-								if (DecryptedGV.count(GV) > 0) {
-									// 已经解密过，不需要再解密
-								} else {
-									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
-									fixEH(IRB.CreateCall(PointedUser->InitFunc, {PointedUser->DecGV}));
-									DecryptedGV.insert(GV);
-									if (isIRObfuscationDebugEnabled()) {
-										errs() << "[DEBUG] CSE: Inserted init call for " << GV->getName() << "\n";
-									}
-								}
-								Changed = true;
-							}
-						}
-					} else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(*op)) {
-						if (GlobalVariable *GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
-							auto Iter1 = CSPEntryMap.find(GV);
-							auto Iter2 = CSUserMap.find(GV);
-							if (Iter2 != CSUserMap.end()) {
-								CSUser *User = Iter2->second;
-								if (DecryptedGV.count(GV) > 0) {
-									GEP->replaceUsesOfWith(GV, User->DecGV);
-								} else {
-									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
-									fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-									GEP->replaceUsesOfWith(GV, User->DecGV);
-									MaybeDeadGlobalVars.insert(GV);
-									DecryptedGV.insert(GV);
-								}
-								Changed = true;
-							} else if (Iter1 != CSPEntryMap.end()) {
-								CSPEntry *Entry = Iter1->second;
-								if (DecryptedGV.count(GV) > 0) {
-									GEP->replaceUsesOfWith(GV, Entry->DecGV);
-								} else {
-									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
-
-									Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-									                                  PointerType::get(Ctx, 0));
-									Value *Data = IRB.CreateInBoundsGEP(
-									                  EncryptedStringTable->getValueType(),
-									                  EncryptedStringTable,
-									{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-									fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-
-									GEP->replaceUsesOfWith(GV, Entry->DecGV);
-									MaybeDeadGlobalVars.insert(GV);
-									DecryptedGV.insert(GV);
-								}
-								Changed = true;
-							}
-						}
-					}
+					Changed |= handleResolvedOperand(Inst, *op, &Inst, &BB);
 				}
 			}
 		}
@@ -1128,6 +1250,65 @@ void StringEncryption::collectConstantStringUser(GlobalVariable *CString, std::s
 	}
 }
 
+GlobalVariable *StringEncryption::extractReferencedGlobal(Value *V) {
+	if (auto *GV = dyn_cast_or_null<GlobalVariable>(V)) {
+		return GV;
+	}
+
+	if (auto *GEP = dyn_cast<GetElementPtrInst>(V)) {
+		return dyn_cast<GlobalVariable>(GEP->getPointerOperand());
+	}
+
+	if (auto *CE = dyn_cast<ConstantExpr>(V)) {
+		switch (CE->getOpcode()) {
+		case Instruction::GetElementPtr:
+		case Instruction::BitCast:
+		case Instruction::AddrSpaceCast:
+			return extractReferencedGlobal(CE->getOperand(0));
+		default:
+			break;
+		}
+	}
+
+	return nullptr;
+}
+
+StringEncryption::CSPEntry *StringEncryption::resolveCSPEntryGlobal(GlobalVariable *GV) {
+	if (!GV) {
+		return nullptr;
+	}
+
+	auto Iter = CSPEntryMap.find(GV);
+	if (Iter != CSPEntryMap.end()) {
+		return Iter->second;
+	}
+
+	auto DecIter = DecryptedCSPEntryMap.find(GV);
+	if (DecIter != DecryptedCSPEntryMap.end()) {
+		return DecIter->second;
+	}
+
+	return nullptr;
+}
+
+StringEncryption::CSUser *StringEncryption::resolveCSUserGlobal(GlobalVariable *GV) {
+	if (!GV) {
+		return nullptr;
+	}
+
+	auto Iter = CSUserMap.find(GV);
+	if (Iter != CSUserMap.end()) {
+		return Iter->second;
+	}
+
+	auto DecIter = DecryptedCSUserMap.find(GV);
+	if (DecIter != DecryptedCSUserMap.end()) {
+		return DecIter->second;
+	}
+
+	return nullptr;
+}
+
 /**
  * @brief 获取全局变量指向的解密后的全局变量
  * @param GV 全局变量（指针类型）
@@ -1141,15 +1322,12 @@ GlobalVariable *StringEncryption::getPointedDecryptedGlobal(GlobalVariable *GV) 
 	if (!Init)
 		return nullptr;
 	
-	// 检查初始化器是否是 GlobalVariable（指向字符串）
-	if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
-		auto Iter = CSPEntryMap.find(StrGV);
-		if (Iter != CSPEntryMap.end()) {
-			return Iter->second->DecGV;
+	if (GlobalVariable *StrGV = extractReferencedGlobal(Init)) {
+		if (CSPEntry *Entry = resolveCSPEntryGlobal(StrGV)) {
+			return Entry->DecGV;
 		}
-		auto Iter2 = CSUserMap.find(StrGV);
-		if (Iter2 != CSUserMap.end()) {
-			return Iter2->second->DecGV;
+		if (CSUser *User = resolveCSUserGlobal(StrGV)) {
+			return User->DecGV;
 		}
 	}
 	
@@ -1169,26 +1347,8 @@ StringEncryption::CSPEntry *StringEncryption::getPointedCSPEntry(GlobalVariable 
 	if (!Init)
 		return nullptr;
 	
-	// 检查初始化器是否是 GlobalVariable（指向字符串）
-	if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
-		// 首先直接查找
-		auto Iter = CSPEntryMap.find(StrGV);
-		if (Iter != CSPEntryMap.end()) {
-			return Iter->second;
-		}
-		// 如果没找到，检查是否是解密后的全局变量（dec_xxx）
-		// 解密后的全局变量名称格式为 "dec_" + 原始名称
-		StringRef Name = StrGV->getName();
-		if (Name.starts_with("dec")) {
-			// 尝试从名称中提取原始名称
-			// 格式: decXX.original_name 或 dec_status_XX.original_name
-			// 我们需要找到对应的原始字符串
-			for (auto &Entry : CSPEntryMap) {
-				if (Entry.second->DecGV == StrGV) {
-					return Entry.second;
-				}
-			}
-		}
+	if (GlobalVariable *StrGV = extractReferencedGlobal(Init)) {
+		return resolveCSPEntryGlobal(StrGV);
 	}
 	
 	return nullptr;
@@ -1207,12 +1367,8 @@ StringEncryption::CSUser *StringEncryption::getPointedCSUser(GlobalVariable *GV)
 	if (!Init)
 		return nullptr;
 	
-	// 检查初始化器是否是 GlobalVariable（指向字符串）
-	if (GlobalVariable *StrGV = dyn_cast<GlobalVariable>(Init)) {
-		auto Iter = CSUserMap.find(StrGV);
-		if (Iter != CSUserMap.end()) {
-			return Iter->second;
-		}
+	if (GlobalVariable *StrGV = extractReferencedGlobal(Init)) {
+		return resolveCSUserGlobal(StrGV);
 	}
 	
 	return nullptr;

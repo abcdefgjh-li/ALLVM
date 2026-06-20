@@ -195,10 +195,10 @@ static bool generateLoaderCpp(const std::string &output_path) {
  * 自动生成，由 clang -irobf-linker 产生
  */
 
-#include <cstdint>
-#include <cstddef>
-#include <cstring>
-#include <cstdlib>
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include <sys/mman.h>
 #include <sys/stat.h>

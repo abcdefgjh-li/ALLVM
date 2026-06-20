@@ -792,9 +792,11 @@ class GOVMTranslator {
                         return res;
                     }
                     else {
-                        errs() << "[packValue] ERROR: Value not in map and not a GlobalVariable/Function/GlobalValue!\n";
-                        errs() << "[packValue] Value: " << *value << "\n";
-                        errs() << "[packValue] Type: " << *value->getType() << "\n";
+                        if (isIRObfuscationDebugEnabled()) {
+                            errs() << "[packValue] ERROR: Value not in map and not a GlobalVariable/Function/GlobalValue!\n";
+                            errs() << "[packValue] Value: " << *value << "\n";
+                            errs() << "[packValue] Type: " << *value->getType() << "\n";
+                        }
                         // Instead of asserting, add it to value_map
                         insert_to_value_map(value_map, value, curr_data_offset);
                         int res_size = modDataLayout->getTypeAllocSize(value->getType());
@@ -1042,7 +1044,6 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             tracedCallName = "rf";
         }
     }
-    bool traceSelectedArgs = !tracedCallName.empty();
     auto isAggregateLikeAddress = [&](Type *T) -> bool {
         if (!T) return false;
         if (T->isAggregateType()) return true;
@@ -1434,7 +1435,8 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             if (is_stdlib) {
                 // 标准库函数，直接调用
                 // 不支持异常处理，直接转换为 CallInst
-                if (tracedCallName == "string_ctor_cstr" && target_func_args.size() >= 2) {
+                if (isIRObfuscationDebugEnabled() &&
+                    tracedCallName == "string_ctor_cstr" && target_func_args.size() >= 2) {
                     Value *objPtr = IRBcallFunction.CreatePointerCast(target_func_args[0], PointerType::get(Mod->getContext(), 0));
                     Value *cstrPtr = IRBcallFunction.CreatePointerCast(target_func_args[1], PointerType::get(Mod->getContext(), 0));
                     Value *firstChar = IRBcallFunction.CreateLoad(Type::getInt8Ty(Mod->getContext()), cstrPtr);
@@ -1444,7 +1446,8 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                 }
                 resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
                             ArrayRef<Value *>(target_func_args));
-                if (tracedCallName == "string_ctor_cstr" && target_func_args.size() >= 1) {
+                if (isIRObfuscationDebugEnabled() &&
+                    tracedCallName == "string_ctor_cstr" && target_func_args.size() >= 1) {
                     Value *objPtr = IRBcallFunction.CreatePointerCast(target_func_args[0], PointerType::get(Mod->getContext(), 0));
                     Value *word0 = IRBcallFunction.CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr);
                     Value *objPtr8 = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), objPtr, 8);

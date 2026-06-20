@@ -378,7 +378,7 @@ void MainWindow::onBuild() {
 
     appendLog("=====================================", "#00d4aa");
     appendLog("正在编译项目: " + projectDir, "#e0e0e0");
-    appendLog("NDK 命令: " + cmd, "#a0a0b0");
+    appendLog("NDK 命令: " + cmd + " -j32", "#a0a0b0");
     appendLog("=====================================", "#00d4aa");
 
     m_progressBar->setVisible(true);
@@ -388,7 +388,7 @@ void MainWindow::onBuild() {
     m_btnStopBuild->setVisible(true);
 
     m_process->setWorkingDirectory(projectDir);
-    m_process->start(cmd, QStringList());
+    m_process->start(cmd, QStringList() << "-j32");
 }
 
 void MainWindow::onReadProcessOutput() {

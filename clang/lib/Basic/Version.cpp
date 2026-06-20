@@ -91,39 +91,11 @@ namespace clang {
 	}
 
 	std::string getClangVendor() {
-#ifdef CLANG_VENDOR
-		return CLANG_VENDOR;
-#else
 		return "";
-#endif
 	}
 
 	std::string getClangFullRepositoryVersion() {
-		std::string buf;
-		llvm::raw_string_ostream OS(buf);
-		std::string Path = getClangRepositoryPath();
-		std::string Revision = getClangRevision();
-		if (!Path.empty() || !Revision.empty()) {
-			OS << '(';
-			if (!Path.empty())
-				OS << Path;
-			if (!Revision.empty()) {
-				if (!Path.empty())
-					OS << ' ';
-				OS << Revision;
-			}
-			OS << ')';
-		}
-		// Support LLVM in a separate repository.
-		std::string LLVMRev = getLLVMRevision();
-		if (!LLVMRev.empty() && LLVMRev != Revision) {
-			OS << " (";
-			std::string LLVMRepo = getLLVMRepositoryPath();
-			if (!LLVMRepo.empty())
-				OS << LLVMRepo << ' ';
-			OS << LLVMRev << ')';
-		}
-		return buf;
+		return "";
 	}
 
 	std::string getClangFullVersion() {
@@ -133,31 +105,12 @@ namespace clang {
 	std::string getClangToolFullVersion(StringRef ToolName) {
 		std::string buf;
 		llvm::raw_string_ostream OS(buf);
-		OS << getClangVendor() << ToolName << " version " CLANG_VERSION_STRING;
-
-		std::string repo = getClangFullRepositoryVersion();
-		if (!repo.empty()) {
-			OS << " " << repo;
-		}
-
 		OS << "\nA-protector\nBy abcdefgjh.\n" << getRandomSignature() << "\n";
-		//OS << "XR 定制版 Production by 小二ˣʳ QQ群：478626908 TG群：@XRWZ666\n崇文尚理，知行合一；山野万里，藏尽温柔与星光。\n";
 		return buf;
 	}
 
 	std::string getClangFullCPPVersion() {
-		// The version string we report in __VERSION__ is just a compacted version of
-		// the one we report on the command line.
-		std::string buf;
-		llvm::raw_string_ostream OS(buf);
-		OS << getClangVendor() << "Clang " CLANG_VERSION_STRING;
-
-		std::string repo = getClangFullRepositoryVersion();
-		if (!repo.empty()) {
-			OS << " " << repo;
-		}
-
-		return buf;
+		return "";
 	}
 
 } // end namespace clang
