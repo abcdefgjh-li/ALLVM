@@ -18,5 +18,4 @@ LOCAL_CFLAGS += -mllvm -irobf -mllvm -irobf-gzcheck
 LOCAL_CPPFLAGS += -mllvm -irobf -mllvm -irobf-gzcheck
 LOCAL_CFLAGS += -firobf-gz
 LOCAL_LDFLAGS += -firobf-gz
-
 include $(BUILD_EXECUTABLE)

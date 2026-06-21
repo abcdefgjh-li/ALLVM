@@ -199,6 +199,51 @@ static bool isKnownStdlibLikeFunctionName(const std::string &funcName) {
     return false;
 }
 
+static bool hasFunctionAnnotationKeyword(Function *F, StringRef keyword) {
+    if (!F || !F->getParent()) {
+        return false;
+    }
+
+    GlobalVariable *glob = F->getParent()->getGlobalVariable("llvm.global.annotations");
+    if (!glob || !glob->hasInitializer()) {
+        return false;
+    }
+
+    auto *ca = dyn_cast<ConstantArray>(glob->getInitializer());
+    if (!ca) {
+        return false;
+    }
+
+    for (unsigned i = 0; i < ca->getNumOperands(); ++i) {
+        auto *cs = dyn_cast<ConstantStruct>(ca->getOperand(i));
+        if (!cs || cs->getNumOperands() < 2) {
+            continue;
+        }
+
+        Value *annotated = cs->getOperand(0)->stripPointerCasts();
+        if (annotated != F) {
+            continue;
+        }
+
+        Value *annotationValue = cs->getOperand(1)->stripPointerCasts();
+        auto *annotationGV = dyn_cast<GlobalVariable>(annotationValue);
+        if (!annotationGV || !annotationGV->hasInitializer()) {
+            continue;
+        }
+
+        auto *annotationData = dyn_cast<ConstantDataSequential>(annotationGV->getInitializer());
+        if (!annotationData || !annotationData->isCString()) {
+            continue;
+        }
+
+        if (annotationData->getAsCString().contains(keyword)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // data and code seg size
 #define VM_CODE_SEG_SIZE 5000
 #define VM_DATA_SEG_SIZE 5000
@@ -903,8 +948,8 @@ void GOVMTranslator::construct_gv() {
     exception_thrown->setSection(".AProtect.data");
 
     // exception_ptr_global (void*)
-    Constant *exc_ptr_init = Constant::getNullValue(Type::getInt64Ty(Mod->getContext()));
-    exception_ptr_global = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
+    Constant *exc_ptr_init = ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0));
+    exception_ptr_global = new GlobalVariable(*Mod, PointerType::get(Mod->getContext(), 0),
         false, GlobalValue::InternalLinkage, exc_ptr_init, "exception_ptr_"+F->getName());
     exception_ptr_global->setSection(".AProtect.data");
 
@@ -1376,6 +1421,97 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     Value *saved_sret_result = nullptr;
     Value *alloc_size = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), data_seg_size);
     bool should_restore_caller_data_seg = false;
+    bool isInvokeCall = isa<InvokeInst>(inst);
+    IRBuilder<> *resultBuilder = &IRBcallFunction;
+    std::unique_ptr<IRBuilder<>> invokeNormalBuilder;
+
+    auto clearExceptionState = [&](IRBuilder<> &B) {
+        B.CreateStore(ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0), exception_thrown);
+        B.CreateStore(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)), exception_ptr_global);
+        B.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), exception_selector_global);
+    };
+
+    auto restoreCallerSnapshot = [&](IRBuilder<> &B) {
+        if (!should_restore_caller_data_seg || !saved_data_seg) {
+            return;
+        }
+        Value *src_restore = B.CreatePointerCast(saved_data_seg, PointerType::get(Mod->getContext(), 0));
+        Value *dest_restore = B.CreatePointerCast(gv_data_seg, PointerType::get(Mod->getContext(), 0));
+        B.CreateCall(memcpy_func, {dest_restore, src_restore, alloc_size,
+                                   ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
+    };
+
+    auto freeCallerSnapshot = [&](IRBuilder<> &B) {
+        if (should_restore_caller_data_seg && saved_data_seg) {
+            B.CreateCall(free_func, {saved_data_seg});
+        }
+    };
+
+    auto emitCallLike = [&](FunctionType *funcType, Value *calleeValue) -> Value * {
+        if (!isInvokeCall) {
+            return IRBcallFunction.CreateCall(funcType, calleeValue, ArrayRef<Value *>(target_func_args));
+        }
+
+        InvokeInst *originalInvoke = cast<InvokeInst>(inst);
+        if (!this->callinst_handler->hasPersonalityFn() && F->hasPersonalityFn()) {
+            this->callinst_handler->setPersonalityFn(cast<Constant>(F->getPersonalityFn()));
+        }
+
+        BasicBlock *normalBB = BasicBlock::Create(
+            Mod->getContext(),
+            "invokeNormal_" + to_string(this->callinst_handler_curr_idx),
+            this->callinst_handler);
+        BasicBlock *unwindBB = BasicBlock::Create(
+            Mod->getContext(),
+            "invokeUnwind_" + to_string(this->callinst_handler_curr_idx),
+            this->callinst_handler);
+
+        Value *invokeResult = IRBcallFunction.CreateInvoke(
+            funcType,
+            calleeValue,
+            normalBB,
+            unwindBB,
+            ArrayRef<Value *>(target_func_args));
+
+        invokeNormalBuilder = std::make_unique<IRBuilder<>>(normalBB);
+        resultBuilder = invokeNormalBuilder.get();
+        clearExceptionState(*resultBuilder);
+
+        IRBuilder<> IRBunwind(unwindBB);
+        LandingPadInst *sourceLandingPad = nullptr;
+        for (Instruction &UI : *originalInvoke->getUnwindDest()) {
+            if (auto *LP = dyn_cast<LandingPadInst>(&UI)) {
+                sourceLandingPad = LP;
+                break;
+            }
+        }
+
+        StructType *landingPadTy = StructType::get(
+            PointerType::get(Mod->getContext(), 0),
+            Type::getInt32Ty(Mod->getContext()));
+        unsigned clauseCount = sourceLandingPad ? sourceLandingPad->getNumClauses() : 0;
+        LandingPadInst *newLandingPad = IRBunwind.CreateLandingPad(landingPadTy, clauseCount);
+        if (sourceLandingPad) {
+            newLandingPad->setCleanup(sourceLandingPad->isCleanup());
+            for (unsigned i = 0; i < sourceLandingPad->getNumClauses(); ++i) {
+                newLandingPad->addClause(sourceLandingPad->getClause(i));
+            }
+        } else {
+            newLandingPad->setCleanup(true);
+        }
+
+        Value *excObj = IRBunwind.CreateExtractValue(newLandingPad, 0);
+        Value *excSel = IRBunwind.CreateExtractValue(newLandingPad, 1);
+
+        restoreCallerSnapshot(IRBunwind);
+        freeCallerSnapshot(IRBunwind);
+
+        IRBunwind.CreateStore(ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 1), exception_thrown);
+        IRBunwind.CreateStore(excObj, exception_ptr_global);
+        IRBunwind.CreateStore(excSel, exception_selector_global);
+        IRBunwind.CreateRetVoid();
+        return invokeResult;
+    };
 
     // errs() << "[handle_callinst] isIndirectCall=" << inst->isIndirectCall() << "\n";
     
@@ -1417,10 +1553,12 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             }
         }
 
-            // 直接用户函数调用会切换到另一套 VM 上下文，必须恢复 caller data_seg。
-            // 但 stdlib / intrinsic / 外部声明函数常常是在当前虚拟地址上做合法内存写入，
-            // 不能在返回后把这些写入整体覆盖掉。
-            should_restore_caller_data_seg = !is_stdlib;
+            // 只有真正会进入另一套 VM 上下文的 VMP callee，才需要恢复 caller data_seg。
+            // 普通本地 helper（如析构/构造/通过指针修改 caller 内存的函数）必须保留写入结果。
+            bool calleeUsesVmWrapper = !is_stdlib &&
+                hasFunctionAnnotationKeyword(callee, "vmp") &&
+                !hasFunctionAnnotationKeyword(callee, "novmp");
+            should_restore_caller_data_seg = calleeUsesVmWrapper;
 
             if (should_restore_caller_data_seg) {
                 saved_data_seg = IRBcallFunction.CreateCall(malloc_func, {alloc_size});
@@ -1433,8 +1571,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             }
             
             if (is_stdlib) {
-                // 标准库函数，直接调用
-                // 不支持异常处理，直接转换为 CallInst
+                // 标准库函数，直接调用；对 InvokeInst 需要保留 unwind 语义
                 if (isIRObfuscationDebugEnabled() &&
                     tracedCallName == "string_ctor_cstr" && target_func_args.size() >= 2) {
                     Value *objPtr = IRBcallFunction.CreatePointerCast(target_func_args[0], PointerType::get(Mod->getContext(), 0));
@@ -1444,25 +1581,22 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
                     Value *preFmt = IRBcallFunction.CreateGlobalString("[VMP_CTOR_PRE] this=%p cstr=%p first=%d\n");
                     IRBcallFunction.CreateCall(printf_func, {preFmt, objPtr, cstrPtr, firstCharInt});
                 }
-                resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
-                            ArrayRef<Value *>(target_func_args));
+                resultValue = emitCallLike(callee->getFunctionType(), callee);
                 if (isIRObfuscationDebugEnabled() &&
                     tracedCallName == "string_ctor_cstr" && target_func_args.size() >= 1) {
-                    Value *objPtr = IRBcallFunction.CreatePointerCast(target_func_args[0], PointerType::get(Mod->getContext(), 0));
-                    Value *word0 = IRBcallFunction.CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr);
-                    Value *objPtr8 = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), objPtr, 8);
-                    Value *word1 = IRBcallFunction.CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr8);
-                    Value *objPtr16 = IRBcallFunction.CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), objPtr, 16);
-                    Value *word2 = IRBcallFunction.CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr16);
-                    Value *postFmt = IRBcallFunction.CreateGlobalString("[VMP_CTOR_POST] this=%p w0=%llx w1=%llx w2=%llx\n");
-                    IRBcallFunction.CreateCall(printf_func, {postFmt, objPtr, word0, word1, word2});
+                    Value *objPtr = resultBuilder->CreatePointerCast(target_func_args[0], PointerType::get(Mod->getContext(), 0));
+                    Value *word0 = resultBuilder->CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr);
+                    Value *objPtr8 = resultBuilder->CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), objPtr, 8);
+                    Value *word1 = resultBuilder->CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr8);
+                    Value *objPtr16 = resultBuilder->CreateConstGEP1_64(Type::getInt8Ty(Mod->getContext()), objPtr, 16);
+                    Value *word2 = resultBuilder->CreateLoad(Type::getInt64Ty(Mod->getContext()), objPtr16);
+                    Value *postFmt = resultBuilder->CreateGlobalString("[VMP_CTOR_POST] this=%p w0=%llx w1=%llx w2=%llx\n");
+                    resultBuilder->CreateCall(printf_func, {postFmt, objPtr, word0, word1, word2});
                 }
             } else {
                 // 用户函数，调用wrapper函数（原函数名）
                 // wrapper函数会设置VM环境并调用vm_interpreter
-                // 不支持异常处理，直接转换为 CallInst
-                resultValue = IRBcallFunction.CreateCall(callee->getFunctionType(), callee,
-                            ArrayRef<Value *>(target_func_args));
+                resultValue = emitCallLike(callee->getFunctionType(), callee);
             }
     }
     else {
@@ -1481,8 +1615,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // fallback: use a direct call approach by calling the function directly
             FunctionType *funcType = inst->getFunctionType();
             Value *funcPtr = IRBcallFunction.CreatePointerCast(calledValue, PointerType::get(Mod->getContext(), 0));
-            // 不支持异常处理，直接转换为 CallInst
-            resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
+            resultValue = emitCallLike(funcType, funcPtr);
         } else {
             unsigned called_value_offset = value_map[calledValue];
 
@@ -1501,8 +1634,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // indirect call - need to cast the function pointer
             FunctionType *funcType = inst->getFunctionType();
             Value *funcPtr = IRBcallFunction.CreatePointerCast(value, PointerType::get(Mod->getContext(), 0));
-            // 不支持异常处理，直接转换为 CallInst
-            resultValue = IRBcallFunction.CreateCall(funcType, funcPtr, ArrayRef<Value *>(target_func_args));
+            resultValue = emitCallLike(funcType, funcPtr);
         }
     }
 
@@ -1529,45 +1661,45 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
     // 2. 对于 sret（如按值返回 std::string）先保存返回对象，再恢复调用者 data_seg。
     if (should_restore_caller_data_seg && sret_result_size > 0) {
         Value *sret_alloc_size = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), sret_result_size);
-        saved_sret_result = IRBcallFunction.CreateCall(malloc_func, {sret_alloc_size});
+        saved_sret_result = resultBuilder->CreateCall(malloc_func, {sret_alloc_size});
 
         ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
         Value *sret_offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), sret_result_offset);
-        Value *sret_gep = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, sret_offset_value}, "");
-        Value *sret_src = IRBcallFunction.CreatePointerCast(sret_gep, PointerType::get(Mod->getContext(), 0));
-        Value *sret_dst = IRBcallFunction.CreatePointerCast(saved_sret_result, PointerType::get(Mod->getContext(), 0));
-        IRBcallFunction.CreateCall(memcpy_func, {sret_dst, sret_src, sret_alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
+        Value *sret_gep = resultBuilder->CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, sret_offset_value}, "");
+        Value *sret_src = resultBuilder->CreatePointerCast(sret_gep, PointerType::get(Mod->getContext(), 0));
+        Value *sret_dst = resultBuilder->CreatePointerCast(saved_sret_result, PointerType::get(Mod->getContext(), 0));
+        resultBuilder->CreateCall(memcpy_func, {sret_dst, sret_src, sret_alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
     }
 
     // 3. 完整恢复调用者 data_seg。
     // 返回值已经保存在 saved_result 中，恢复整个快照不会丢失返回值，
     // 但可以避免前缀区域（通常正好是参数/局部变量）被嵌套调用污染。
     if (should_restore_caller_data_seg) {
-        Value *src_restore = IRBcallFunction.CreatePointerCast(saved_data_seg, PointerType::get(Mod->getContext(), 0));
-        Value *dest_restore = IRBcallFunction.CreatePointerCast(gv_data_seg, PointerType::get(Mod->getContext(), 0));
+        Value *src_restore = resultBuilder->CreatePointerCast(saved_data_seg, PointerType::get(Mod->getContext(), 0));
+        Value *dest_restore = resultBuilder->CreatePointerCast(gv_data_seg, PointerType::get(Mod->getContext(), 0));
         if (isIRObfuscationDebugEnabled()) {
             errs() << "[handle_callinst] Restoring full data_seg[0.." << data_seg_size << ")\n";
         }
-        IRBcallFunction.CreateCall(memcpy_func, {dest_restore, src_restore, alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
+        resultBuilder->CreateCall(memcpy_func, {dest_restore, src_restore, alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
     }
     
     // 4. 把 sret 返回对象写回恢复后的 caller data_seg。
     if (should_restore_caller_data_seg && saved_sret_result != nullptr && sret_result_size > 0) {
         ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
         Value *sret_offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), sret_result_offset);
-        Value *sret_gep = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, sret_offset_value}, "");
-        Value *sret_dst = IRBcallFunction.CreatePointerCast(sret_gep, PointerType::get(Mod->getContext(), 0));
-        Value *sret_src = IRBcallFunction.CreatePointerCast(saved_sret_result, PointerType::get(Mod->getContext(), 0));
+        Value *sret_gep = resultBuilder->CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, sret_offset_value}, "");
+        Value *sret_dst = resultBuilder->CreatePointerCast(sret_gep, PointerType::get(Mod->getContext(), 0));
+        Value *sret_src = resultBuilder->CreatePointerCast(saved_sret_result, PointerType::get(Mod->getContext(), 0));
         Value *sret_alloc_size = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), sret_result_size);
-        IRBcallFunction.CreateCall(memcpy_func, {sret_dst, sret_src, sret_alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
+        resultBuilder->CreateCall(memcpy_func, {sret_dst, sret_src, sret_alloc_size, ConstantInt::get(Type::getInt1Ty(Mod->getContext()), 0)});
     }
 
     // 5. 释放堆内存
     if (should_restore_caller_data_seg) {
-        IRBcallFunction.CreateCall(free_func, {saved_data_seg});
+        resultBuilder->CreateCall(free_func, {saved_data_seg});
     }
     if (saved_sret_result != nullptr) {
-        IRBcallFunction.CreateCall(free_func, {saved_sret_result});
+        resultBuilder->CreateCall(free_func, {saved_sret_result});
     }
     
     // 6. 存储返回值到正确位置
@@ -1585,14 +1717,14 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             // 存储到 data_seg[result_offset]
             ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
             Value * offset_value = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), result_value_offset);
-            Value * gepinst = IRBcallFunction.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
-            Value * ptr = IRBcallFunction.CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
-            IRBcallFunction.CreateStore(saved_result, ptr);
+            Value * gepinst = resultBuilder->CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, offset_value}, "");
+            Value * ptr = resultBuilder->CreatePointerCast(gepinst, PointerType::get(Mod->getContext(), 0));
+            resultBuilder->CreateStore(saved_result, ptr);
         }
     }
     
     // Create Return
-    IRBcallFunction.CreateRetVoid();
+    resultBuilder->CreateRetVoid();
     
 
     // compare and jmp
@@ -3224,12 +3356,16 @@ class GOVMModifier {
 
     public:
         GOVMModifier(Function * F, std::map<GlobalVariable *, int> *gv_value_map,
-                     std::map<int, GEPInfo> *gep_info_map,
-                     std::map<int, BlockAddressInfo> *blockaddress_info_map,
+                     std::map<int, GEPInfo> *gep_info_map, std::map<int, BlockAddressInfo> *blockaddress_info_map,
                      std::map<Value *, int> *value_map,
                      GlobalVariable *gv_data_seg, GlobalVariable *gv_code_seg,
-                     GlobalVariable *ip, GlobalVariable *data_seg_addr, GlobalVariable *code_seg_addr,
-                     Function *govm_interpreter, int data_seg_size) {
+                     GlobalVariable *ip, GlobalVariable *data_seg_addr,
+                     GlobalVariable *code_seg_addr,
+                     GlobalVariable *exception_thrown_gv,
+                     GlobalVariable *exception_ptr_gv,
+                     GlobalVariable *exception_selector_gv,
+                     Function *govm_interpreter, Function *resume_unwind_helper,
+                     int data_seg_size) {
             this->Mod = F->getParent();
             this->F = F;
             this->modDataLayout = const_cast<DataLayout *>(&this->Mod->getDataLayout());
@@ -3242,7 +3378,11 @@ class GOVMModifier {
             this->ip = ip;
             this->data_seg_addr = data_seg_addr;
             this->code_seg_addr = code_seg_addr;
+            this->exception_thrown_gv = exception_thrown_gv;
+            this->exception_ptr_gv = exception_ptr_gv;
+            this->exception_selector_gv = exception_selector_gv;
             this->govm_interpreter = govm_interpreter;
+            this->resume_unwind_helper = resume_unwind_helper;
             this->data_seg_size = data_seg_size;
         }
 
@@ -3260,7 +3400,11 @@ class GOVMModifier {
         GlobalVariable *ip;
         GlobalVariable *data_seg_addr;
         GlobalVariable *code_seg_addr;
+        GlobalVariable *exception_thrown_gv;
+        GlobalVariable *exception_ptr_gv;
+        GlobalVariable *exception_selector_gv;
         Function *govm_interpreter;
+        Function *resume_unwind_helper;
         int data_seg_size;
 
 
@@ -3470,11 +3614,24 @@ void GOVMModifier::run() {
 
     // 重置 ip 为 0，确保每次调用都从函数开头执行
     irbuilder.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), ip);
+    irbuilder.CreateStore(ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0), exception_thrown_gv);
+    irbuilder.CreateStore(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)), exception_ptr_gv);
+    irbuilder.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), exception_selector_gv);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMModifier]   Creating call to vm_interpreter...\n";
     }
     irbuilder.CreateCall(govm_interpreter);
+
+    BasicBlock *normalReturnBB = BasicBlock::Create(this->Mod->getContext(), "vm_normal_return", F);
+    BasicBlock *resumeExceptionBB = BasicBlock::Create(this->Mod->getContext(), "vm_resume_exception", F);
+    Value *exceptionThrownFlag = irbuilder.CreateLoad(Type::getInt8Ty(Mod->getContext()), exception_thrown_gv);
+    Value *hasUnhandledException = irbuilder.CreateICmpNE(
+        exceptionThrownFlag,
+        ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0));
+    irbuilder.CreateCondBr(hasUnhandledException, resumeExceptionBB, normalReturnBB);
+
+    IRBuilder<> normalBuilder(normalReturnBB);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMModifier]   Creating return...\n";
@@ -3482,14 +3639,19 @@ void GOVMModifier::run() {
 
     if (!F->getReturnType()->isVoidTy()) {
         ConstantInt *Zero = ConstantInt::get(Type::getInt64Ty(F->getContext()), 0);
-        Value * gepinst = irbuilder.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, Zero}, "");
-        Value * ptr = irbuilder.CreatePointerCast(gepinst, PointerType::get(F->getContext(), 0));
-        Value * retval = irbuilder.CreateLoad(F->getReturnType(), ptr);
-        irbuilder.CreateRet(retval);
+        Value * gepinst = normalBuilder.CreateGEP(gv_data_seg->getValueType(), gv_data_seg, {Zero, Zero}, "");
+        Value * ptr = normalBuilder.CreatePointerCast(gepinst, PointerType::get(F->getContext(), 0));
+        Value * retval = normalBuilder.CreateLoad(F->getReturnType(), ptr);
+        normalBuilder.CreateRet(retval);
     }
     else {
-        irbuilder.CreateRetVoid();
+        normalBuilder.CreateRetVoid();
     }
+
+    IRBuilder<> resumeBuilder(resumeExceptionBB);
+    Value *resumeExceptionPtr = resumeBuilder.CreateLoad(PointerType::get(Mod->getContext(), 0), exception_ptr_gv);
+    resumeBuilder.CreateCall(resume_unwind_helper, {resumeExceptionPtr});
+    resumeBuilder.CreateUnreachable();
 }
 
 
@@ -3511,7 +3673,10 @@ class GOVMInterpreter {
         GOVMInterpreter(Function * F, Function * callinst_handler, 
                         GlobalVariable *gv_data_seg, GlobalVariable *gv_code_seg,
                         GlobalVariable *ip, GlobalVariable *data_seg_addr, 
-                        GlobalVariable *code_seg_addr) {
+                        GlobalVariable *code_seg_addr,
+                        GlobalVariable *exc_thrown_gv,
+                        GlobalVariable *exc_ptr_gv,
+                        GlobalVariable *exc_sel_gv) {
             this->Mod = F->getParent();
             this->F = F;
             this->modDataLayout = const_cast<DataLayout *>(&this->Mod->getDataLayout());
@@ -3521,6 +3686,9 @@ class GOVMInterpreter {
             this->ip = ip;
             this->data_seg_addr = data_seg_addr;
             this->code_seg_addr = code_seg_addr;
+            this->exc_thrown_gv = exc_thrown_gv;
+            this->exc_ptr_gv = exc_ptr_gv;
+            this->exc_sel_gv = exc_sel_gv;
 
             construct_gv();
         }
@@ -3606,6 +3774,7 @@ const std::set<std::string> interpreter_function_names{
 #endif
                                                         "vm_trace_push",
                                                         "vm_dump_fault_context",
+                                                        "vmp_resume_unwind",
                                                         "vm_interpreter",
                                                         "vm_interpreter_callinst_dispatch"      // only for check annotation
 
@@ -3679,23 +3848,9 @@ void GOVMInterpreter::construct_gv() {
                 vm_code_state_initGV, "vm_code_state_"+F->getName());
     vm_code_state->setSection(".AProtect.data");
 
-    // exception_thrown - 添加函数名后缀避免多函数冲突
-    Constant *exc_thrown_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0);
-    exc_thrown_gv = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, exc_thrown_init, "exception_thrown_"+F->getName());
-    exc_thrown_gv->setSection(".AProtect.data");
-
-    // exception_ptr - 添加函数名后缀避免多函数冲突
-    Constant *exc_ptr_init = Constant::getNullValue(PointerType::get(Mod->getContext(), 0));
-    exc_ptr_gv = new GlobalVariable(*Mod, PointerType::get(Mod->getContext(), 0),
-        false, GlobalValue::InternalLinkage, exc_ptr_init, "exception_ptr_"+F->getName());
-    exc_ptr_gv->setSection(".AProtect.data");
-
-    // exception_selector - 添加函数名后缀避免多函数冲突
-    Constant *exc_sel_init = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    exc_sel_gv = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, exc_sel_init, "exception_selector_"+F->getName());
-    exc_sel_gv->setSection(".AProtect.data");
+    assert(exc_thrown_gv && "missing shared exception_thrown global");
+    assert(exc_ptr_gv && "missing shared exception_ptr global");
+    assert(exc_sel_gv && "missing shared exception_selector global");
 
     // last_br_from_bb_id - 添加函数名后缀避免多函数冲突
     Constant *last_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
@@ -4235,6 +4390,7 @@ namespace {
         }
 
     std::set<string> used_passes;
+
     bool toObfuscateFunction(bool global_flag, Function *f, std::string attribute) {
         std::string attr = attribute;
         std::string attrNo = "no" + attr;
@@ -4461,10 +4617,15 @@ struct VMProtect : public ModulePass {
                                                               translator->get_gv_code_seg(),
                                                               translator->get_ip(),
                                                               translator->get_data_seg_addr(),
-                                                              translator->get_code_seg_addr());
+                                                              translator->get_code_seg_addr(),
+                                                              translator->exception_thrown,
+                                                              translator->exception_ptr_global,
+                                                              translator->exception_selector_global);
         interpreter->run();
         
         Function *vm_interpreter_func = F->getParent()->getFunction("vm_interpreter_"+F->getName().str());
+        Function *resume_unwind_helper_func =
+            F->getParent()->getFunction("vmp_resume_unwind_"+F->getName().str());
         
         GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
                                                     translator->get_blockaddress_info_map(),
@@ -4474,7 +4635,11 @@ struct VMProtect : public ModulePass {
                                                     translator->get_ip(),
                                                     translator->get_data_seg_addr(),
                                                     translator->get_code_seg_addr(),
+                                                    translator->exception_thrown,
+                                                    translator->exception_ptr_global,
+                                                    translator->exception_selector_global,
                                                     vm_interpreter_func,
+                                                    resume_unwind_helper_func,
                                                     translator->get_data_seg_size());
         modifier->run();
         
@@ -4606,11 +4771,16 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
                                                           translator->get_gv_code_seg(),
                                                           translator->get_ip(),
                                                           translator->get_data_seg_addr(),
-                                                          translator->get_code_seg_addr());
+                                                          translator->get_code_seg_addr(),
+                                                          translator->exception_thrown,
+                                                          translator->exception_ptr_global,
+                                                          translator->exception_selector_global);
     
     interpreter->run();
     
     Function *vm_interpreter_func = F->getParent()->getFunction("vm_interpreter_"+F->getName().str());
+    Function *resume_unwind_helper_func =
+        F->getParent()->getFunction("vmp_resume_unwind_"+F->getName().str());
     
     GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
                                                 translator->get_blockaddress_info_map(),
@@ -4620,7 +4790,11 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
                                                 translator->get_ip(),
                                                 translator->get_data_seg_addr(),
                                                 translator->get_code_seg_addr(),
+                                                translator->exception_thrown,
+                                                translator->exception_ptr_global,
+                                                translator->exception_selector_global,
                                                 vm_interpreter_func,
+                                                resume_unwind_helper_func,
                                                 translator->get_data_seg_size());
     
     modifier->run();

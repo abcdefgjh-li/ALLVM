@@ -13,6 +13,13 @@
 #include <stdlib.h>
 #include "aVMPInterpreter.h"
 
+extern void _Unwind_Resume(void *exc) __attribute__((noreturn));
+
+__attribute__((noreturn)) void vmp_resume_unwind(void *exc) {
+	_Unwind_Resume(exc);
+	__builtin_unreachable();
+}
+
 // C++ RTTI 类型信息结构（简化版，基于 Itanium C++ ABI）
 // 参考：https://itanium-cxx-abi.github.io/cxx-abi/abi.html#rtti
 
@@ -360,6 +367,13 @@ static int caught_exception_selector = 0;
 static std::exception_ptr current_exception_ptr;
 #endif
 
+#define EH_TRACE(fmt, ...) do { \
+	if (vmp_debug_enabled) { \
+		printf(fmt, ##__VA_ARGS__); \
+		fflush(NULL); \
+	} \
+} while (0)
+
 // C++ 异常捕获包装函数
 #ifdef __cplusplus
 extern "C" {
@@ -368,11 +382,35 @@ extern "C" {
 // 包装 call_handler 以捕获 C++ 异常
 void call_handler_with_exception_handling(uint64_t targetfunc_id) {
 #ifdef __cplusplus
+	EH_TRACE("[EH_CALL] enter funcid=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+	         (unsigned long long)targetfunc_id,
+	         (unsigned)exception_thrown,
+	         exception_ptr,
+	         exception_selector,
+	         caught_exception_ptr,
+	         caught_exception_selector,
+	         ip);
 	try {
 		call_handler(targetfunc_id);
+		EH_TRACE("[EH_CALL] return funcid=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+		         (unsigned long long)targetfunc_id,
+		         (unsigned)exception_thrown,
+		         exception_ptr,
+		         exception_selector,
+		         caught_exception_ptr,
+		         caught_exception_selector,
+		         ip);
 	} catch (...) {
 		// 捕获所有异常
 		current_exception_ptr = std::current_exception();
+		EH_TRACE("[EH_CALL] catch-all funcid=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+		         (unsigned long long)targetfunc_id,
+		         (unsigned)exception_thrown,
+		         exception_ptr,
+		         exception_selector,
+		         caught_exception_ptr,
+		         caught_exception_selector,
+		         ip);
 
 		try {
 			std::rethrow_exception(current_exception_ptr);
@@ -381,6 +419,15 @@ void call_handler_with_exception_handling(uint64_t targetfunc_id) {
 			caught_exception_ptr = (void*)&e;
 			caught_exception_selector = 1;
 			exception_thrown = 1;
+			EH_TRACE("[EH_CALL] std-exception funcid=%llu what=%s exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+			         (unsigned long long)targetfunc_id,
+			         e.what(),
+			         (unsigned)exception_thrown,
+			         exception_ptr,
+			         exception_selector,
+			         caught_exception_ptr,
+			         caught_exception_selector,
+			         ip);
 
 #ifdef GOVM_CPP_DEBUG
 			printf("[CALL_HANDLER] Caught std::exception: %s\n", e.what());
@@ -391,6 +438,14 @@ void call_handler_with_exception_handling(uint64_t targetfunc_id) {
 			caught_exception_ptr = (void*)0x1;
 			caught_exception_selector = 2;
 			exception_thrown = 1;
+			EH_TRACE("[EH_CALL] unknown-exception funcid=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+			         (unsigned long long)targetfunc_id,
+			         (unsigned)exception_thrown,
+			         exception_ptr,
+			         exception_selector,
+			         caught_exception_ptr,
+			         caught_exception_selector,
+			         ip);
 
 #ifdef GOVM_CPP_DEBUG
 			printf("[CALL_HANDLER] Caught unknown exception\n");
@@ -1759,6 +1814,15 @@ void landingpad_handler() {
 	// 使用捕获的异常对象（如果有）
 	void* exc_ptr = caught_exception_ptr;
 	int exc_selector = caught_exception_selector;
+	EH_TRACE("[EH_LPAD] begin res_offset=%llu clauses=%u exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+	         (unsigned long long)res_offset,
+	         num_clauses,
+	         (unsigned)exception_thrown,
+	         exception_ptr,
+	         exception_selector,
+	         caught_exception_ptr,
+	         caught_exception_selector,
+	         ip);
 
 	// 如果没有捕获的异常，使用全局异常变量
 	if (exc_ptr == NULL && exception_thrown) {
@@ -1817,6 +1881,15 @@ void landingpad_handler() {
 	exception_thrown = 0;
 	caught_exception_ptr = NULL;
 	caught_exception_selector = 0;
+	EH_TRACE("[EH_LPAD] end stored_ptr=%p stored_selector=%d exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+	         exc_ptr,
+	         exc_selector,
+	         (unsigned)exception_thrown,
+	         exception_ptr,
+	         exception_selector,
+	         caught_exception_ptr,
+	         caught_exception_selector,
+	         ip);
 
 #ifdef GOVM_CPP_DEBUG
 	printf("[LANDINGPAD] Exception caught, ptr=%p, selector=%d\n", exc_ptr, exc_selector);
@@ -1828,23 +1901,39 @@ void landingpad_handler() {
 	__inline__ __attribute__((always_inline))
 #endif
 void resume_handler() {
-	// 获取异常对象
+	// 获取异常聚合值 {ptr, selector}
 	uint8_t exc_size = get_byte_code();
 	uint8_t exc_type = get_byte_code();
 	uint64_t exc_value = 0;
+	uint32_t exc_selector_value = exception_selector;
 
 	if (exc_type == 0) {
 		// 变量
 		uint64_t exc_offset = unpack_code(pointer_size);
 		exc_value = unpack_data(exc_offset, exc_size);
+		if (exc_size >= pointer_size + 4) {
+			exc_selector_value = (uint32_t)unpack_data(exc_offset + pointer_size, 4);
+		}
 	} else {
 		// 常量
 		exc_value = unpack_code(exc_size);
+		if (exc_size >= pointer_size + 4) {
+			exc_selector_value = (uint32_t)unpack_code(4);
+		}
 	}
 
 	// 重新抛出异常
 	exception_thrown = 1;
 	exception_ptr = (void*)(uintptr_t)exc_value;
+	exception_selector = (int)exc_selector_value;
+	EH_TRACE("[EH_RESUME] exc_value=0x%llx exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+	         (unsigned long long)exc_value,
+	         (unsigned)exception_thrown,
+	         exception_ptr,
+	         exception_selector,
+	         caught_exception_ptr,
+	         caught_exception_selector,
+	         ip);
 
 #ifdef GOVM_CPP_DEBUG
 	printf("[RESUME] Re-throwing exception, ptr=%p\n", exception_ptr);
@@ -1993,6 +2082,14 @@ void catchswitch_handler() {
 
 	// 如果没有异常抛出，跳转到unwind目标
 	if (!exception_thrown) {
+		EH_TRACE("[EH_CSW] no-exception handlers=%u unwind=%llu exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+		         num_handlers,
+		         (unsigned long long)unwind_target,
+		         exception_ptr,
+		         exception_selector,
+		         caught_exception_ptr,
+		         caught_exception_selector,
+		         ip);
 		if (unwind_target != 0) {
 			ip = (uint32_t)unwind_target;
 		}
@@ -2003,6 +2100,15 @@ void catchswitch_handler() {
 	// 在C++ ABI中，异常对象包含类型信息
 	// exception_selector通常包含类型信息的索引或指针
 	uint64_t exception_type_info = (uint64_t)exception_selector;
+	EH_TRACE("[EH_CSW] begin handlers=%u unwind=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u\n",
+	         num_handlers,
+	         (unsigned long long)unwind_target,
+	         (unsigned)exception_thrown,
+	         exception_ptr,
+	         exception_selector,
+	         caught_exception_ptr,
+	         caught_exception_selector,
+	         ip);
 
 #ifdef GOVM_CPP_DEBUG
 	printf("[CATCHSWITCH] Exception type_info=0x%lx, exception_ptr=%p\n",
@@ -2048,6 +2154,12 @@ void catchswitch_handler() {
 			}
 
 			// 跳转到匹配的handler
+			EH_TRACE("[EH_CSW] matched target=%llu adjusted_ptr=%p exception_ptr=%p selector=%d ip=%u\n",
+			         (unsigned long long)handler_target,
+			         adjusted_ptr,
+			         exception_ptr,
+			         exception_selector,
+			         ip);
 			ip = (uint32_t)handler_target;
 			return;
 		}
@@ -2261,14 +2373,47 @@ void vm_interpreter() {
 				uint32_t saved_vmcode_state = vm_code_state;
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 0, (uint8_t)exception_thrown,
 				             packed_funcid, (uint64_t)saved_ip, offset, (uint64_t)caught_exception_selector);
+				EH_TRACE("[EH_VM_CALL] before funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%08x vm_state=0x%08x\n",
+				         (unsigned long long)packed_funcid,
+				         (unsigned)saved_ip,
+				         (unsigned long long)offset,
+				         (unsigned)exception_thrown,
+				         exception_ptr,
+				         exception_selector,
+				         caught_exception_ptr,
+				         caught_exception_selector,
+				         saved_opcode_state,
+				         saved_vmcode_state);
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 1, (uint8_t)exception_thrown,
 				             packed_funcid, (uint64_t)saved_ip, offset, (uint64_t)caught_exception_selector);
+				EH_TRACE("[EH_VM_CALL] after funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u opcode_state=0x%08x vm_state=0x%08x\n",
+				         (unsigned long long)packed_funcid,
+				         (unsigned)saved_ip,
+				         (unsigned long long)offset,
+				         (unsigned)exception_thrown,
+				         exception_ptr,
+				         exception_selector,
+				         caught_exception_ptr,
+				         caught_exception_selector,
+				         ip,
+				         opcode_xorshift32_state,
+				         vm_code_state);
 				// 恢复所有状态，确保返回后能正确解密后续操作码
 				ip = saved_ip;
 				opcode_xorshift32_state = saved_opcode_state;
 				vm_code_state = saved_vmcode_state;
+				EH_TRACE("[EH_VM_CALL] restored funcid=%llu restore_ip=%u exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%08x vm_state=0x%08x\n",
+				         (unsigned long long)packed_funcid,
+				         (unsigned)ip,
+				         (unsigned)exception_thrown,
+				         exception_ptr,
+				         exception_selector,
+				         caught_exception_ptr,
+				         caught_exception_selector,
+				         opcode_xorshift32_state,
+				         vm_code_state);
 			}
 			break;
 
