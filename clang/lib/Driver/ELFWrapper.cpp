@@ -23,6 +23,7 @@
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -506,9 +507,12 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   uint8_t key[32], nonce[12];
   generate_random_key(key, nonce);
 
-  // 从 clang 同目录的 .linker_env_key 文件读取密钥（由 EnvCheck Pass 生成）
+  // 从 clang 同目录的 .linker_env_key[.<tag>] 文件读取密钥（由 EnvCheck Pass 生成）
   SmallString<256> linkerKeyPath;
-  sys::path::append(linkerKeyPath, clangDir, ".linker_env_key");
+  std::string linkerKeyFileName = ".linker_env_key";
+  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+    linkerKeyFileName += "." + *keyTag;
+  sys::path::append(linkerKeyPath, clangDir, linkerKeyFileName);
   std::string linkerKeyPathStr = std::string(linkerKeyPath.str());
   std::string env_key(32, '\0');
   {
@@ -793,9 +797,12 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
     }
   }
 
-  // 从 clang 同目录的 .gz_env_key 文件读取密钥（由 GzEnvCheck Pass 生成）
+  // 从 clang 同目录的 .gz_env_key[.<tag>] 文件读取密钥（由 GzEnvCheck Pass 生成）
   SmallString<256> gzKeyPath;
-  sys::path::append(gzKeyPath, clangDir, ".gz_env_key");
+  std::string gzKeyFileName = ".gz_env_key";
+  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+    gzKeyFileName += "." + *keyTag;
+  sys::path::append(gzKeyPath, clangDir, gzKeyFileName);
   std::string gzKeyPathStr = std::string(gzKeyPath.str());
   std::string gz_env_key(32, '\0');
   {

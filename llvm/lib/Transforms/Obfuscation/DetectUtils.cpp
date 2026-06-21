@@ -28,6 +28,27 @@ Constant* DetectUtils::createGlobalString(Module &M, const std::string &str, con
     return ConstantExpr::getBitCast(StrGV, PointerType::get(Ctx, 0));
 }
 
+static void createStderrWrite(Module &M, IRBuilder<> &Builder,
+                              const std::string &message,
+                              const std::string &globalName) {
+    LLVMContext &Ctx = M.getContext();
+    Type *Int32Ty = Type::getInt32Ty(Ctx);
+    Type *Int64Ty = Type::getInt64Ty(Ctx);
+    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
+
+    FunctionCallee WriteFunc = M.getOrInsertFunction(
+        "write",
+        FunctionType::get(Int64Ty, {Int32Ty, CharPtrTy, Int64Ty}, false)
+    );
+
+    Constant *MsgPtr = DetectUtils::createGlobalString(M, message, globalName);
+    Builder.CreateCall(WriteFunc, {
+        ConstantInt::get(Int32Ty, 2),
+        MsgPtr,
+        ConstantInt::get(Int64Ty, message.size())
+    });
+}
+
 Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &detectName) {
     LLVMContext &Ctx = M.getContext();
     
@@ -49,6 +70,13 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
+
+    createStderrWrite(
+        M,
+        Builder,
+        "[AProtect] " + detectName + " detected, exiting.\n",
+        ".detect.report.release"
+    );
     
     // 声明外部函数
     FunctionCallee PrintfFunc = M.getOrInsertFunction(
@@ -929,6 +957,12 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
 
     // getenv 返回 NULL → 环境变量不存在 → kill
     Builder.SetInsertPoint(GetEnvFailBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[EnvCheck] lc is missing, expected linker wrapper.\n",
+        ".env.missing"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -968,6 +1002,12 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
 
     // 不匹配 → kill
     Builder.SetInsertPoint(MismatchBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[EnvCheck] lc mismatch, expected linker wrapper value.\n",
+        ".env.mismatch"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1069,6 +1109,12 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
 
     // getenv 返回 NULL → 环境变量不存在 → kill
     Builder.SetInsertPoint(GetEnvFailBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[GzEnvCheck] lc_gz is missing, expected gz wrapper.\n",
+        ".gz.env.missing"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1103,6 +1149,12 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
 
     // 不匹配 → kill
     Builder.SetInsertPoint(MismatchBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[GzEnvCheck] lc_gz mismatch, expected gz wrapper value.\n",
+        ".gz.env.mismatch"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 

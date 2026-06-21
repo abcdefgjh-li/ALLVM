@@ -56,6 +56,7 @@
 #include "llvm/TargetParser/RISCVISAInfo.h"
 #include "llvm/TargetParser/RISCVTargetParser.h"
 #include <cctype>
+#include <cstdlib>
 
 using namespace clang::driver;
 using namespace clang::driver::tools;
@@ -8004,6 +8005,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_firobf_gz)) {
     CmdArgs.push_back("-mllvm");
     CmdArgs.push_back("-irobf-gzcheck");
+  }
+  if (Args.hasArg(options::OPT_firobf_linker) ||
+      Args.hasArg(options::OPT_firobf_gz)) {
+    std::string keyTag = std::to_string(llvm::sys::Process::getProcessId());
+#ifdef _WIN32
+    _putenv_s("IROBF_KEY_TAG", keyTag.c_str());
+#else
+    setenv("IROBF_KEY_TAG", keyTag.c_str(), 1);
+#endif
   }
 
   addDashXForInput(Args, Input, CmdArgs);
