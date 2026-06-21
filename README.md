@@ -56,6 +56,7 @@
 | 参数 | 说明 |
 |------|------|
 | `-mllvm -irobf-vmp` | 启用 VMP 虚拟机保护 |
+| `-mllvm -irobf-vm_functions=func1;func2` | 按函数名指定需要虚拟化的函数，多个函数用 `;` 分隔 |
 
 > **重要依赖**: 必须同时开启 `-fno-exceptions -frtti`（UI会自动注入）
 
@@ -81,6 +82,21 @@ int VMP_PROTECT main(int argc, char **argv) {
 ```
 
 > **特性**: 支持多函数虚拟化，VMP保护的函数可以相互调用。每个函数拥有独立的虚拟机实例和全局变量，互不干扰。
+
+**按函数名指定虚拟化**: 如果不想依赖注解，也可以直接通过编译参数指定函数名：
+
+```bash
+-mllvm -irobf-vmp -mllvm -irobf-vmp-noinline -mllvm -irobf-vm_functions=main
+```
+
+Android NDK `Android.mk` 示例：
+
+```make
+LOCAL_CFLAGS += -mllvm -irobf-vmp -mllvm -irobf-vmp-noinline -mllvm -irobf-vm_functions=main
+LOCAL_CPPFLAGS += -mllvm -irobf-vmp -mllvm -irobf-vmp-noinline -mllvm -irobf-vm_functions=main
+```
+
+> **说明**: 这个用法适合只对 `main` 或少量关键函数开启 VMP；如果要指定多个函数，可以写成 `-mllvm -irobf-vm_functions=main;foo;bar`。
 
 ### 反调试/完整性检测
 
@@ -248,6 +264,8 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 
 # === VMP 虚拟机保护 ===
 # LOCAL_CFLAGS += -mllvm -irobf-vmp
+# LOCAL_CFLAGS += -mllvm -irobf-vmp -mllvm -irobf-vmp-noinline -mllvm -irobf-vm_functions=main
+# LOCAL_CPPFLAGS += -mllvm -irobf-vmp -mllvm -irobf-vmp-noinline -mllvm -irobf-vm_functions=main
 # LOCAL_CFLAGS += -frtti -fno-exceptions
 
 # === ELF 加壳 (仅可执行文件) ===

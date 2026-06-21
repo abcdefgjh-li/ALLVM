@@ -4447,6 +4447,9 @@ struct VMProtect : public ModulePass {
         if(toObfuscateFunction(this->flag,F,"vmp"))
         {
           if(F->isVarArg()) {
+            errs() << "[VMP Warning] Function '" << F->getName()
+                   << "' is variadic, which is not supported by VMP.\n";
+            errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
             continue;
           }
           // VMP 函数使用 OptimizeNone 防止优化
@@ -4674,6 +4677,9 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
     if(toObfuscateFunction(this->flag,F,"vmp"))
     {
       if(F->isVarArg()) {
+        errs() << "[VMP Warning] Function '" << F->getName()
+               << "' is variadic, which is not supported by VMP.\n";
+        errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
         continue;
       }
       // VMP 函数使用 OptimizeNone 防止优化

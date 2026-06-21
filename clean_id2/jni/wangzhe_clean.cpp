@@ -15,21 +15,29 @@
 
 #define AY_OBFUSCATE(str) str
 
+
+__attribute__((annotate("vmp")))
 void print_info(const std::string& msg) {
 	std::string prefix(AY_OBFUSCATE("[-] "));
 	std::cout << prefix << msg << std::endl;
 }
 
+
+__attribute__((annotate("vmp")))
 void print_success(const std::string& msg) {
 	std::string prefix(AY_OBFUSCATE("[-] "));
 	std::cout << prefix << msg << std::endl;
 }
 
+
+__attribute__((annotate("vmp")))
 void print_error(const std::string& msg) {
 	std::string prefix(AY_OBFUSCATE("[!] "));
 	std::cout << prefix << msg << std::endl;
 }
 
+
+__attribute__((annotate("vmp")))
 void remove_directory_contents(const std::string& path) {
 	DIR* dir = opendir(path.c_str());
 	if (dir == nullptr) {
@@ -71,6 +79,8 @@ void remove_directory_contents(const std::string& path) {
 	print_success(msg);
 }
 
+
+__attribute__((annotate("vmp")))
 void remove_directory(const std::string& path) {
 	struct stat st;
 	if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
@@ -83,6 +93,8 @@ void remove_directory(const std::string& path) {
 	}
 }
 
+
+__attribute__((annotate("vmp")))
 void clean_wangzhe(const std::string& package_name) {
 	std::string prefix1(AY_OBFUSCATE("/data/data/"));
 	std::string SGAME_DIR = prefix1 + package_name;

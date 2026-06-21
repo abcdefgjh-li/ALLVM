@@ -14,8 +14,6 @@ LOCAL_CFLAGS := -w
 LOCAL_CPPFLAGS := -std=c++17 -w -frtti
 LOCAL_LDLIBS := -llog -lz -pthread -lc
 
-LOCAL_CFLAGS += -mllvm -irobf -mllvm -irobf-gzcheck
-LOCAL_CPPFLAGS += -mllvm -irobf -mllvm -irobf-gzcheck
-LOCAL_CFLAGS += -firobf-gz
-LOCAL_LDFLAGS += -firobf-gz
+LOCAL_CFLAGS +=-mllvm -irobf -mllvm -irobf-fla -mllvm -irobf-vmp -mllvm -irobf-cse
+LOCAL_CPPFLAGS +=-mllvm -irobf -mllvm -irobf-fla -mllvm -irobf-vmp -mllvm -irobf-cse 
 include $(BUILD_EXECUTABLE)
