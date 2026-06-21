@@ -72,6 +72,12 @@ namespace {
 		bool flatten(Function *f, const ObfOpt &opt);
 		GlobalVariable *getOrCreateCallerSeedTLS(Module &M, Type *IntTy);
 		bool instrumentCallerSeedStores(Function &F, Type *IntTy);
+		unsigned getFlatteningLevel(const ObfOpt &opt);
+		unsigned pickAliasCount(unsigned Level);
+		unsigned getDispatchBucketCount(unsigned Level);
+		unsigned getLandingGateCount(unsigned Level);
+		unsigned getJunkRoundCount(unsigned Level);
+		Value *emitJunkMath(IRBuilder<> &IRB, Type *IntTy, Value *Seed, unsigned Rounds);
 	};
 }
 
@@ -185,6 +191,51 @@ bool Flattening::instrumentCallerSeedStores(Function &F, Type *IntTy) {
 	return Changed;
 }
 
+unsigned Flattening::getFlatteningLevel(const ObfOpt &opt) {
+	return std::max(1u, std::min(3u, opt.level() ? opt.level() : 1u));
+}
+
+unsigned Flattening::pickAliasCount(unsigned Level) {
+	const unsigned Base = 2 + Level * 2;
+	return Base + static_cast<unsigned>(RandomEngine.get_uint64_t() & 1ULL);
+}
+
+unsigned Flattening::getDispatchBucketCount(unsigned Level) {
+	return 1u << (std::min(3u, Level) + 1u);
+}
+
+unsigned Flattening::getLandingGateCount(unsigned Level) {
+	return std::max(1u, std::min(3u, Level));
+}
+
+unsigned Flattening::getJunkRoundCount(unsigned Level) {
+	return 2u + Level * 2u;
+}
+
+Value *Flattening::emitJunkMath(IRBuilder<> &IRB, Type *IntTy, Value *Seed,
+                                unsigned Rounds) {
+	auto *IntegerTy = cast<IntegerType>(IntTy);
+	const unsigned BitWidth = IntegerTy->getBitWidth();
+	Value *Acc = Seed;
+	for (unsigned Round = 0; Round < std::max(1u, Rounds); ++Round) {
+		auto *AddC = ConstantInt::get(IntTy, RandomEngine.get_uint64_t() | 1ULL);
+		auto *XorC = ConstantInt::get(IntTy, RandomEngine.get_uint64_t());
+		auto *MulC = ConstantInt::get(IntTy, RandomEngine.get_uint64_t() | 1ULL);
+		Acc = IRB.CreateAdd(Acc, AddC, "flaJunkAdd");
+		Acc = IRB.CreateXor(Acc, XorC, "flaJunkXor");
+		if ((Round & 1U) == 0) {
+			Acc = IRB.CreateMul(Acc, MulC, "flaJunkMul");
+			continue;
+		}
+		const unsigned ShiftValue = BitWidth > 1 ? ((Round % (BitWidth - 1)) + 1) : 0;
+		auto *Shift = ConstantInt::get(IntegerTy, ShiftValue);
+		auto *Shl = IRB.CreateShl(Acc, Shift, "flaJunkShl");
+		auto *Lshr = IRB.CreateLShr(Acc, Shift, "flaJunkLshr");
+		Acc = IRB.CreateOr(Shl, Lshr, "flaJunkFold");
+	}
+	return Acc;
+}
+
 /**
  * @brief 对单个函数执行控制流扁平化
  * @param F 要处理的函数
@@ -241,6 +292,11 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 
 	auto &Ctx = f->getContext();
 	auto  intType = Type::getInt32Ty(Ctx);
+	const unsigned FlatteningLevel = getFlatteningLevel(opt);
+	const unsigned AliasCount = pickAliasCount(FlatteningLevel);
+	const unsigned DispatchBucketCount = getDispatchBucketCount(FlatteningLevel);
+	const unsigned LandingGateCount = getLandingGateCount(FlatteningLevel);
+	const unsigned JunkRoundCount = getJunkRoundCount(FlatteningLevel);
 
 	if (pointerSize == 8) {
 		intType = Type::getInt64Ty(Ctx);
@@ -311,8 +367,12 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 	auto *callerSeed = IRB.CreateLoad(intType, callerSeedTLS, "callerSeed");
 	auto *callerAliasSeed = IRB.CreateXor(
 	    callerSeed, ConstantInt::get(intType, RandomEngine.get_uint64_t()), "callerAliasSeed");
+	const auto  switchNoiseVar = IRB.CreateAlloca(intType, nullptr, "switchNoise");
+	auto *switchNoiseInit = IRB.CreateXor(
+	    callerSeed, ConstantInt::get(intType, RandomEngine.get_uint64_t()), "switchNoiseInit");
 	IRB.CreateStore(callerSeed, switchCallerSeedVar, true);
 	IRB.CreateStore(callerAliasSeed, switchCallerAliasSeedVar, true);
+	IRB.CreateStore(switchNoiseInit, switchNoiseVar, true);
 
 	SmallVector<ConstantInt *, 32> knownCaseValues;
 	auto hasKnownCase = [&](ConstantInt *Candidate) {
@@ -371,8 +431,7 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 			dispatchStates.emplace_back(Primary, BB);
 		}
 
-		const unsigned aliasCount = 2 + static_cast<unsigned>(RandomEngine.get_uint64_t() & 1ULL);
-		while (Aliases.size() < aliasCount) {
+		while (Aliases.size() < AliasCount) {
 			auto *Alias = createRandomUniqueCase();
 			if (!Alias) {
 				break;
@@ -431,6 +490,25 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 	auto swDefault = BasicBlock::Create(f->getContext(), "switchDefault", f,
 	                                    bbLoopEnd);
 	BranchInst::Create(bbLoopEnd, swDefault);
+	auto *deadLoopEntry = BasicBlock::Create(f->getContext(), "dispatchDeadEntry", f,
+	                                         bbLoopEnd);
+	auto *deadLoopLatch = BasicBlock::Create(f->getContext(), "dispatchDeadLoop", f,
+	                                         bbLoopEnd);
+	IRBuilder<> DeadEntryIRB(deadLoopEntry);
+	Value *DeadEntrySeed = DeadEntryIRB.CreateLoad(intType, switchNoiseVar, true, "deadEntrySeed");
+	DeadEntrySeed = emitJunkMath(DeadEntryIRB, intType, DeadEntrySeed,
+	                             JunkRoundCount + FlatteningLevel);
+	DeadEntryIRB.CreateStore(DeadEntrySeed, switchNoiseVar, true);
+	DeadEntryIRB.CreateBr(deadLoopLatch);
+	IRBuilder<> DeadLoopIRB(deadLoopLatch);
+	Value *DeadLoopSeed = DeadLoopIRB.CreateLoad(intType, switchNoiseVar, true, "deadLoopSeed");
+	DeadLoopSeed = emitJunkMath(DeadLoopIRB, intType, DeadLoopSeed,
+	                            JunkRoundCount + FlatteningLevel + 2);
+	DeadLoopIRB.CreateStore(DeadLoopSeed, switchNoiseVar, true);
+	auto *DeadLoopL = DeadLoopIRB.CreateLoad(intType, switchNoiseVar, true, "deadLoopL");
+	auto *DeadLoopR = DeadLoopIRB.CreateLoad(intType, switchNoiseVar, true, "deadLoopR");
+	auto *DeadLoopCond = DeadLoopIRB.CreateICmpEQ(DeadLoopL, DeadLoopR, "deadLoopCond");
+	DeadLoopIRB.CreateCondBr(DeadLoopCond, deadLoopLatch, deadLoopEntry);
 
 	IRB.SetInsertPoint(bbDispatchAlias);
 	auto switchVarLoad = IRB.CreateLoad(intType, switchVar, "switchVar");
@@ -465,7 +543,6 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 		       << " dispatchStates=" << dispatchStates.size() << "\n";
 	}
 	// #endregion
-	constexpr unsigned DispatchBucketCount = 4;
 	ConstantInt *dispatchBucketSalt = cast<ConstantInt>(
 	                                     ConstantInt::get(intType, RandomEngine.get_uint64_t()));
 	auto dispatchBucket = IRB.CreateAnd(IRB.CreateXor(switchCondition, dispatchBucketSalt),
@@ -474,7 +551,8 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 	auto bucketSwitch = SwitchInst::Create(dispatchBucket, swDefault, DispatchBucketCount,
 	                                       bbDispatchAlias);
 
-	std::array<SmallVector<std::pair<ConstantInt *, BasicBlock *>, 8>, DispatchBucketCount> bucketStates;
+	SmallVector<SmallVector<std::pair<ConstantInt *, BasicBlock *>, 8>, 16> bucketStates;
+	bucketStates.resize(DispatchBucketCount);
 	DenseMap<ConstantInt *, BasicBlock *> caseLandingBlocks;
 	unsigned landingIndex = 0;
 	for (const auto &DispatchState : dispatchStates) {
@@ -484,13 +562,34 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 		                                     "dispatchState" + Twine(landingIndex++),
 		                                     f,
 		                                     bbLoopEnd);
-		IRBuilder<> LandingIRB(LandingBB);
-		auto *StateNoise = LandingIRB.CreateXor(
-		    CaseValue,
-		    ConstantInt::get(intType, RandomEngine.get_uint64_t()),
-		    "stateNoise");
-		(void)StateNoise;
-		LandingIRB.CreateBr(TargetBB);
+		BasicBlock *CurrentGateBB = LandingBB;
+		for (unsigned GateIndex = 0; GateIndex < LandingGateCount; ++GateIndex) {
+			IRBuilder<> GateIRB(CurrentGateBB);
+			Value *GateSeed = GateIRB.CreateLoad(intType, switchNoiseVar, true, "gateSeed");
+			GateSeed = GateIRB.CreateXor(
+			    GateSeed, ConstantInt::get(intType, RandomEngine.get_uint64_t()), "gateMask");
+			GateSeed = GateIRB.CreateXor(GateSeed, CaseValue, "caseNoiseSeed");
+			auto *StateNoise = emitJunkMath(GateIRB, intType, GateSeed,
+			                                JunkRoundCount + GateIndex);
+			GateIRB.CreateStore(StateNoise, switchNoiseVar, true);
+
+			BasicBlock *NextGateBB = nullptr;
+			if (GateIndex + 1 == LandingGateCount) {
+				NextGateBB = TargetBB;
+			} else {
+				NextGateBB = BasicBlock::Create(
+				    f->getContext(),
+				    "dispatchGate" + Twine(landingIndex) + "_" + Twine(GateIndex),
+				    f,
+				    bbLoopEnd);
+			}
+
+			auto *DeadGateL = GateIRB.CreateLoad(intType, switchNoiseVar, true, "deadGateL");
+			auto *DeadGateR = GateIRB.CreateLoad(intType, switchNoiseVar, true, "deadGateR");
+			auto *DeadGate = GateIRB.CreateICmpNE(DeadGateL, DeadGateR, "deadGate");
+			GateIRB.CreateCondBr(DeadGate, deadLoopEntry, NextGateBB);
+			CurrentGateBB = NextGateBB;
+		}
 		caseLandingBlocks[CaseValue] = LandingBB;
 
 		const auto BucketIndex = static_cast<size_t>(
@@ -499,7 +598,8 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 		bucketStates[BucketIndex].push_back(DispatchState);
 	}
 
-	std::array<BasicBlock *, DispatchBucketCount> bucketBlocks{};
+	SmallVector<BasicBlock *, 16> bucketBlocks;
+	bucketBlocks.resize(DispatchBucketCount);
 	for (unsigned BucketIndex = 0; BucketIndex < DispatchBucketCount; ++BucketIndex) {
 		bucketBlocks[BucketIndex] = BasicBlock::Create(
 		    f->getContext(), "dispatchBucket" + Twine(BucketIndex), f, swDefault);
@@ -517,7 +617,8 @@ bool Flattening::flatten(Function *f, const ObfOpt &opt) {
 	if (isIRObfuscationDebugEnabled()) {
 		errs() << "[DEBUG][FLA][B] real cases added func=" << f->getName()
 		       << " case-count=" << dispatchStates.size()
-		       << " bucket-count=" << DispatchBucketCount << "\n";
+		       << " bucket-count=" << DispatchBucketCount
+		       << " level=" << FlatteningLevel << "\n";
 	}
 	// #endregion
 

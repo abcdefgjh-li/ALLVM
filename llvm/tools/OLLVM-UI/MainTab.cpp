@@ -167,7 +167,7 @@ void MainTab::setupUI() {
     };
 
     QSet<QString> levelPasses = {
-        "irobf-indbr", "irobf-icall", "irobf-indgv",
+        "irobf-fla", "irobf-indbr", "irobf-icall", "irobf-indgv",
         "irobf-cie", "irobf-cfe"
     };
 

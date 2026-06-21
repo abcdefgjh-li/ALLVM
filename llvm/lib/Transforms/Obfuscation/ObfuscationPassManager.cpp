@@ -97,6 +97,10 @@ static cl::opt<uint32_t> LevelIndirectGV(
 static cl::opt<bool> EnableIRFlattening(
     "irobf-fla", cl::init(false), cl::NotHidden,
     cl::desc("Enable IR Control Flow Flattening Obfuscation."), cl::ZeroOrMore);
+static cl::opt<uint32_t>
+LevelIRFlattening("level-fla", cl::init(0), cl::NotHidden,
+                  cl::desc("Set IR Control Flow Flattening Obfuscation Level."),
+                  cl::ZeroOrMore);
 
 
 static cl::opt<bool>
@@ -337,7 +341,7 @@ namespace llvm {
 			Opt->indBrOpt()->readOpt(EnableIndirectBr, LevelIndirectBr);
 			Opt->iCallOpt()->readOpt(EnableIndirectCall, LevelIndirectCall);
 			Opt->indGvOpt()->readOpt(EnableIndirectGV, LevelIndirectGV);
-			Opt->flaOpt()->readOpt(EnableIRFlattening);
+			Opt->flaOpt()->readOpt(EnableIRFlattening, LevelIRFlattening);
 			Opt->cseOpt()->readOpt(EnableIRStringEncryption);
 			Opt->cieOpt()->readOpt(EnableIRConstantIntEncryption,
 			                       LevelIRConstantIntEncryption);
