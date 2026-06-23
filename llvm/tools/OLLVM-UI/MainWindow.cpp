@@ -14,6 +14,7 @@
 #include <QRegularExpression>
 #include <QCloseEvent>
 #include <QDialog>
+#include <QSettings>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_process(nullptr) {
     setWindowTitle("ALLVM 混淆编译配置工具");
@@ -42,17 +43,18 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 void MainWindow::setupUI() {
     auto *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
+    centralWidget->setObjectName("centralWidget");
 
     auto *mainLayout = new QVBoxLayout(centralWidget);
-    mainLayout->setSpacing(2);
-    mainLayout->setContentsMargins(2, 2, 2, 2);
+    mainLayout->setSpacing(12);
+    mainLayout->setContentsMargins(12, 0, 12, 12);
 
     m_tabWidget = new QTabWidget(this);
-    m_tabWidget->setStyleSheet(
-        "QTabWidget::pane { border: 1px solid #3a3a5c; background: #1a1a2e; }"
-        "QTabBar::tab { background: #252540; color: #808090; padding: 4px 14px; border: 1px solid #3a3a5c; }"
-        "QTabBar::tab:selected { background: #1a1a2e; color: #00d4aa; border-bottom: 2px solid #00d4aa; }"
-        "QTabBar::tab:hover { color: #c0c0d0; }");
+    m_btnTheme = new QToolButton(m_tabWidget);
+    m_btnTheme->setFixedSize(38, 38);
+    m_btnTheme->setCursor(Qt::PointingHandCursor);
+    connect(m_btnTheme, &QToolButton::clicked, this, &MainWindow::onToggleTheme);
+    m_tabWidget->setCornerWidget(m_btnTheme, Qt::TopRightCorner);
 
     m_mainTab = new MainTab(this);
     connect(m_mainTab, &MainTab::logMessage, this, &MainWindow::onLogMessage);
@@ -72,7 +74,7 @@ void MainWindow::setupUI() {
 
     auto *tabOut = new QWidget();
     auto *outTabLayout = new QVBoxLayout(tabOut);
-    outTabLayout->setContentsMargins(2, 2, 2, 2);
+    outTabLayout->setContentsMargins(12, 12, 12, 12);
     m_progressBar = new QProgressBar(tabOut);
     m_progressBar->setRange(0, 0);
     m_progressBar->setVisible(false);
@@ -80,31 +82,22 @@ void MainWindow::setupUI() {
     m_outputLog = new QTextEdit(tabOut);
     m_outputLog->setReadOnly(true);
     m_outputLog->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    m_outputLog->setStyleSheet(
-        "QTextEdit {"
-        "  background-color: #0d1117;"
-        "  color: #c9d1d9;"
-        "  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;"
-        "  font-size: 12px;"
-        "  border: none;"
-        "  padding: 4px;"
-        "}");
     outTabLayout->addWidget(m_outputLog);
     m_tabWidget->addTab(tabOut, "控制台");
 
     mainLayout->addWidget(m_tabWidget, 1);
 
     auto *actionLayout = new QHBoxLayout();
-    actionLayout->setSpacing(6);
+    actionLayout->setSpacing(10);
     actionLayout->setContentsMargins(4, 0, 4, 4);
 
     m_btnInject = new QPushButton("一键注入", this);
     m_btnInject->setFixedHeight(34);
     m_btnInject->setMinimumWidth(170);
     m_btnInject->setStyleSheet(
-        "QPushButton{background:#e67e22;color:#1a1a2e;font-size:13px;font-weight:bold;padding:4px 16px;}"
-        "QPushButton:hover{background:#f39c12;}"
-        "QPushButton:disabled{background:#3a3a5c;color:#606070;}");
+        "QPushButton{background:#f97316;color:#ffffff;font-size:13px;font-weight:600;padding:4px 16px;border:none;border-radius:10px;}"
+        "QPushButton:hover{background:#ea580c;}"
+        "QPushButton:disabled{background:#cbd5e1;color:#f8fafc;}");
     connect(m_btnInject, &QPushButton::clicked, this, &MainWindow::onInjectFlags);
     actionLayout->addWidget(m_btnInject);
 
@@ -112,9 +105,9 @@ void MainWindow::setupUI() {
     m_btnBuild->setFixedHeight(34);
     m_btnBuild->setMinimumWidth(180);
     m_btnBuild->setStyleSheet(
-        "QPushButton{background:#00d4aa;color:#1a1a2e;font-size:13px;font-weight:bold;padding:4px 16px;}"
-        "QPushButton:hover{background:#00eebb;}"
-        "QPushButton:disabled{background:#3a3a5c;color:#606070;}");
+        "QPushButton{background:#2563eb;color:#ffffff;font-size:13px;font-weight:600;padding:4px 16px;border:none;border-radius:10px;}"
+        "QPushButton:hover{background:#1d4ed8;}"
+        "QPushButton:disabled{background:#cbd5e1;color:#f8fafc;}");
     connect(m_btnBuild, &QPushButton::clicked, this, &MainWindow::onBuild);
     actionLayout->addWidget(m_btnBuild);
 
@@ -123,8 +116,8 @@ void MainWindow::setupUI() {
     m_btnStopBuild->setMinimumWidth(120);
     m_btnStopBuild->setVisible(false);
     m_btnStopBuild->setStyleSheet(
-        "QPushButton{background:#e74c3c;color:#e0e0e0;font-size:13px;font-weight:bold;padding:4px 16px;}"
-        "QPushButton:hover{background:#c0392b;}");
+        "QPushButton{background:#ef4444;color:#ffffff;font-size:13px;font-weight:600;padding:4px 16px;border:none;border-radius:10px;}"
+        "QPushButton:hover{background:#dc2626;}");
     connect(m_btnStopBuild, &QPushButton::clicked, this, [this]() {
         if (m_process && m_process->state() != QProcess::NotRunning) {
             m_process->kill();
@@ -138,9 +131,9 @@ void MainWindow::setupUI() {
     m_btnCollect->setFixedHeight(34);
     m_btnCollect->setMinimumWidth(160);
     m_btnCollect->setStyleSheet(
-        "QPushButton{background:#3498db;color:#1a1a2e;font-size:13px;font-weight:bold;padding:4px 16px;}"
-        "QPushButton:hover{background:#5dade2;}"
-        "QPushButton:disabled{background:#3a3a5c;color:#606070;}");
+        "QPushButton{background:#0ea5e9;color:#ffffff;font-size:13px;font-weight:600;padding:4px 16px;border:none;border-radius:10px;}"
+        "QPushButton:hover{background:#0284c7;}"
+        "QPushButton:disabled{background:#cbd5e1;color:#f8fafc;}");
     connect(m_btnCollect, &QPushButton::clicked, this, &MainWindow::onCollectOutput);
     actionLayout->addWidget(m_btnCollect);
 
@@ -148,9 +141,9 @@ void MainWindow::setupUI() {
     m_btnHelp->setFixedHeight(34);
     m_btnHelp->setMinimumWidth(100);
     m_btnHelp->setStyleSheet(
-        "QPushButton{background:#8e44ad;color:#1a1a2e;font-size:13px;font-weight:bold;padding:4px 16px;}"
-        "QPushButton:hover{background:#a569bd;}"
-        "QPushButton:disabled{background:#3a3a5c;color:#606070;}");
+        "QPushButton{background:#8b5cf6;color:#ffffff;font-size:13px;font-weight:600;padding:4px 16px;border:none;border-radius:10px;}"
+        "QPushButton:hover{background:#7c3aed;}"
+        "QPushButton:disabled{background:#cbd5e1;color:#f8fafc;}");
     connect(m_btnHelp, &QPushButton::clicked, this, &MainWindow::onShowHelp);
     actionLayout->addWidget(m_btnHelp);
 
@@ -158,14 +151,15 @@ void MainWindow::setupUI() {
     m_btnClean->setFixedHeight(34);
     m_btnClean->setMinimumWidth(100);
     m_btnClean->setStyleSheet(
-        "QPushButton{background:#3a4a5a;color:#e0e0e0;font-size:12px;padding:4px 12px;}"
-        "QPushButton:hover{background:#4a5a6a;}"
-        "QPushButton:disabled{background:#2a2a3c;color:#606070;}");
+        "QPushButton{background:#ffffff;color:#475569;font-size:12px;padding:4px 12px;border:1px solid #d7deea;border-radius:10px;}"
+        "QPushButton:hover{background:#f8fafc;}"
+        "QPushButton:disabled{background:#eef2f7;color:#94a3b8;}");
     connect(m_btnClean, &QPushButton::clicked, this, &MainWindow::onCleanBuild);
     actionLayout->addWidget(m_btnClean);
 
     actionLayout->addStretch();
     mainLayout->addLayout(actionLayout);
+    applyTheme();
 }
 
 void MainWindow::onLogMessage(const QString &text, const QString &color) {
@@ -500,7 +494,7 @@ void MainWindow::onCleanBuild() {
 }
 
 void MainWindow::onShowHelp() {
-    HelpDocument *dialog = new HelpDocument(this);
+    HelpDocument *dialog = new HelpDocument(this, m_darkMode);
     dialog->exec();
     dialog->deleteLater();
 }
@@ -510,6 +504,8 @@ void MainWindow::saveConfig() {
         m_mainTab->jniFolder(), m_mainTab->ndkPath(), m_mainTab->outputFolder(),
         m_mainTab->optLevel(), m_mainTab->passChecks()
     );
+    QSettings settings(ConfigManager::instance().configPath(), QSettings::IniFormat);
+    settings.setValue("ui/darkMode", m_darkMode);
 }
 
 void MainWindow::loadConfig() {
@@ -526,8 +522,79 @@ void MainWindow::loadConfig() {
     m_mainTab->setOutputFolder(outputFolder);
     m_mainTab->setOptLevel(optLevel);
     m_mainTab->updatePassChecks(passChecks);
+
+    QSettings settings(ConfigManager::instance().configPath(), QSettings::IniFormat);
+    m_darkMode = settings.value("ui/darkMode", false).toBool();
+    applyTheme();
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {
     QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::updateThemeButton() {
+    m_btnTheme->setText(m_darkMode ? QString::fromUtf8("☀") : QString::fromUtf8("☾"));
+    m_btnTheme->setToolTip(m_darkMode ? "切换到亮色模式" : "切换到暗色模式");
+    m_btnTheme->setStyleSheet(m_darkMode
+        ? "QToolButton{background:#1e293b;color:#f8fafc;border:1px solid #334155;border-radius:21px;font-size:18px;font-weight:700;}QToolButton:hover{background:#334155;}"
+        : "QToolButton{background:#ffffff;color:#1f2937;border:1px solid #d7deea;border-radius:21px;font-size:18px;font-weight:700;}QToolButton:hover{background:#f8fafc;}");
+}
+
+void MainWindow::applyTheme() {
+    const QString baseStyle = m_darkMode
+        ? QString(
+              "QMainWindow, QWidget#centralWidget { background: #020817; color: #e5eefb; }"
+              "QLabel { color: #cbd5e1; }"
+              "QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {"
+              "  background: #111827;"
+              "  color: #f8fafc;"
+              "  border: 1px solid #334155;"
+              "  border-radius: 10px;"
+              "  padding: 8px 10px;"
+              "}"
+              "QLineEdit:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus { border: 1px solid #60a5fa; }"
+              "QTabWidget::pane { border: 1px solid #334155; background: #0f172a; border-radius: 16px; top: -1px; }"
+              "QTabBar::tab { background: #1e293b; color: #94a3b8; padding: 10px 18px; border: none; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }"
+              "QTabBar::tab:selected { background: #0f172a; color: #f8fafc; font-weight: 600; }"
+              "QTabBar::tab:hover { color: #e2e8f0; }"
+              "QProgressBar { background: #1e293b; border: none; border-radius: 8px; text-align: center; color: #e2e8f0; }"
+              "QProgressBar::chunk { background: #2563eb; border-radius: 8px; }"
+              "QPushButton { background: #111827; color: #f8fafc; border: 1px solid #334155; border-radius: 10px; padding: 8px 14px; }"
+              "QPushButton:hover { background: #1f2937; border-color: #475569; }"
+              "QPushButton:disabled { background: #0f172a; color: #64748b; border-color: #1e293b; }")
+        : QString(
+              "QMainWindow, QWidget#centralWidget { background: #f5f7fb; color: #1f2937; }"
+              "QLabel { color: #334155; }"
+              "QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {"
+              "  background: #ffffff;"
+              "  color: #0f172a;"
+              "  border: 1px solid #d7deea;"
+              "  border-radius: 10px;"
+              "  padding: 8px 10px;"
+              "}"
+              "QLineEdit:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus { border: 1px solid #60a5fa; }"
+              "QTabWidget::pane { border: 1px solid #d7deea; background: #ffffff; border-radius: 16px; top: -1px; }"
+              "QTabBar::tab { background: #e9eef6; color: #64748b; padding: 10px 18px; border: none; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }"
+              "QTabBar::tab:selected { background: #ffffff; color: #2563eb; font-weight: 600; }"
+              "QTabBar::tab:hover { color: #1d4ed8; }"
+              "QProgressBar { background: #e2e8f0; border: none; border-radius: 8px; text-align: center; color: #334155; }"
+              "QProgressBar::chunk { background: #3b82f6; border-radius: 8px; }"
+              "QPushButton { background: #ffffff; color: #1f2937; border: 1px solid #d7deea; border-radius: 10px; padding: 8px 14px; }"
+              "QPushButton:hover { background: #f8fafc; border-color: #bfd2ef; }"
+              "QPushButton:disabled { background: #eef2f7; color: #94a3b8; border-color: #e2e8f0; }");
+    setStyleSheet(baseStyle);
+
+    m_outputLog->setStyleSheet(m_darkMode
+        ? "QTextEdit { background-color: #111827; color: #dbeafe; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 12px; border: 1px solid #334155; border-radius: 14px; padding: 8px; }"
+        : "QTextEdit { background-color: #ffffff; color: #334155; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 12px; border: 1px solid #d7deea; border-radius: 14px; padding: 8px; }");
+
+    m_mkInfoText->setDarkMode(m_darkMode);
+    m_mainTab->setDarkMode(m_darkMode);
+    updateThemeButton();
+}
+
+void MainWindow::onToggleTheme() {
+    m_darkMode = !m_darkMode;
+    applyTheme();
+    saveConfig();
 }

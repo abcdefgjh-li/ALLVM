@@ -3,7 +3,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 
-HelpDocument::HelpDocument(QWidget *parent) : QDialog(parent) {
+HelpDocument::HelpDocument(QWidget *parent, bool darkMode) : QDialog(parent) {
     setWindowTitle("帮助文档 - ALLVM 混淆编译配置工具");
     resize(900, 700);
 
@@ -12,18 +12,21 @@ HelpDocument::HelpDocument(QWidget *parent) : QDialog(parent) {
 
     auto *textEdit = new QTextEdit(this);
     textEdit->setReadOnly(true);
-    textEdit->setStyleSheet(
-        "QTextEdit { background: #1a1a2e; color: #c0c0d0; border: none; font-size: 13px; }");
+    textEdit->setStyleSheet(darkMode
+        ? "QTextEdit { background: #111827; color: #e5eefb; border: 1px solid #334155; border-radius: 14px; font-size: 13px; padding: 8px; }"
+        : "QTextEdit { background: #ffffff; color: #1f2937; border: 1px solid #d7deea; border-radius: 14px; font-size: 13px; padding: 8px; }");
     textEdit->setHtml(mdToHtml(generateHelpContent()));
     layout->addWidget(textEdit);
 
     auto *btnClose = new QPushButton("关闭", this);
     btnClose->setFixedHeight(36);
-    btnClose->setStyleSheet(
-        "QPushButton { background: #3a3a5c; color: #e0e0e0; padding: 8px 30px; border-radius: 4px; font-size: 14px; }"
-        "QPushButton:hover { background: #4a4a6c; }");
+    btnClose->setStyleSheet(darkMode
+        ? "QPushButton { background: #334155; color: #f8fafc; padding: 8px 30px; border-radius: 10px; font-size: 14px; border: none; }QPushButton:hover { background: #475569; }"
+        : "QPushButton { background: #2563eb; color: #ffffff; padding: 8px 30px; border-radius: 10px; font-size: 14px; border: none; }QPushButton:hover { background: #1d4ed8; }");
     connect(btnClose, &QPushButton::clicked, this, &QDialog::accept);
     layout->addWidget(btnClose, 0, Qt::AlignCenter);
+
+    setStyleSheet(darkMode ? "QDialog { background: #0f172a; }" : "QDialog { background: #f5f7fb; }");
 }
 
 QString HelpDocument::generateHelpContent() {
@@ -69,6 +72,7 @@ QString HelpDocument::generateHelpContent() {
 | 功能 | 参数 | 说明 |
 |------|------|------|
 | **控制流平坦化** | `-irobf-fla` | 将函数控制流平坦化，增加逆向难度 (L1-L3) |
+| **CFG 噪声分支** | `-irobf-cfgnoise` | 注入 bogus CFG、不可达分支和假分发路径 (L1-L3) |
 | **间接分支** | `-irobf-indbr` | 将直接跳转改为间接跳转 (L1-L3) |
 | **间接调用** | `-irobf-icall` | 将直接调用改为间接调用 (L1-L3) |
 | **全局变量间接化** | `-irobf-indgv` | 将全局变量访问改为间接访问 (L1-L3) |

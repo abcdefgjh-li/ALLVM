@@ -7,6 +7,7 @@
 #include <QProcess>
 #include <QTabWidget>
 #include <QKeyEvent>
+#include <QToolButton>
 #include "MainTab.h"
 #include "CodeEditor.h"
 
@@ -30,8 +31,11 @@ private slots:
     void onShowHelp();
     void onCleanBuild();
     void onLogMessage(const QString &text, const QString &color);
+    void onToggleTheme();
 
 private:
+    void applyTheme();
+    void updateThemeButton();
     void setupUI();
     void appendLog(const QString &text, const QString &color = "#e0e0e0");
     void saveConfig();
@@ -50,8 +54,10 @@ private:
     QPushButton *m_btnCollect;
     QPushButton *m_btnHelp;
     QPushButton *m_btnClean;
+    QToolButton *m_btnTheme;
     
     QProcess *m_process;
+    bool m_darkMode = false;
 };
 
 #endif

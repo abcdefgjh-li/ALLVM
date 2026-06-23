@@ -9,7 +9,7 @@ class HelpDocument : public QDialog {
     Q_OBJECT
 
 public:
-    explicit HelpDocument(QWidget *parent = nullptr);
+    explicit HelpDocument(QWidget *parent = nullptr, bool darkMode = false);
 
 private:
     QString generateHelpContent();

@@ -103,6 +103,8 @@ LevelIRFlattening("level-fla", cl::init(0), cl::NotHidden,
                   cl::ZeroOrMore);
 
 
+
+
 static cl::opt<bool>
 EnableIRStringEncryption("irobf-cse", cl::init(false), cl::NotHidden,
                          cl::desc("Enable IR Constant String Encryption."),
@@ -339,12 +341,12 @@ namespace llvm {
 			auto Opt = ObfuscationOptions::readConfigFile(SamsaraConfigPath);
 
 			Opt->indBrOpt()->readOpt(EnableIndirectBr, LevelIndirectBr);
-			Opt->iCallOpt()->readOpt(EnableIndirectCall, LevelIndirectCall);
-			Opt->indGvOpt()->readOpt(EnableIndirectGV, LevelIndirectGV);
-			Opt->flaOpt()->readOpt(EnableIRFlattening, LevelIRFlattening);
-			Opt->cseOpt()->readOpt(EnableIRStringEncryption);
-			Opt->cieOpt()->readOpt(EnableIRConstantIntEncryption,
-			                       LevelIRConstantIntEncryption);
+    Opt->iCallOpt()->readOpt(EnableIndirectCall, LevelIndirectCall);
+    Opt->indGvOpt()->readOpt(EnableIndirectGV, LevelIndirectGV);
+    Opt->flaOpt()->readOpt(EnableIRFlattening, LevelIRFlattening);
+    Opt->cseOpt()->readOpt(EnableIRStringEncryption);
+    Opt->cieOpt()->readOpt(EnableIRConstantIntEncryption,
+                            LevelIRConstantIntEncryption);
 			Opt->cfeOpt()->readOpt(EnableIRConstantFPEncryption,
 			                       LevelIRConstantFPEncryption);
 			Opt->rttiOpt()->readOpt(EnableRttiEraser);
@@ -359,15 +361,15 @@ namespace llvm {
 		bool runOnModule(Module &M) override {
 
 			bool hasObfuscation = EnableIndirectBr || EnableIndirectCall || EnableIndirectGV ||
-			    EnableIRFlattening || EnableIRStringEncryption ||
-			    EnableIRConstantIntEncryption || EnableIRConstantFPEncryption ||
-			    EnableRttiEraser || EnableVMProtect || EnableLdPreloadProtect ||
-			    EnableVmProtectDetect || EnableUsbProtect || EnableIdaDetect || EnableVpnDetect ||
-			    EnableProxyDetect || EnableTimeDetect || EnableHostsDetect ||
-			    EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect ||
-			    EnableSyscallProtect || EnableBanDump || EnableLinkerWrapper ||
-			    EnableEnvCheck || EnableGzEnvCheck ||
-			    !SamsaraConfigPath.empty();
+        EnableIRFlattening || EnableIRStringEncryption ||
+        EnableIRConstantIntEncryption || EnableIRConstantFPEncryption ||
+        EnableRttiEraser || EnableVMProtect || EnableLdPreloadProtect ||
+        EnableVmProtectDetect || EnableUsbProtect || EnableIdaDetect || EnableVpnDetect ||
+        EnableProxyDetect || EnableTimeDetect || EnableHostsDetect ||
+        EnableHideMaps || EnableFakeMaps || EnableRootDetect || EnableNoRootDetect ||
+        EnableSyscallProtect || EnableBanDump || EnableLinkerWrapper ||
+        EnableEnvCheck || EnableGzEnvCheck ||
+        !SamsaraConfigPath.empty();
 
 			if (hasObfuscation) {
 				EnableIRObfuscation = true;
@@ -383,36 +385,36 @@ namespace llvm {
 			                             PointerType::getUnqual(M.getContext()));
 
 			if (isIRObfuscationDebugEnabled()) {
-				errs() << "========================================\n";
-				errs() << "[DEBUG] OLLVM protection enabled:\n";
-				if (EnableIRFlattening) errs() << "  + Flattening\n";
-				if (EnableIndirectBr) errs() << "  + IndirectBranch\n";
-				if (EnableIndirectCall) errs() << "  + IndirectCall\n";
-				if (EnableIndirectGV) errs() << "  + IndirectGlobalVariable\n";
-				if (EnableIRStringEncryption) errs() << "  + StringEncryption\n";
-				if (EnableIRConstantIntEncryption) errs() << "  + ConstantIntEncryption\n";
-				if (EnableIRConstantFPEncryption) errs() << "  + ConstantFPEncryption\n";
-				if (EnableRttiEraser) errs() << "  + RTTIEraser\n";
-				if (EnableVMProtect) errs() << "  + VMProtect\n";
-				if (EnableSyscallProtect) errs() << "  + SyscallProtect\n";
-				if (EnableLdPreloadProtect) errs() << "  + LdPreloadProtect\n";
-				if (EnableVmProtectDetect) errs() << "  + VmProtectDetect\n";
-				if (EnableIdaDetect) errs() << "  + DebuggerDetect\n";
-				if (EnableVpnDetect) errs() << "  + VpnDetect\n";
-				if (EnableProxyDetect) errs() << "  + ProxyDetect\n";
-				if (EnableTimeDetect) errs() << "  + TimeDetect\n";
-				if (EnableHostsDetect) errs() << "  + HostsDetect\n";
-				if (EnableRootDetect) errs() << "  + RootDetect\n";
-			if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
-			if (EnableUsbProtect) errs() << "  + UsbProtect\n";
-			if (EnableHideMaps) errs() << "  + HideMaps\n";
-			if (EnableFakeMaps) errs() << "  + FakeMaps\n";
-			if (EnableBanDump) errs() << "  + BanDump\n";
-			if (EnableLinkerWrapper) errs() << "  + LinkerWrapper\n";
-			if (EnableEnvCheck) errs() << "  + EnvCheck\n";
-			if (EnableGzEnvCheck) errs() << "  + GzEnvCheck\n";
-			errs() << "========================================\n";
-			}
+        errs() << "========================================\n";
+        errs() << "[DEBUG] OLLVM protection enabled:\n";
+        if (EnableIRFlattening) errs() << "  + Flattening\n";
+        if (EnableIndirectBr) errs() << "  + IndirectBranch\n";
+        if (EnableIndirectCall) errs() << "  + IndirectCall\n";
+        if (EnableIndirectGV) errs() << "  + IndirectGlobalVariable\n";
+        if (EnableIRStringEncryption) errs() << "  + StringEncryption\n";
+        if (EnableIRConstantIntEncryption) errs() << "  + ConstantIntEncryption\n";
+        if (EnableIRConstantFPEncryption) errs() << "  + ConstantFPEncryption\n";
+        if (EnableRttiEraser) errs() << "  + RTTIEraser\n";
+        if (EnableVMProtect) errs() << "  + VMProtect\n";
+        if (EnableSyscallProtect) errs() << "  + SyscallProtect\n";
+        if (EnableLdPreloadProtect) errs() << "  + LdPreloadProtect\n";
+        if (EnableVmProtectDetect) errs() << "  + VmProtectDetect\n";
+        if (EnableIdaDetect) errs() << "  + DebuggerDetect\n";
+        if (EnableVpnDetect) errs() << "  + VpnDetect\n";
+        if (EnableProxyDetect) errs() << "  + ProxyDetect\n";
+        if (EnableTimeDetect) errs() << "  + TimeDetect\n";
+        if (EnableHostsDetect) errs() << "  + HostsDetect\n";
+        if (EnableRootDetect) errs() << "  + RootDetect\n";
+		if (EnableNoRootDetect) errs() << "  + NoRootDetect\n";
+		if (EnableUsbProtect) errs() << "  + UsbProtect\n";
+		if (EnableHideMaps) errs() << "  + HideMaps\n";
+		if (EnableFakeMaps) errs() << "  + FakeMaps\n";
+		if (EnableBanDump) errs() << "  + BanDump\n";
+		if (EnableLinkerWrapper) errs() << "  + LinkerWrapper\n";
+		if (EnableEnvCheck) errs() << "  + EnvCheck\n";
+		if (EnableGzEnvCheck) errs() << "  + GzEnvCheck\n";
+		errs() << "========================================\n";
+    }
 
 			// ========== 1. 检测类Pass ==========
 			if (EnableLdPreloadProtect) {
@@ -508,10 +510,10 @@ namespace llvm {
 		}
 
 		if (EnableIRFlattening || Options->flaOpt()->isEnabled()) {
-			add(llvm::createFlatteningPass(pointerSize, Options.get()));
-		}
+        add(llvm::createFlatteningPass(pointerSize, Options.get()));
+    }
 
-		if (EnableIndirectBr || Options->indBrOpt()->isEnabled()) {
+    if (EnableIndirectBr || Options->indBrOpt()->isEnabled()) {
 			add(llvm::createIndirectBranchPass(Options.get()));
 		}
 

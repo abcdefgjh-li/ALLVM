@@ -9,6 +9,9 @@
 #include <QCheckBox>
 #include <QTimer>
 #include <QList>
+#include <QLabel>
+#include <QFrame>
+#include <QToolButton>
 #include "ConfigManager.h"
 
 class MainTab : public QWidget {
@@ -24,6 +27,8 @@ public:
     QList<PassCheckBox> passChecks() const;
     QString currentMkFile() const;
     QTextEdit* mkInfoText();
+    void setDarkMode(bool darkMode);
+    bool isDarkMode() const;
     
     void setJniFolder(const QString &path);
     void setNdkPath(const QString &path);
@@ -55,6 +60,7 @@ private slots:
     void onMkTextChanged();
 
 private:
+    void applyTheme();
     void setupUI();
     
     QLineEdit *m_jniFolderEdit;
@@ -69,6 +75,13 @@ private:
     QList<PassCheckBox> m_passChecks;
     QTimer *m_mkSaveTimer;
     QString m_currentMkFile;
+    bool m_darkMode = false;
+    QLabel *m_titleLabel = nullptr;
+    QList<QLabel *> m_primaryLabels;
+    QList<QLabel *> m_secondaryLabels;
+    QList<QFrame *> m_cardFrames;
+    QList<QFrame *> m_passItemFrames;
+    QList<QToolButton *> m_sectionButtons;
 };
 
 #endif

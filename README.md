@@ -43,6 +43,8 @@
 | `-mllvm -level-icall=3` | 混淆强度 (1-3) |
 | `-mllvm -irobf-fla` | 启用控制流平坦化 |
 | `-mllvm -level-fla=3` | 控制流平坦化强度 (1-3) |
+| `-mllvm -irobf-cfgnoise` | 启用 CFG 噪声分支 |
+| `-mllvm -level-cfgnoise=3` | CFG 噪声分支强度 (1-3) |
 | `-mllvm -irobf-indgv` | 启用间接全局变量混淆 |
 | `-mllvm -level-indgv=3` | 混淆强度 (1-3) |
 | `-mllvm -irobf-cse` | 启用字符串常量加密 |

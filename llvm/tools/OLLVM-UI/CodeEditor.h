@@ -11,6 +11,7 @@ class CodeEditor : public QPlainTextEdit {
 
 public:
     explicit CodeEditor(QWidget *parent = nullptr);
+    void setDarkMode(bool darkMode);
 
     void lineNumberAreaPaintEvent(QPaintEvent *event);
     int lineNumberAreaWidth();
@@ -25,6 +26,7 @@ private slots:
 
 private:
     QWidget *lineNumberArea;
+    bool m_darkMode = false;
 };
 
 class LineNumberArea : public QWidget {
