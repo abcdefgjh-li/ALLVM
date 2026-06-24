@@ -84,8 +84,8 @@ protected:
   SmallString<32> RandomSeed;
 
 public:
-  SmallVector<std::shared_ptr<ObfOpt>, 8> getAllOpt() const {
-    SmallVector<std::shared_ptr<ObfOpt>, 8> allOpt;
+  SmallVector<std::shared_ptr<ObfOpt>, 16> getAllOpt() const {
+    SmallVector<std::shared_ptr<ObfOpt>, 16> allOpt;
     allOpt.push_back(IndBrOpt);
     allOpt.push_back(ICallOpt);
     allOpt.push_back(IndGvOpt);
@@ -124,7 +124,8 @@ public:
                            std::make_shared<ObfOpt>("cie"),
                            std::make_shared<ObfOpt>("cfe"),
                            std::make_shared<ObfOpt>("rtti")
-                       } {}
+                       } {
+  }
 
   auto indBrOpt() const {
     return IndBrOpt;

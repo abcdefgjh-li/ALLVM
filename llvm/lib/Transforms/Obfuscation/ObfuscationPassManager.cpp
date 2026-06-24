@@ -102,9 +102,6 @@ LevelIRFlattening("level-fla", cl::init(0), cl::NotHidden,
                   cl::desc("Set IR Control Flow Flattening Obfuscation Level."),
                   cl::ZeroOrMore);
 
-
-
-
 static cl::opt<bool>
 EnableIRStringEncryption("irobf-cse", cl::init(false), cl::NotHidden,
                          cl::desc("Enable IR Constant String Encryption."),

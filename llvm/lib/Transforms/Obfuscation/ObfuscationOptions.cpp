@@ -26,6 +26,7 @@ using namespace llvm;
 
 namespace llvm {
 
+
 /**
  * @brief 读取函数的注解信息
  * @param f 要读取注解的函数
@@ -122,7 +123,7 @@ std::shared_ptr<ObfuscationOptions> ObfuscationOptions::readConfigFile(
     return false;
   };
 
-  SmallVector<std::shared_ptr<ObfOpt>> allOpt = result->getAllOpt();
+  SmallVector<std::shared_ptr<ObfOpt>, 16> allOpt = result->getAllOpt();
   for (auto &obj : *rootObj) {
     if (obj.getFirst().str() == "randomSeed") {
       if (auto objStr = obj.getSecond().getAsString()) {

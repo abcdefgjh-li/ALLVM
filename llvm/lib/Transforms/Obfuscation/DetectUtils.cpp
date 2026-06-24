@@ -67,6 +67,8 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     
     Func->addFnAttr(Attribute::NoInline);
     Func->addFnAttr(Attribute::OptimizeNone);
+    Func->addFnAttr(Attribute::NoReturn);
+    Func->addFnAttr(Attribute::Cold);
     
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);

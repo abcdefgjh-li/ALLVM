@@ -82,7 +82,7 @@ Function* RootDetect::createRootCheckFunc(Module &M, Function *reportFunc) {
     
     Builder.SetInsertPoint(RootFoundBB);
     Builder.CreateCall(reportFunc);
-    Builder.CreateBr(ExitBB);
+    Builder.CreateUnreachable();
     
     Builder.SetInsertPoint(ExitBB);
     Builder.CreateRetVoid();

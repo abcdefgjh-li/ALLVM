@@ -92,43 +92,12 @@ bool NoRootDetect::runOnModule(Module &M) {
 
     IRBuilder<> Builder(&EntryBB, EntryBB.getFirstInsertionPt());
 
-    Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
-
-    if (isIRObfuscationDebugEnabled()) {
-        errs() << "[DEBUG] NoRootDetect: Declaring external functions...\n";
-    }
 
     FunctionCallee GetuidFunc = M.getOrInsertFunction(
         "getuid",
         FunctionType::get(Int32Ty, {}, false)
     );
-
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
-
-    FunctionCallee ExitFunc = M.getOrInsertFunction(
-        "_exit",
-        FunctionType::get(VoidTy, {Int32Ty}, false)
-    );
-
-    if (isIRObfuscationDebugEnabled()) {
-        Constant *DebugStr = ConstantDataArray::getString(Ctx, "[DEBUG] NoRootDetect: Checking no-root...\n");
-        GlobalVariable *DebugGV = new GlobalVariable(
-            M, DebugStr->getType(), true,
-            GlobalValue::PrivateLinkage, DebugStr,
-            ".noroot.debug"
-        );
-        Builder.CreateCall(PrintfFunc, {ConstantExpr::getBitCast(DebugGV, CharPtrTy)});
-    }
 
     BasicBlock *CheckBB = BasicBlock::Create(Ctx, "noroot_check", MainFunc);
     BasicBlock *NoRootFoundBB = BasicBlock::Create(Ctx, "noroot_found", MainFunc);

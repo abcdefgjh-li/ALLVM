@@ -71,8 +71,7 @@ QString HelpDocument::generateHelpContent() {
 
 | 功能 | 参数 | 说明 |
 |------|------|------|
-| **控制流平坦化** | `-irobf-fla` | 将函数控制流平坦化，增加逆向难度 (L1-L3) |
-| **CFG 噪声分支** | `-irobf-cfgnoise` | 注入 bogus CFG、不可达分支和假分发路径 (L1-L3) |
+| **平坦化 (FLA)** | `-irobf-fla` | 将基本块打平到 switch 结构中，增加分析难度 (L1-L3) |
 | **间接分支** | `-irobf-indbr` | 将直接跳转改为间接跳转 (L1-L3) |
 | **间接调用** | `-irobf-icall` | 将直接调用改为间接调用 (L1-L3) |
 | **全局变量间接化** | `-irobf-indgv` | 将全局变量访问改为间接访问 (L1-L3) |

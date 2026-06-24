@@ -111,6 +111,10 @@ bool SyscallProtect::isManualImplFunction(const StringRef &Name) {
 }
 
 bool SyscallProtect::shouldReplace(const StringRef &Name) {
+    StringRef BaseName = Name.starts_with("__orig_") ? Name.substr(7) : Name;
+    if (BaseName == "exit" || BaseName == "_exit") {
+        return false;
+    }
     return isSyscallFunction(Name) || isManualImplFunction(Name);
 }
 
@@ -265,10 +269,13 @@ Function* SyscallProtect::createSyscallWrapper(Module &M, StringRef OrigName, in
     
     Type *Int64Ty = Type::getInt64Ty(Ctx);
     PointerType *PtrTy = PointerType::get(Ctx, 0);
+    StringRef BaseName = OrigName.starts_with("__orig_") ? OrigName.substr(7) : OrigName;
+    bool IsNoReturnSyscall = (BaseName == "exit" || BaseName == "_exit");
     
     SmallVector<Type*, 6> ArgTypes = CustomArgTypes.empty() ? getArgTypes(Ctx, OrigName) : SmallVector<Type*, 6>(CustomArgTypes.begin(), CustomArgTypes.end());
     
-    FunctionType *FuncTy = FunctionType::get(Int64Ty, ArgTypes, false);
+    Type *RetTy = IsNoReturnSyscall ? Type::getVoidTy(Ctx) : Int64Ty;
+    FunctionType *FuncTy = FunctionType::get(RetTy, ArgTypes, false);
     
     std::string WrapperName = "__syscall_" + OrigName.str();
     Function *Func = Function::Create(
@@ -281,6 +288,9 @@ Function* SyscallProtect::createSyscallWrapper(Module &M, StringRef OrigName, in
     
     Func->addFnAttr(Attribute::NoInline);
     Func->addFnAttr(Attribute::OptimizeNone);
+    if (IsNoReturnSyscall) {
+        Func->addFnAttr(Attribute::NoReturn);
+    }
     
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
@@ -331,7 +341,12 @@ Function* SyscallProtect::createSyscallWrapper(Module &M, StringRef OrigName, in
     
     Value *SysNum = ConstantInt::get(Int64Ty, SyscallNum);
     Value *Result = Builder.CreateCall(Asm, {A0, A1, A2, A3, A4, A5, SysNum});
-    Builder.CreateRet(Result);
+    if (IsNoReturnSyscall) {
+        (void)Result;
+        Builder.CreateUnreachable();
+    } else {
+        Builder.CreateRet(Result);
+    }
     
     return Func;
 }
@@ -970,12 +985,13 @@ bool SyscallProtect::runOnModule(Module &M) {
             }
             
             Value *Result = Builder.CreateCall(Wrapper, Args);
-            
-            if (CI->getType() != Result->getType()) {
-                Result = Builder.CreateSExtOrTrunc(Result, CI->getType());
+
+            if (!CI->getType()->isVoidTy()) {
+                if (CI->getType() != Result->getType()) {
+                    Result = Builder.CreateSExtOrTrunc(Result, CI->getType());
+                }
+                CI->replaceAllUsesWith(Result);
             }
-            
-            CI->replaceAllUsesWith(Result);
             CI->eraseFromParent();
             Changed = true;
             ReplacedCalls++;
