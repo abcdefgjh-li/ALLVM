@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <setjmp.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "aVMPInterpreter.h"
 
 extern void _Unwind_Resume(void *exc) __attribute__((noreturn));
@@ -509,8 +510,11 @@ extern int ip;
 extern unsigned pointer_size;
 
 // Opcode encrypt by xorshift32
-extern uint32_t opcode_xorshift32_state;
-extern uint32_t vm_code_state;
+extern uint64_t opcode_xorshift32_state;
+extern uint64_t vm_code_state;
+extern uint64_t vm_function_key;
+extern uint64_t vm_block_chain_state;
+extern uint64_t expected_bb_token;
 
 uint8_t exception_thrown;
 void *exception_ptr;
@@ -574,9 +578,11 @@ void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail
 	       (unsigned)exception_thrown,
 	       exception_selector);
 
-	printf("[VM_CRASH] opcode_state=0x%08x vm_state=0x%08x code_bytes=",
+	printf("[VM_CRASH] opcode_state=0x%08x vm_state=0x%08x chain_state=0x%08llx expected_token=0x%08llx code_bytes=",
 	       (unsigned)opcode_xorshift32_state,
-	       (unsigned)vm_code_state);
+	       (unsigned)vm_code_state,
+	       (unsigned long long)vm_block_chain_state,
+	       (unsigned long long)expected_bb_token);
 	{
 		uint32_t raw_start = fault_ip > 8 ? fault_ip - 8 : 0;
 		for (uint32_t i = 0; i < 24; ++i) {
@@ -591,10 +597,12 @@ void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail
 		VMTraceEntry *entry = &vm_trace_ring[(start + i) % VM_CRASH_TRACE_DEPTH];
 		switch (entry->kind) {
 			case VM_TRACE_KIND_BB:
-				printf("[VM_CRASH][TRACE] bb ip=%u opcode_seed=0x%08llx vm_seed=0x%08llx\n",
+				printf("[VM_CRASH][TRACE] bb ip=%u opcode_seed=0x%08llx vm_seed=0x%08llx bb_token=0x%08llx chain_seed=0x%08llx\n",
 				       entry->ip_value,
 				       (unsigned long long)entry->a,
-				       (unsigned long long)entry->b);
+				       (unsigned long long)entry->b,
+				       (unsigned long long)entry->c,
+				       (unsigned long long)entry->d);
 				break;
 			case VM_TRACE_KIND_OPCODE:
 				printf("[VM_CRASH][TRACE] opcode ip=%u op=%u raw=0x%02llx bb=%llu opcode_state=0x%08llx vm_state=0x%08llx\n",
@@ -630,25 +638,313 @@ void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail
 	fflush(NULL);
 }
 
+// #region debug-point vm-stdio-entry
+static void vm_debug_log_stdio_entry(const char *stage) {
+	if (!vmp_debug_enabled) {
+		return;
+	}
+	char buffer[96];
+	int len = snprintf(buffer, sizeof(buffer),
+	                  "[vm-debug] stage=%s\n", stage);
+	if (len > 0) {
+		size_t to_write = (size_t)len < sizeof(buffer) ? (size_t)len : sizeof(buffer);
+		(void)write(2, buffer, to_write);
+	}
+}
+
+// #region debug-point vm-stage-log
+static void vm_debug_log_ip_stage(const char *stage, uint64_t ip_value) {
+	if (!vmp_debug_enabled) {
+		return;
+	}
+	char buffer[128];
+	int len = snprintf(buffer, sizeof(buffer),
+	                  "[vm-debug] stage=%s ip=%llu\n",
+	                  stage, (unsigned long long)ip_value);
+	if (len > 0) {
+		size_t to_write = (size_t)len < sizeof(buffer) ? (size_t)len : sizeof(buffer);
+		(void)write(2, buffer, to_write);
+	}
+}
+// #endregion debug-point vm-stage-log
+
+// #region debug-point vm-value-log
+static void vm_debug_log_u32_stage(const char *stage, uint32_t a, uint32_t b) {
+	if (!vmp_debug_enabled) {
+		return;
+	}
+	char buffer[160];
+	int len = snprintf(buffer, sizeof(buffer),
+	                  "[vm-debug] stage=%s a=%u b=%u\n",
+	                  stage, a, b);
+	if (len > 0) {
+		size_t to_write = (size_t)len < sizeof(buffer) ? (size_t)len : sizeof(buffer);
+		(void)write(2, buffer, to_write);
+	}
+}
+// #endregion debug-point vm-value-log
+// #endregion debug-point vm-stdio-entry
+
 #ifdef IS_INLINE_FUNC
 	__inline__ __attribute__((always_inline))
 #endif
-/* The state word must be initialized to non-zero */
-uint32_t xorshift32(uint32_t *state) {
-	/* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
-	uint32_t x = *state;
-	x ^= x << 13;
-	x ^= x >> 17;
-	x ^= x << 5;
-	return *state = x;
+uint64_t xorshift32(uint64_t *state) {
+	*state += 0x9e3779b97f4a7c15ULL;
+	uint64_t z = *state;
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+	z ^= z >> 31;
+	return z;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t rotl32(uint32_t value, unsigned shift) {
+	return (value << shift) | (value >> (32U - shift));
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t vm_nonzero32(uint32_t value, uint32_t fallback) {
+	return value ? value : fallback;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t vm_mix32(uint32_t value) {
+	value ^= value >> 16;
+	value *= 0x7feb352dU;
+	value ^= value >> 15;
+	value *= 0x846ca68bU;
+	value ^= value >> 16;
+	return value;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t rotl64(uint64_t value, unsigned shift) {
+	return (value << shift) | (value >> (64U - shift));
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t vm_nonzero64(uint64_t value, uint64_t fallback) {
+	return value ? value : fallback;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t vm_mix64(uint64_t value) {
+	value ^= value >> 30;
+	value *= 0xbf58476d1ce4e5b9ULL;
+	value ^= value >> 27;
+	value *= 0x94d049bb133111ebULL;
+	value ^= value >> 31;
+	return value;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t derive_bb_token(uint64_t function_key, uint32_t bb_offset) {
+	uint64_t mixed = function_key ^ ((uint64_t)bb_offset * 0x45d9f3b45d9f3bULL) ^
+	                 0x9e3779b97f4a7c15ULL;
+	return vm_nonzero64(vm_mix64(mixed), 0x13579bdf2468ace1ULL);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t derive_bb_tag(uint64_t function_key, uint32_t bb_offset) {
+	uint64_t token = derive_bb_token(function_key, bb_offset);
+	uint64_t mixed = token ^ rotl64(function_key ^ 0x85ebca6b27d4eb2dULL, 11) ^
+	                 ((uint64_t)bb_offset * 0x27d4eb2f165667c5ULL) ^
+	                 0xc2b2ae3d27d4eb4fULL;
+	return vm_nonzero32((uint32_t)vm_mix64(mixed), 0x2468ace1u);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t derive_opcode_seed(uint64_t bb_token) {
+	return vm_nonzero64(vm_mix64(bb_token ^ 0xa5a5f00d1badb002ULL),
+	                    0xa5a5f00d1badb002ULL);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t derive_vm_seed(uint64_t function_key, uint64_t bb_token) {
+	uint64_t mixed = bb_token ^ rotl64(function_key, 7) ^ 0x3c6ef372fe94f82bULL;
+	return vm_nonzero64(vm_mix64(mixed), 0x3c6ef372fe94f82bULL);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t derive_chain_seed(uint64_t function_key, uint64_t bb_token,
+	                              uint32_t bb_offset) {
+	uint64_t mixed = rotl64(bb_token, 13) ^ function_key ^
+	                 ((uint64_t)bb_offset * 0x165667b19e3779f9ULL) ^
+	                 0xd1b54a32d192ed03ULL;
+	return vm_nonzero64(vm_mix64(mixed), 0xd1b54a32d192ed03ULL);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t load32_le(const uint8_t *src) {
+	return ((uint32_t)src[0]) |
+	       ((uint32_t)src[1] << 8) |
+	       ((uint32_t)src[2] << 16) |
+	       ((uint32_t)src[3] << 24);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static void store32_le(uint8_t *dst, uint32_t value) {
+	dst[0] = (uint8_t)(value & 0xFF);
+	dst[1] = (uint8_t)((value >> 8) & 0xFF);
+	dst[2] = (uint8_t)((value >> 16) & 0xFF);
+	dst[3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t chacha_rotl32(uint32_t value, unsigned shift) {
+	return (value << shift) | (value >> (32U - shift));
+}
+
+#define CHACHA_QR(a, b, c, d) \
+	a += b; d ^= a; d = chacha_rotl32(d, 16); \
+	c += d; b ^= c; b = chacha_rotl32(b, 12); \
+	a += b; d ^= a; d = chacha_rotl32(d, 8); \
+	c += d; b ^= c; b = chacha_rotl32(b, 7)
+
+static void chacha20_block(const uint32_t key_words[8], uint32_t counter,
+	                      const uint32_t nonce_words[3], uint8_t out[64]) {
+	static const uint32_t constants[4] = {
+		0x61707865U, 0x3320646eU, 0x79622d32U, 0x6b206574U
+	};
+	uint32_t state[16];
+	uint32_t working[16];
+	state[0] = constants[0];
+	state[1] = constants[1];
+	state[2] = constants[2];
+	state[3] = constants[3];
+	for (int i = 0; i < 8; ++i) {
+		state[4 + i] = key_words[i];
+	}
+	state[12] = counter;
+	state[13] = nonce_words[0];
+	state[14] = nonce_words[1];
+	state[15] = nonce_words[2];
+	for (int i = 0; i < 16; ++i) {
+		working[i] = state[i];
+	}
+	for (int round = 0; round < 10; ++round) {
+		CHACHA_QR(working[0], working[4], working[8], working[12]);
+		CHACHA_QR(working[1], working[5], working[9], working[13]);
+		CHACHA_QR(working[2], working[6], working[10], working[14]);
+		CHACHA_QR(working[3], working[7], working[11], working[15]);
+		CHACHA_QR(working[0], working[5], working[10], working[15]);
+		CHACHA_QR(working[1], working[6], working[11], working[12]);
+		CHACHA_QR(working[2], working[7], working[8], working[13]);
+		CHACHA_QR(working[3], working[4], working[9], working[14]);
+	}
+	for (int i = 0; i < 16; ++i) {
+		working[i] += state[i];
+		store32_le(out + i * 4, working[i]);
+	}
+}
+
+#undef CHACHA_QR
+
+static void derive_chacha_material(uint64_t function_key, uint64_t payload_seed,
+	                              uint64_t chain_seed, uint32_t bb_offset,
+	                              uint32_t key_words[8], uint32_t nonce_words[3]) {
+	uint64_t state = function_key ^ rotl64(payload_seed, 17) ^
+	                 rotl64(chain_seed, 29) ^
+	                 ((uint64_t)bb_offset * 0x9e3779b97f4a7c15ULL) ^
+	                 0x6a09e667f3bcc909ULL;
+	for (int i = 0; i < 4; ++i) {
+		uint64_t word = xorshift32(&state);
+		key_words[i * 2] = (uint32_t)(word & 0xFFFFFFFFU);
+		key_words[i * 2 + 1] = (uint32_t)(word >> 32);
+	}
+	for (int i = 0; i < 3; ++i) {
+		nonce_words[i] = (uint32_t)xorshift32(&state);
+	}
+}
+
+static uint8_t chacha20_byte_at(uint64_t function_key, uint64_t payload_seed,
+	                           uint64_t chain_seed, uint32_t bb_offset,
+	                           uint32_t payload_index) {
+	uint32_t key_words[8];
+	uint32_t nonce_words[3];
+	uint8_t block[64];
+	uint32_t block_index = payload_index / 64U;
+	uint32_t block_offset = payload_index % 64U;
+	derive_chacha_material(function_key, payload_seed, chain_seed, bb_offset,
+	                      key_words, nonce_words);
+	chacha20_block(key_words, block_index, nonce_words, block);
+	return block[block_offset];
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint32_t read_code_u32_raw(void) {
+	uint32_t res = 0;
+	for (int i = 0; i < 4; i++) {
+		res |= (uint32_t)((uint8_t *)code_seg_addr)[ip++] << (8 * i);
+	}
+	return res;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static void sync_expected_bb_token(uint64_t target_addr) {
+	if (target_addr == 0) {
+		expected_bb_token = 0;
+		return;
+	}
+	expected_bb_token = derive_bb_token(vm_function_key, (uint32_t)target_addr);
 }
 
 #ifdef IS_INLINE_FUNC
 	__inline__ __attribute__((always_inline))
 #endif
 uint8_t get_byte_code() {
+	uint32_t raw_index = (uint32_t)ip;
+	uint32_t payload_index = raw_index - (uint32_t)current_bb_id - VM_BB_HEADER_SIZE;
+	if (payload_index == 0) {
+		vm_debug_log_u32_stage("get-byte-enter", raw_index, payload_index);
+	}
 	uint8_t tmp = ((uint8_t *)code_seg_addr)[ip++];
-	tmp ^= (xorshift32(&vm_code_state) & 0xFF);
+	{
+		uint32_t key_words[8];
+		uint32_t nonce_words[3];
+		uint8_t block[64];
+		uint32_t block_index = payload_index / 64U;
+		uint32_t block_offset = payload_index % 64U;
+		derive_chacha_material(vm_function_key, vm_code_state, vm_block_chain_state,
+		                      (uint32_t)current_bb_id, key_words, nonce_words);
+		chacha20_block(key_words, block_index, nonce_words, block);
+		tmp ^= block[block_offset];
+	}
+	if (payload_index == 0) {
+		vm_debug_log_u32_stage("get-byte-after-chacha", raw_index, tmp);
+	}
 	return tmp;
 }
 
@@ -657,13 +953,7 @@ uint8_t get_byte_code() {
 #endif
 // unpack data from code_seg directly(without xorshift32)
 uint32_t get_xorshift_seed() {
-	uint32_t res = 0;
-
-	for (int i = 0; i < 4; i++) {
-		res |= (uint32_t)((uint8_t *)code_seg_addr)[ip++] << (8 * i);
-	}
-
-	return res;
+	return read_code_u32_raw();
 }
 
 #ifdef IS_INLINE_FUNC
@@ -785,6 +1075,31 @@ uint64_t get_value_ex(uint8_t *out_size) {
 	}
 
 	return res;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t get_aggregate_addr(uint8_t *scratch, uint32_t scratch_cap,
+	                               uint8_t *out_size) {
+	uint8_t value_size = get_byte_code();
+	uint8_t value_type = get_byte_code();
+
+	if (out_size) *out_size = value_size;
+
+	if (value_type == 0) {
+		uint64_t var_offset = unpack_code(pointer_size);
+		return data_seg_addr + var_offset;
+	}
+
+	uint32_t copy_size = value_size < scratch_cap ? value_size : scratch_cap;
+	for (uint32_t i = 0; i < copy_size; ++i) {
+		scratch[i] = get_byte_code();
+	}
+	for (uint32_t i = copy_size; i < value_size; ++i) {
+		(void)get_byte_code();
+	}
+	return (uint64_t)(uintptr_t)scratch;
 }
 
 #ifdef IS_INLINE_FUNC
@@ -1511,6 +1826,7 @@ void br_handler() {
 	// set ip
 	vm_trace_push(VM_TRACE_KIND_BRANCH, (uint32_t)source_bb_offset, br_type, trace_flag,
 	             source_bb_offset, target_addr, trace_aux0, trace_aux1);
+	sync_expected_bb_token(target_addr);
 	ip = target_addr;
 }
 
@@ -1550,6 +1866,7 @@ void switch_handler() {
 		}
 	}
 
+	sync_expected_bb_token(matched_target);
 	ip = matched_target;
 }
 
@@ -1970,6 +2287,7 @@ void indirectbr_handler() {
 		}
 	}
 
+	sync_expected_bb_token(matched_target);
 	ip = matched_target;
 }
 
@@ -1977,11 +2295,14 @@ void indirectbr_handler() {
 	__inline__ __attribute__((always_inline))
 #endif
 void extractelement_handler() {
+	vm_debug_log_ip_stage("extractelement-enter", ip);
 	uint8_t res_size = get_byte_code();
+	vm_debug_log_u32_stage("extractelement-after-res-size", res_size, (uint32_t)ip);
 	uint8_t res_type = get_byte_code();
 	uint64_t res_offset = unpack_code(pointer_size);
 
-	uint64_t vector_ptr = get_value();
+	uint8_t vector_tmp[256];
+	uint64_t vector_ptr = get_aggregate_addr(vector_tmp, sizeof(vector_tmp), NULL);
 	uint64_t index = get_value();
 	uint32_t elem_size = (uint32_t)unpack_code(4);
 
@@ -1999,7 +2320,8 @@ void insertelement_handler() {
 	uint8_t res_type = get_byte_code();
 	uint64_t res_offset = unpack_code(pointer_size);
 
-	uint64_t vector_ptr = get_value();
+	uint8_t vector_tmp[256];
+	uint64_t vector_ptr = get_aggregate_addr(vector_tmp, sizeof(vector_tmp), NULL);
 	uint64_t element_val = get_value();
 	uint64_t index = get_value();
 	uint32_t elem_size = (uint32_t)unpack_code(4);
@@ -2021,8 +2343,10 @@ void shufflevector_handler() {
 	uint8_t res_type = get_byte_code();
 	uint64_t res_offset = unpack_code(pointer_size);
 
-	uint64_t v1_ptr = get_value();
-	uint64_t v2_ptr = get_value();
+	uint8_t v1_tmp[256];
+	uint8_t v2_tmp[256];
+	uint64_t v1_ptr = get_aggregate_addr(v1_tmp, sizeof(v1_tmp), NULL);
+	uint64_t v2_ptr = get_aggregate_addr(v2_tmp, sizeof(v2_tmp), NULL);
 	uint32_t elem_size = (uint32_t)unpack_code(4);
 	uint32_t v1_num_elements = (uint32_t)unpack_code(4);
 	uint32_t v2_num_elements = (uint32_t)unpack_code(4);
@@ -2091,6 +2415,7 @@ void catchswitch_handler() {
 		         caught_exception_selector,
 		         ip);
 		if (unwind_target != 0) {
+			sync_expected_bb_token(unwind_target);
 			ip = (uint32_t)unwind_target;
 		}
 		return;
@@ -2160,6 +2485,7 @@ void catchswitch_handler() {
 			         exception_ptr,
 			         exception_selector,
 			         ip);
+			sync_expected_bb_token(handler_target);
 			ip = (uint32_t)handler_target;
 			return;
 		}
@@ -2172,6 +2498,7 @@ void catchswitch_handler() {
 #endif
 
 	if (unwind_target != 0) {
+		sync_expected_bb_token(unwind_target);
 		ip = (uint32_t)unwind_target;
 	}
 }
@@ -2210,14 +2537,34 @@ uint8_t get_opcode() {
 	uint8_t cnt = 0;
 	uint8_t his[OP_TOTAL + 1];
 	uint32_t opcode_ip = (uint32_t)ip;
-	uint32_t saved_opcode_state = opcode_xorshift32_state;
-	uint32_t saved_vm_state = vm_code_state;
+	uint64_t saved_opcode_state = opcode_xorshift32_state;
+	uint64_t saved_vm_state = vm_code_state;
+	uint32_t payload_index = opcode_ip - (uint32_t)current_bb_id - VM_BB_HEADER_SIZE;
+	if (payload_index == 0) {
+		vm_debug_log_u32_stage("get-opcode-enter", opcode_ip, payload_index);
+	}
 	uint8_t raw_byte = ((uint8_t *)code_seg_addr)[ip++];
 	uint8_t curr_byte = raw_byte;
-	curr_byte ^= (xorshift32(&vm_code_state) & 0xFF);
+	{
+		uint32_t key_words[8];
+		uint32_t nonce_words[3];
+		uint8_t block[64];
+		uint32_t block_index = payload_index / 64U;
+		uint32_t block_offset = payload_index % 64U;
+		derive_chacha_material(vm_function_key, vm_code_state, vm_block_chain_state,
+		                      (uint32_t)current_bb_id, key_words, nonce_words);
+		chacha20_block(key_words, block_index, nonce_words, block);
+		curr_byte ^= block[block_offset];
+		if (payload_index == 0) {
+			vm_debug_log_u32_stage("get-opcode-after-chacha", raw_byte, curr_byte);
+		}
+	}
+	if (payload_index == 0) {
+		vm_debug_log_u32_stage("get-opcode-after-chacha-confirm", raw_byte, curr_byte);
+	}
 
 	for (int i = 0; i < OP_TOTAL + 1; i++) {
-		uint8_t tmp = xorshift32(&opcode_xorshift32_state);
+		uint8_t tmp = (uint8_t)xorshift32(&opcode_xorshift32_state);
 		if (tmp == curr_byte) {
 			vm_trace_push(VM_TRACE_KIND_OPCODE, opcode_ip, (uint8_t)(i + 1), 0,
 			             raw_byte, saved_opcode_state, saved_vm_state, current_bb_id);
@@ -2245,6 +2592,9 @@ uint8_t get_opcode() {
 
 
 void vm_interpreter() {
+	// #region debug-point vm-stdio-entry-call
+	vm_debug_log_stdio_entry("vm-entry");
+	// #endregion debug-point vm-stdio-entry-call
 
 	// DEBUG: Print entry
 	DEBUG(DEBUG_ID_NEW_BB, 999);
@@ -2254,6 +2604,9 @@ void vm_interpreter() {
 
 	// init
 	ip = 0;
+	expected_bb_token = 0;
+	vm_block_chain_state = 0;
+	vm_debug_log_ip_stage("vm-init-done", ip);
 
 	// when step into a new basicblock, we need to fetch opcode_seed and vm_code_seed
 	uint8_t is_a_new_bb = 1;
@@ -2266,18 +2619,37 @@ void vm_interpreter() {
 		DEBUG(DEBUG_ID_IP, instruction_count);
 
 		if (is_a_new_bb) {
-			opcode_xorshift32_state = get_xorshift_seed();
-			vm_code_state = get_xorshift_seed();
-			is_a_new_bb = 0;
+			vm_debug_log_ip_stage("vm-new-bb-enter", ip);
 			current_bb_id = ip;
+			uint32_t bb_tag = read_code_u32_raw();
+			uint64_t bb_token = derive_bb_token(vm_function_key, (uint32_t)current_bb_id);
+			uint32_t expected_tag = derive_bb_tag(vm_function_key, (uint32_t)current_bb_id);
+			if (expected_bb_token != 0 && bb_token != expected_bb_token) {
+				vm_dump_fault_context("vm-bb-token-mismatch", bb_token, expected_bb_token);
+				return;
+			}
+			if (bb_tag != expected_tag) {
+				vm_dump_fault_context("vm-bb-tag-mismatch", bb_tag, expected_tag);
+				return;
+			}
+			opcode_xorshift32_state = derive_opcode_seed(bb_token);
+			vm_code_state = derive_vm_seed(vm_function_key, bb_token);
+			vm_block_chain_state = derive_chain_seed(vm_function_key, bb_token,
+			                                        (uint32_t)current_bb_id);
+			expected_bb_token = 0;
+			is_a_new_bb = 0;
+			vm_debug_log_ip_stage("vm-new-bb-seeds-ready", ip);
 			vm_trace_push(VM_TRACE_KIND_BB, (uint32_t)ip, 0, 0,
-			             opcode_xorshift32_state, vm_code_state, 0, 0);
+			             opcode_xorshift32_state, vm_code_state, bb_token,
+			             vm_block_chain_state);
 
 			DEBUG(DEBUG_ID_NEW_BB, ip);
 		}
 
 		// switch op_code and add ip
+		vm_debug_log_ip_stage("vm-before-get-opcode", ip);
 		uint8_t opcode = get_opcode();
+		vm_debug_log_u32_stage("vm-after-get-opcode", opcode, (uint32_t)ip);
 		DEBUG(DEBUG_ID_OPCODE, opcode);
 		switch (opcode) {
 			case NOP_OP:
@@ -2369,11 +2741,13 @@ void vm_interpreter() {
 				DEBUG(DEBUG_ID_OPCODE, offset);
 				// 保存所有全局状态，因为递归调用会破坏这些状态
 				int saved_ip = ip;
-				uint32_t saved_opcode_state = opcode_xorshift32_state;
-				uint32_t saved_vmcode_state = vm_code_state;
+				uint64_t saved_opcode_state = opcode_xorshift32_state;
+				uint64_t saved_vmcode_state = vm_code_state;
+				uint64_t saved_chain_state = vm_block_chain_state;
+				uint64_t saved_expected_token = expected_bb_token;
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 0, (uint8_t)exception_thrown,
 				             packed_funcid, (uint64_t)saved_ip, offset, (uint64_t)caught_exception_selector);
-				EH_TRACE("[EH_VM_CALL] before funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%08x vm_state=0x%08x\n",
+				EH_TRACE("[EH_VM_CALL] before funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%016llx vm_state=0x%016llx\n",
 				         (unsigned long long)packed_funcid,
 				         (unsigned)saved_ip,
 				         (unsigned long long)offset,
@@ -2382,13 +2756,13 @@ void vm_interpreter() {
 				         exception_selector,
 				         caught_exception_ptr,
 				         caught_exception_selector,
-				         saved_opcode_state,
-				         saved_vmcode_state);
+				         (unsigned long long)saved_opcode_state,
+				         (unsigned long long)saved_vmcode_state);
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 1, (uint8_t)exception_thrown,
 				             packed_funcid, (uint64_t)saved_ip, offset, (uint64_t)caught_exception_selector);
-				EH_TRACE("[EH_VM_CALL] after funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u opcode_state=0x%08x vm_state=0x%08x\n",
+				EH_TRACE("[EH_VM_CALL] after funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d ip=%u opcode_state=0x%016llx vm_state=0x%016llx\n",
 				         (unsigned long long)packed_funcid,
 				         (unsigned)saved_ip,
 				         (unsigned long long)offset,
@@ -2398,13 +2772,15 @@ void vm_interpreter() {
 				         caught_exception_ptr,
 				         caught_exception_selector,
 				         ip,
-				         opcode_xorshift32_state,
-				         vm_code_state);
+				         (unsigned long long)opcode_xorshift32_state,
+				         (unsigned long long)vm_code_state);
 				// 恢复所有状态，确保返回后能正确解密后续操作码
 				ip = saved_ip;
 				opcode_xorshift32_state = saved_opcode_state;
 				vm_code_state = saved_vmcode_state;
-				EH_TRACE("[EH_VM_CALL] restored funcid=%llu restore_ip=%u exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%08x vm_state=0x%08x\n",
+				vm_block_chain_state = saved_chain_state;
+				expected_bb_token = saved_expected_token;
+				EH_TRACE("[EH_VM_CALL] restored funcid=%llu restore_ip=%u exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%016llx vm_state=0x%016llx\n",
 				         (unsigned long long)packed_funcid,
 				         (unsigned)ip,
 				         (unsigned)exception_thrown,
@@ -2412,8 +2788,8 @@ void vm_interpreter() {
 				         exception_selector,
 				         caught_exception_ptr,
 				         caught_exception_selector,
-				         opcode_xorshift32_state,
-				         vm_code_state);
+				         (unsigned long long)opcode_xorshift32_state,
+				         (unsigned long long)vm_code_state);
 			}
 			break;
 
@@ -2433,8 +2809,10 @@ void vm_interpreter() {
 
 				// 保存所有全局状态，因为递归调用会破坏这些状态
 				int saved_ip = ip;
-				uint32_t saved_opcode_state = opcode_xorshift32_state;
-				uint32_t saved_vmcode_state = vm_code_state;
+				uint64_t saved_opcode_state = opcode_xorshift32_state;
+				uint64_t saved_vmcode_state = vm_code_state;
+				uint64_t saved_chain_state = vm_block_chain_state;
+				uint64_t saved_expected_token = expected_bb_token;
 
 				// 调用函数（与 Call_OP 相同）
 				// 使用异常捕获包装函数
@@ -2444,6 +2822,8 @@ void vm_interpreter() {
 				ip = saved_ip;
 				opcode_xorshift32_state = saved_opcode_state;
 				vm_code_state = saved_vmcode_state;
+				vm_block_chain_state = saved_chain_state;
+				expected_bb_token = saved_expected_token;
 
 				// CallBr 的分支处理在翻译器中已经生成，这里不需要额外处理
 			}

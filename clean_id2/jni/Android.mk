@@ -15,12 +15,10 @@ LOCAL_CPPFLAGS := -std=c++17 -w -frtti
 LOCAL_LDLIBS := -llog -lz -pthread -lc
 
 LOCAL_CFLAGS += -mllvm -irobf \
-    -mllvm -irobf-fla -mllvm -level-fla=3 \
     -mllvm -irobf-vmp \
     -mllvm -irobf-vm_functions=main
 
 LOCAL_CPPFLAGS += -mllvm -irobf \
-    -mllvm -irobf-fla -mllvm -level-fla=3 \
     -mllvm -irobf-vmp \
     -mllvm -irobf-vm_functions=main
 

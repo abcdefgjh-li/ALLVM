@@ -34,6 +34,11 @@
 #define OP_TOTAL            0x1C
 
 extern unsigned pointer_size;
+extern uint64_t vm_function_key;
+extern uint64_t vm_block_chain_state;
+extern uint64_t expected_bb_token;
+
+#define VM_BB_HEADER_SIZE    4
 
 // BinaryOperator codes
 #define BINOP_ADD       13

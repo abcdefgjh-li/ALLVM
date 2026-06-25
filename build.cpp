@@ -18,6 +18,21 @@ static std::string g_apk_output_dir;
 static std::string g_zstd_dir;
 static std::string g_zlib_dir;
 
+struct TestRunOptions {
+    bool custom_test = false;
+    std::string project_dir;
+    std::string app_build_script = "jni/Android.mk";
+    std::string app_application_mk = "jni/Application.mk";
+    std::string binary_name;
+    std::string local_binary_path;
+    std::string device_path;
+    std::string run_command;
+    std::string serial;
+    std::string abi;
+    int timeout_sec = 20;
+    bool skip_ndk_build = false;
+};
+
 static bool file_exists(const std::string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
@@ -25,6 +40,18 @@ static bool file_exists(const std::string& path) {
 static bool dir_exists(const std::string& path) {
     DWORD attr = GetFileAttributesA(path.c_str());
     return (attr != INVALID_FILE_ATTRIBUTES) && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static std::string get_full_path_copy(const std::string& path) {
+    char buf[MAX_PATH];
+    DWORD len = GetFullPathNameA(path.c_str(), MAX_PATH, buf, NULL);
+    if (len == 0 || len >= MAX_PATH) return path;
+    return std::string(buf, len);
+}
+
+static std::string path_basename(const std::string& path) {
+    size_t pos = path.find_last_of("\\/");
+    return (pos == std::string::npos) ? path : path.substr(pos + 1);
 }
 
 static void init_paths() {
@@ -165,6 +192,86 @@ static int run_cmd_capture(const std::string& cmd, std::string& output, const st
     return ret;
 }
 
+static int run_cmd_capture_timeout(const std::string& cmd, std::string& output,
+                                   const std::string& cwd, DWORD timeout_ms,
+                                   bool* timed_out = nullptr) {
+    if (timed_out) *timed_out = false;
+
+    char suffix[32];
+    sprintf(suffix, "%llu", static_cast<unsigned long long>(GetTickCount64()));
+    std::string base = cwd.empty() ? g_script_dir : cwd;
+    std::string bat_file = base + "\\build_capture_" + suffix + ".bat";
+    std::string out_file = base + "\\build_capture_" + suffix + ".log";
+
+    FILE *f = fopen(bat_file.c_str(), "wb");
+    if (!f) return -1;
+    fprintf(f, "@echo off\r\nchcp 65001 >nul\r\n");
+    if (!cwd.empty()) fprintf(f, "cd /d \"%s\"\r\n", cwd.c_str());
+    fprintf(f, "%s > \"%s\" 2>&1\r\n", cmd.c_str(), out_file.c_str());
+    fprintf(f, "exit /b %%ERRORLEVEL%%\r\n");
+    fclose(f);
+
+    std::string command_line = "cmd.exe /C \"" + bat_file + "\"";
+    std::vector<char> cmdline(command_line.begin(), command_line.end());
+    cmdline.push_back('\0');
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    ZeroMemory(&pi, sizeof(pi));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    BOOL ok = CreateProcessA(
+        NULL,
+        cmdline.data(),
+        NULL,
+        NULL,
+        FALSE,
+        CREATE_NO_WINDOW,
+        NULL,
+        cwd.empty() ? NULL : cwd.c_str(),
+        &si,
+        &pi
+    );
+
+    int ret = -1;
+    if (!ok) {
+        DeleteFileA(bat_file.c_str());
+        return -1;
+    }
+
+    DWORD wait_ret = WaitForSingleObject(pi.hProcess, timeout_ms == 0 ? INFINITE : timeout_ms);
+    if (wait_ret == WAIT_TIMEOUT) {
+        if (timed_out) *timed_out = true;
+        TerminateProcess(pi.hProcess, 124);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        ret = 124;
+    } else {
+        DWORD exit_code = 0;
+        if (GetExitCodeProcess(pi.hProcess, &exit_code)) {
+            ret = static_cast<int>(exit_code);
+        }
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    DeleteFileA(bat_file.c_str());
+
+    std::ifstream in(out_file, std::ios::binary);
+    if (in.is_open()) {
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        output = ss.str();
+        in.close();
+        DeleteFileA(out_file.c_str());
+    } else {
+        output.clear();
+    }
+    return ret;
+}
+
 static std::string find_adb() {
     std::string adb = search_path_binary("adb.exe");
     if (!adb.empty()) return adb;
@@ -234,6 +341,129 @@ static std::string find_test_binary(const std::string& project_dir, const std::s
         if (file_exists(candidate)) return candidate;
     }
     return "";
+}
+
+static std::string find_named_binary(const std::string& project_dir, const std::string& abi,
+                                     const std::string& binary_name_or_path) {
+    if (binary_name_or_path.empty()) return "";
+
+    if (file_exists(binary_name_or_path)) {
+        return get_full_path_copy(binary_name_or_path);
+    }
+
+    const std::string candidates[] = {
+        project_dir + "\\obj\\local\\" + abi + "\\" + binary_name_or_path,
+        project_dir + "\\libs\\" + abi + "\\" + binary_name_or_path
+    };
+    for (const auto& candidate : candidates) {
+        if (file_exists(candidate)) return get_full_path_copy(candidate);
+    }
+    return "";
+}
+
+static bool build_ndk_test_project(const TestRunOptions& opts, int jobs) {
+    if (g_ndk_dir.empty() || !file_exists(g_ndk_dir + "\\ndk-build.cmd")) {
+        printf("[Error] NDK not found, cannot build test project\n");
+        return false;
+    }
+
+    std::string project_dir = get_full_path_copy(opts.project_dir);
+    if (!dir_exists(project_dir)) {
+        printf("[Error] Test project directory not found: %s\n", project_dir.c_str());
+        return false;
+    }
+
+    run_cmd("if exist obj rmdir /s /q obj", project_dir);
+    run_cmd("if exist libs rmdir /s /q libs", project_dir);
+
+    char jbuf[16];
+    sprintf(jbuf, "%d", jobs);
+    std::string ndk_build = g_ndk_dir + "\\ndk-build.cmd";
+    std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=\"" +
+                          opts.app_build_script + "\" NDK_APPLICATION_MK=\"" +
+                          opts.app_application_mk + "\" -j" + jbuf;
+    int ret = run_cmd(ndk_cmd, project_dir);
+    if (ret != 0) {
+        printf("[Error] ndk-build failed for %s (code: %d)\n", project_dir.c_str(), ret);
+        return false;
+    }
+    return true;
+}
+
+static bool push_and_run_binary(const TestRunOptions& opts) {
+    std::string adb_path = find_adb();
+    if (adb_path.empty()) {
+        printf("[Error] adb not found in PATH / ANDROID_SDK_ROOT / ANDROID_HOME\n");
+        return false;
+    }
+
+    std::string serial = opts.serial.empty() ? find_test_device(adb_path) : opts.serial;
+    if (serial.empty()) {
+        printf("[Error] No connected emulator/device found for adb testing\n");
+        return false;
+    }
+    printf("  -> Using device: %s\n", serial.c_str());
+
+    std::string abi = opts.abi.empty() ? detect_device_abi(adb_path, serial) : normalize_abi(opts.abi);
+    if (abi.empty()) {
+        printf("[Error] Failed to detect device ABI\n");
+        return false;
+    }
+    printf("  -> Device ABI: %s\n", abi.c_str());
+
+    std::string local_binary = opts.local_binary_path;
+    if (local_binary.empty()) {
+        local_binary = find_named_binary(get_full_path_copy(opts.project_dir), abi, opts.binary_name);
+    } else {
+        local_binary = get_full_path_copy(local_binary);
+    }
+    if (local_binary.empty() || !file_exists(local_binary)) {
+        printf("[Error] Test binary not found\n");
+        return false;
+    }
+
+    std::string device_path = opts.device_path;
+    if (device_path.empty()) {
+        device_path = "/data/local/tmp/" + path_basename(local_binary);
+    }
+    printf("  -> Local binary: %s\n", local_binary.c_str());
+    printf("  -> Device path : %s\n", device_path.c_str());
+
+    std::string output;
+    std::string push_cmd = "\"" + adb_path + "\" -s " + serial + " push \"" +
+                           local_binary + "\" \"" + device_path + "\"";
+    int ret = run_cmd_capture(push_cmd, output);
+    if (!output.empty()) printf("%s", output.c_str());
+    if (ret != 0) {
+        printf("[Error] adb push failed (code: %d)\n", ret);
+        return false;
+    }
+
+    std::string remote_run = opts.run_command.empty()
+        ? ("chmod 755 \"" + device_path + "\" && \"" + device_path + "\"")
+        : opts.run_command;
+
+    bool timed_out = false;
+    output.clear();
+    std::string exec_cmd = "\"" + adb_path + "\" -s " + serial + " shell \"" + remote_run + "\"";
+    ret = run_cmd_capture_timeout(exec_cmd, output, g_script_dir,
+                                  opts.timeout_sec > 0 ? static_cast<DWORD>(opts.timeout_sec) * 1000U : 0U,
+                                  &timed_out);
+    if (!output.empty()) printf("%s", output.c_str());
+    if (timed_out) {
+        printf("[Error] Device run timed out after %d seconds\n", opts.timeout_sec);
+        std::string base = path_basename(device_path);
+        std::string kill_cmd = "\"" + adb_path + "\" -s " + serial +
+                               " shell \"pkill -f '" + base + "' >/dev/null 2>&1 || true\"";
+        std::string kill_output;
+        run_cmd_capture(kill_cmd, kill_output, g_script_dir);
+        return false;
+    }
+    if (ret != 0) {
+        printf("[Error] Device run failed (code: %d)\n", ret);
+        return false;
+    }
+    return true;
 }
 
 static bool write_fla_test_project() {
@@ -407,6 +637,20 @@ static bool build_and_run_fla_test(int jobs) {
     }
 
     printf("[Done] Emulator flattening test passed\n");
+    return true;
+}
+
+static bool build_and_run_custom_test(const TestRunOptions& opts, int jobs) {
+    printf("\n[Test] Custom build/push/run...\n");
+    if (!opts.skip_ndk_build) {
+        if (opts.project_dir.empty()) {
+            printf("[Error] --test-project is required unless --skip-test-build is used with --test-local-binary\n");
+            return false;
+        }
+        if (!build_ndk_test_project(opts, jobs)) return false;
+    }
+    if (!push_and_run_binary(opts)) return false;
+    printf("[Done] Custom device test completed\n");
     return true;
 }
 
@@ -785,6 +1029,7 @@ int main(int argc, char* argv[]) {
     int jobs = 32;
     bool build_apk_flag = false;
     bool build_apk_release_flag = false;
+    TestRunOptions test_opts;
 
     bool step_zstd        = false;
     bool step_cmake       = true;
@@ -829,6 +1074,40 @@ int main(int argc, char* argv[]) {
             build_apk_release_flag = true;
         } else if (arg == "--all") {
             build_apk_flag = true;
+        } else if (arg == "--test-project" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.project_dir = argv[++i];
+        } else if (arg == "--test-build-script" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.app_build_script = argv[++i];
+        } else if (arg == "--test-application-mk" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.app_application_mk = argv[++i];
+        } else if (arg == "--test-binary" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.binary_name = argv[++i];
+        } else if (arg == "--test-local-binary" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.local_binary_path = argv[++i];
+        } else if (arg == "--test-device-path" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.device_path = argv[++i];
+        } else if (arg == "--test-run-cmd" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.run_command = argv[++i];
+        } else if (arg == "--test-serial" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.serial = argv[++i];
+        } else if (arg == "--test-abi" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.abi = argv[++i];
+        } else if (arg == "--test-timeout" && i + 1 < argc) {
+            test_opts.custom_test = true;
+            test_opts.timeout_sec = atoi(argv[++i]);
+            if (test_opts.timeout_sec < 0) test_opts.timeout_sec = 0;
+        } else if (arg == "--skip-test-build") {
+            test_opts.custom_test = true;
+            test_opts.skip_ndk_build = true;
         }
     }
 
@@ -849,7 +1128,11 @@ int main(int argc, char* argv[]) {
         if (!replace_ndk_clang()) return 1;
     }
     if (step_test) {
-        if (!build_and_run_fla_test(jobs)) return 1;
+        if (test_opts.custom_test) {
+            if (!build_and_run_custom_test(test_opts, jobs)) return 1;
+        } else {
+            if (!build_and_run_fla_test(jobs)) return 1;
+        }
     }
 
     if (build_apk_flag || build_apk_release_flag) {

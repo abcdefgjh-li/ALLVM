@@ -199,6 +199,184 @@ static bool isKnownStdlibLikeFunctionName(const std::string &funcName) {
     return false;
 }
 
+static uint32_t vmRotl32(uint32_t Value, unsigned Shift) {
+    return (Value << Shift) | (Value >> (32U - Shift));
+}
+
+static uint32_t vmNonZero32(uint32_t Value, uint32_t Fallback) {
+    return Value ? Value : Fallback;
+}
+
+static uint32_t vmMix32(uint32_t Value) {
+    Value ^= Value >> 16;
+    Value *= 0x7feb352dU;
+    Value ^= Value >> 15;
+    Value *= 0x846ca68bU;
+    Value ^= Value >> 16;
+    return Value;
+}
+
+static uint64_t vmRotl64(uint64_t Value, unsigned Shift) {
+    return (Value << Shift) | (Value >> (64U - Shift));
+}
+
+static uint64_t vmNonZero64(uint64_t Value, uint64_t Fallback) {
+    return Value ? Value : Fallback;
+}
+
+static uint64_t vmMix64(uint64_t Value) {
+    Value ^= Value >> 30;
+    Value *= 0xbf58476d1ce4e5b9ULL;
+    Value ^= Value >> 27;
+    Value *= 0x94d049bb133111ebULL;
+    Value ^= Value >> 31;
+    return Value;
+}
+
+static uint64_t splitmix64Next(uint64_t &State) {
+    State += 0x9e3779b97f4a7c15ULL;
+    return vmMix64(State);
+}
+
+static uint64_t deriveVMFunctionKey(const Function &F) {
+    uint64_t Hash = 1469598103934665603ULL;
+    std::string Name = F.getName().str();
+    for (unsigned char C : Name) {
+        Hash ^= C;
+        Hash *= 1099511628211ULL;
+    }
+    Hash ^= (uint64_t)F.arg_size() * 0x9e3779b97f4a7c15ULL;
+    Hash ^= (uint64_t)F.size() * 0xbf58476d1ce4e5b9ULL;
+    return vmNonZero64(vmMix64(Hash), 0x51f15e5ULL);
+}
+
+static uint64_t deriveBBToken(uint64_t FunctionKey, uint32_t BBOffset) {
+    uint64_t Mixed = FunctionKey ^ ((uint64_t)BBOffset * 0x45d9f3b45d9f3bULL) ^
+                     0x9e3779b97f4a7c15ULL;
+    return vmNonZero64(vmMix64(Mixed), 0x13579bdf2468ace1ULL);
+}
+
+static uint32_t deriveBBTag(uint64_t FunctionKey, uint32_t BBOffset) {
+    uint64_t Token = deriveBBToken(FunctionKey, BBOffset);
+    uint64_t Mixed = Token ^ vmRotl64(FunctionKey ^ 0x85ebca6b27d4eb2dULL, 11) ^
+                     ((uint64_t)BBOffset * 0x27d4eb2f165667c5ULL) ^
+                     0xc2b2ae3d27d4eb4fULL;
+    return vmNonZero32((uint32_t)vmMix64(Mixed), 0x2468ace1u);
+}
+
+static uint64_t deriveOpcodeSeed(uint64_t BBToken) {
+    return vmNonZero64(vmMix64(BBToken ^ 0xa5a5f00d1badb002ULL),
+                       0xa5a5f00d1badb002ULL);
+}
+
+static uint64_t deriveVMSeed(uint64_t FunctionKey, uint64_t BBToken) {
+    uint64_t Mixed = BBToken ^ vmRotl64(FunctionKey, 7) ^ 0x3c6ef372fe94f82bULL;
+    return vmNonZero64(vmMix64(Mixed), 0x3c6ef372fe94f82bULL);
+}
+
+static uint64_t deriveChainSeed(uint64_t FunctionKey, uint64_t BBToken,
+                                uint32_t BBOffset) {
+    uint64_t Mixed = vmRotl64(BBToken, 13) ^ FunctionKey ^
+                     ((uint64_t)BBOffset * 0x165667b19e3779f9ULL) ^
+                     0xd1b54a32d192ed03ULL;
+    return vmNonZero64(vmMix64(Mixed), 0xd1b54a32d192ed03ULL);
+}
+
+static uint32_t load32LE(const uint8_t *Src) {
+    return ((uint32_t)Src[0]) |
+           ((uint32_t)Src[1] << 8) |
+           ((uint32_t)Src[2] << 16) |
+           ((uint32_t)Src[3] << 24);
+}
+
+static void store32LE(uint8_t *Dst, uint32_t Value) {
+    Dst[0] = (uint8_t)(Value & 0xFF);
+    Dst[1] = (uint8_t)((Value >> 8) & 0xFF);
+    Dst[2] = (uint8_t)((Value >> 16) & 0xFF);
+    Dst[3] = (uint8_t)((Value >> 24) & 0xFF);
+}
+
+static uint32_t chachaRotl32(uint32_t Value, unsigned Shift) {
+    return (Value << Shift) | (Value >> (32U - Shift));
+}
+
+#define CHACHA20_QR(a, b, c, d) \
+    a += b; d ^= a; d = chachaRotl32(d, 16); \
+    c += d; b ^= c; b = chachaRotl32(b, 12); \
+    a += b; d ^= a; d = chachaRotl32(d, 8); \
+    c += d; b ^= c; b = chachaRotl32(b, 7)
+
+static void chacha20Block(const uint32_t KeyWords[8], uint32_t Counter,
+                          const uint32_t NonceWords[3], uint8_t Out[64]) {
+    static const uint32_t Constants[4] = {
+        0x61707865U, 0x3320646eU, 0x79622d32U, 0x6b206574U
+    };
+    uint32_t State[16];
+    uint32_t Working[16];
+    State[0] = Constants[0];
+    State[1] = Constants[1];
+    State[2] = Constants[2];
+    State[3] = Constants[3];
+    for (int I = 0; I < 8; ++I) {
+        State[4 + I] = KeyWords[I];
+    }
+    State[12] = Counter;
+    State[13] = NonceWords[0];
+    State[14] = NonceWords[1];
+    State[15] = NonceWords[2];
+    for (int I = 0; I < 16; ++I) {
+        Working[I] = State[I];
+    }
+    for (int Round = 0; Round < 10; ++Round) {
+        CHACHA20_QR(Working[0], Working[4], Working[8], Working[12]);
+        CHACHA20_QR(Working[1], Working[5], Working[9], Working[13]);
+        CHACHA20_QR(Working[2], Working[6], Working[10], Working[14]);
+        CHACHA20_QR(Working[3], Working[7], Working[11], Working[15]);
+        CHACHA20_QR(Working[0], Working[5], Working[10], Working[15]);
+        CHACHA20_QR(Working[1], Working[6], Working[11], Working[12]);
+        CHACHA20_QR(Working[2], Working[7], Working[8], Working[13]);
+        CHACHA20_QR(Working[3], Working[4], Working[9], Working[14]);
+    }
+    for (int I = 0; I < 16; ++I) {
+        Working[I] += State[I];
+        store32LE(Out + I * 4, Working[I]);
+    }
+}
+
+#undef CHACHA20_QR
+
+static void deriveChaCha20Material(uint64_t FunctionKey, uint64_t PayloadSeed,
+                                   uint64_t ChainSeed, uint32_t BBOffset,
+                                   uint32_t KeyWords[8],
+                                   uint32_t NonceWords[3]) {
+    uint64_t State = FunctionKey ^ vmRotl64(PayloadSeed, 17) ^
+                     vmRotl64(ChainSeed, 29) ^
+                     ((uint64_t)BBOffset * 0x9e3779b97f4a7c15ULL) ^
+                     0x6a09e667f3bcc909ULL;
+    for (int I = 0; I < 4; ++I) {
+        uint64_t Word = splitmix64Next(State);
+        KeyWords[I * 2] = (uint32_t)(Word & 0xFFFFFFFFU);
+        KeyWords[I * 2 + 1] = (uint32_t)(Word >> 32);
+    }
+    for (int I = 0; I < 3; ++I) {
+        NonceWords[I] = (uint32_t)splitmix64Next(State);
+    }
+}
+
+static uint8_t chacha20ByteAt(uint64_t FunctionKey, uint64_t PayloadSeed,
+                              uint64_t ChainSeed, uint32_t BBOffset,
+                              uint32_t PayloadIndex) {
+    uint32_t KeyWords[8];
+    uint32_t NonceWords[3];
+    uint8_t Block[64];
+    uint32_t BlockIndex = PayloadIndex / 64U;
+    uint32_t BlockOffset = PayloadIndex % 64U;
+    deriveChaCha20Material(FunctionKey, PayloadSeed, ChainSeed, BBOffset,
+                           KeyWords, NonceWords);
+    chacha20Block(KeyWords, BlockIndex, NonceWords, Block);
+    return Block[BlockOffset];
+}
+
 static bool hasFunctionAnnotationKeyword(Function *F, StringRef keyword) {
     if (!F || !F->getParent()) {
         return false;
@@ -360,6 +538,7 @@ class GOVMTranslator {
             this->modDataLayout = const_cast<DataLayout *>(&this->Mod->getDataLayout());
             this->pointer_size = modDataLayout->getPointerSize();  // 动态获取指针大小
             this->has_unsupported_instruction = false;  // 初始化标志
+            this->vm_function_key = deriveVMFunctionKey(*F);
 
             // construct function and global variables
             init();
@@ -370,6 +549,7 @@ class GOVMTranslator {
         DataLayout * modDataLayout;
         unsigned pointer_size;  // 动态获取的指针大小,支持不同架构
         bool has_unsupported_instruction;  // 标记是否遇到不支持的指令
+        uint64_t vm_function_key;
 
         // Global variables for VM interpreter
         GlobalVariable *gv_code_seg;
@@ -531,85 +711,93 @@ class GOVMTranslator {
         }
 
         // encrypt opcode, use xorshift
-        uint32_t xorshift32_state = 0;
-        uint32_t xorshift32_seed = 0;
+        uint64_t xorshift32_state = 0;
+        uint64_t xorshift32_seed = 0;
 
         /* encrypt vm_code */
         // mark seed for each basicblock
-        std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> vm_code_seed_map;
+        std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>> vm_code_seed_map;
 
         void init_xorshift32() {
-            srand(time(0));
-        }
-
-        uint32_t gen_xorshift32_seed() {
-            for (int _ = 0; _ < 10; _++) {
-                xorshift32_seed ^= rand();
-            }
-            return xorshift32_seed;
+            xorshift32_seed = vm_function_key;
         }
 
         /* The state word must be initialized to non-zero */
-        uint32_t xorshift32(uint32_t *state)
+        uint64_t xorshift32(uint64_t *state)
         {
-            /* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
-            uint32_t x = *state;
-            x ^= x << 13;
-            x ^= x >> 17;
-            x ^= x << 5;
-            return *state = x;
-        }
-
-        uint32_t vm_code_seed_setup() {
-            uint32_t res = gen_xorshift32_seed();
-
-            std::vector<uint8_t> hex_code;
-            ins_to_hex(hex_code, pack(res, sizeof(uint32_t)));
-            vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
-
-            return res;
-        }
-
-        uint32_t opcode_seed_setup() {
-            xorshift32_seed = gen_xorshift32_seed();
-            xorshift32_state = xorshift32_seed;
-
-            if (isIRObfuscationDebugEnabled()) {
-                errs() << "[opcode_seed_setup] xorshift32_seed=" << xorshift32_seed << " xorshift32_state=" << xorshift32_state << "\n";
-            }
-
-            std::vector<uint8_t> hex_code;
-            ins_to_hex(hex_code, pack(xorshift32_seed, sizeof(uint32_t)));
-            vm_code.insert(vm_code.end(), hex_code.begin(), hex_code.end());
-            
-            return xorshift32_seed;
+            return splitmix64Next(*state);
         }
 
         void encrypt_vm_code() {
+            const bool debugEnabled = isIRObfuscationDebugEnabled();
             for (auto &p : vm_code_seed_map) {
-                uint32_t vm_code_seed = std::get<0>(p);
-                uint32_t begin = std::get<1>(p);
-                uint32_t end = std::get<2>(p);
+                uint64_t vm_code_seed = std::get<0>(p);
+                uint64_t chain_seed = std::get<1>(p);
+                uint32_t begin = std::get<2>(p);
+                uint32_t end = std::get<3>(p);
                 if (begin > end || end > vm_code.size()) {
-                    errs() << "[VM_ENCRYPT_WARN] invalid_range begin=" << begin
-                           << " end=" << end
-                           << " vm_code_size=" << vm_code.size()
-                           << " seed=0x" << Twine::utohexstr(vm_code_seed) << "\n";
+                    if (debugEnabled) {
+                        errs() << "[VM_ENCRYPT_WARN] invalid_range begin=" << begin
+                               << " end=" << end
+                               << " vm_code_size=" << vm_code.size()
+                               << " seed=0x" << Twine::utohexstr(vm_code_seed) << "\n";
+                    }
                     continue;
                 }
                 if (begin == end) {
-                    errs() << "[VM_ENCRYPT_WARN] empty_range begin=" << begin
-                           << " seed=0x" << Twine::utohexstr(vm_code_seed) << "\n";
+                    if (debugEnabled) {
+                        errs() << "[VM_ENCRYPT_WARN] empty_range begin=" << begin
+                               << " seed=0x" << Twine::utohexstr(vm_code_seed) << "\n";
+                    }
                     continue;
                 }
 
                 uint8_t first_before = vm_code[begin];
-                uint32_t seed_probe = vm_code_seed;
-                uint8_t first_key = xorshift32(&seed_probe) & 0xFF;
-                for (uint32_t addr = begin; addr < end; addr++) {
-                    vm_code[addr] ^= (xorshift32(&vm_code_seed) & 0xFF);
+                uint32_t bb_offset = begin >= 4 ? begin - 4 : 0;
+                uint8_t first_key =
+                    chacha20ByteAt(vm_function_key, vm_code_seed, chain_seed,
+                                   bb_offset, 0);
+                if (debugEnabled && bb_offset == 0) {
+                    uint32_t key_words[8];
+                    uint32_t nonce_words[3];
+                    uint8_t block[64];
+                    deriveChaCha20Material(vm_function_key, vm_code_seed, chain_seed,
+                                           bb_offset, key_words, nonce_words);
+                    chacha20Block(key_words, 0, nonce_words, block);
+                    errs() << "[VM_BB0_ENCRYPT] function_key=0x"
+                           << Twine::utohexstr(vm_function_key)
+                           << " vm_seed=0x" << Twine::utohexstr(vm_code_seed)
+                           << " chain_seed=0x" << Twine::utohexstr(chain_seed)
+                           << " first_plain=0x" << Twine::utohexstr(first_before)
+                           << " first_key=0x" << Twine::utohexstr(first_key)
+                           << " first_cipher=0x"
+                           << Twine::utohexstr((uint8_t)(first_before ^ first_key))
+                           << "\n";
+                    errs() << "[VM_BB0_MATERIAL] key="
+                           << format_hex_no_prefix(key_words[0], 8) << " "
+                           << format_hex_no_prefix(key_words[1], 8) << " "
+                           << format_hex_no_prefix(key_words[2], 8) << " "
+                           << format_hex_no_prefix(key_words[3], 8) << " "
+                           << format_hex_no_prefix(key_words[4], 8) << " "
+                           << format_hex_no_prefix(key_words[5], 8) << " "
+                           << format_hex_no_prefix(key_words[6], 8) << " "
+                           << format_hex_no_prefix(key_words[7], 8)
+                           << " nonce="
+                           << format_hex_no_prefix(nonce_words[0], 8) << " "
+                           << format_hex_no_prefix(nonce_words[1], 8) << " "
+                           << format_hex_no_prefix(nonce_words[2], 8)
+                           << " block="
+                           << format_hex_no_prefix(block[0], 2) << " "
+                           << format_hex_no_prefix(block[1], 2) << " "
+                           << format_hex_no_prefix(block[2], 2) << " "
+                           << format_hex_no_prefix(block[3], 2) << "\n";
                 }
-                if (first_key != 0 && vm_code[begin] == first_before) {
+                for (uint32_t addr = begin; addr < end; addr++) {
+                    vm_code[addr] ^= chacha20ByteAt(vm_function_key, vm_code_seed,
+                                                    chain_seed, bb_offset,
+                                                    addr - begin);
+                }
+                if (debugEnabled && first_key != 0 && vm_code[begin] == first_before) {
                     errs() << "[VM_ENCRYPT_WARN] unchanged_first_byte begin=" << begin
                            << " end=" << end
                            << " first=0x" << Twine::utohexstr(first_before)
@@ -628,11 +816,11 @@ class GOVMTranslator {
             
             for (int i = 0; i < op; i++) {
                 if (total_retries >= MAX_RETRIES) {
-                    res = xorshift32(&xorshift32_state) & 0xFF;
+                    res = (uint8_t)xorshift32(&xorshift32_state);
                     break;
                 }
                 
-                uint8_t tmp = xorshift32(&xorshift32_state) & 0xFF;
+                uint8_t tmp = (uint8_t)xorshift32(&xorshift32_state);
                 if (find(his.begin(), his.end(), tmp) == his.end()) {
                     his.push_back(tmp);
                     res = tmp;
@@ -2870,6 +3058,22 @@ void GOVMTranslator::handle_inst(Instruction *ins) {
         }
     }
 
+    // Android/Itanium EH 中，catchpad/cleanuppad 主要承载 funclet 元数据。
+    // 当前 VM 的异常分发实际依赖 landingpad/catchswitch/catchret/cleanupret，
+    // 因此这里将 pad 指令视为已消费的结构化元数据，避免整函数因 unsupported 回退。
+    else if (isa<CatchPadInst>(ins)) {
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CATCHPAD] Treat as metadata-only funclet pad in VM for: "
+                   << F->getName() << "\n";
+        }
+    }
+    else if (isa<CleanupPadInst>(ins)) {
+        if (isIRObfuscationDebugEnabled()) {
+            errs() << "[CLEANUPPAD] Treat as metadata-only funclet pad in VM for: "
+                   << F->getName() << "\n";
+        }
+    }
+
     // ==================== 新增指令支持 ====================
 
     // CallBrInst: CallBr 指令 - 类似 Invoke，但用于间接分支
@@ -3207,12 +3411,17 @@ bool GOVMTranslator::run(){
         BasicBlock * bb = &*bbl;
         basicblock_map.insert(pair<BasicBlock *, int>(bb, vm_code.size()));
 
-        // 每个基本块开头需要两个种子：
-        // 1. opcode_xorshift32_state - 用于解密操作码
-        // 2. vm_code_state - 用于解密VM代码
-        opcode_seed_setup();
-        uint32_t vm_code_seed = vm_code_seed_setup();
-        uint32_t currbb_begin = vm_code.size();
+        uint32_t bb_offset = (uint32_t)vm_code.size();
+        uint64_t bb_token = deriveBBToken(vm_function_key, bb_offset);
+        uint32_t bb_tag = deriveBBTag(vm_function_key, bb_offset);
+        uint64_t opcode_seed = deriveOpcodeSeed(bb_token);
+        uint64_t vm_code_seed = deriveVMSeed(vm_function_key, bb_token);
+        uint64_t chain_seed = deriveChainSeed(vm_function_key, bb_token, bb_offset);
+        xorshift32_seed = opcode_seed;
+        xorshift32_state = opcode_seed;
+        std::vector<uint8_t> bb_header = pack(bb_tag, sizeof(uint32_t));
+        vm_code.insert(vm_code.end(), bb_header.begin(), bb_header.end());
+        uint32_t currbb_begin = (uint32_t)vm_code.size();
 
         std::vector<Instruction *> instructions_to_process;
         for(auto ins = bbl->begin(); ins != bbl->end(); ins++){
@@ -3272,7 +3481,17 @@ bool GOVMTranslator::run(){
         }
 
         uint32_t currbb_end = vm_code.size();
-        vm_code_seed_map.emplace_back(vm_code_seed, currbb_begin, currbb_end);
+        if (isIRObfuscationDebugEnabled() && bb_offset == 0) {
+            errs() << "[VM_BB0_PLAINTEXT] begin=" << currbb_begin
+                   << " end=" << currbb_end << " bytes=";
+            uint32_t dump_end = std::min<uint32_t>(currbb_begin + 16, currbb_end);
+            for (uint32_t idx = currbb_begin; idx < dump_end; ++idx) {
+                errs() << format_hex_no_prefix(vm_code[idx], 2);
+                if (idx + 1 != dump_end) errs() << " ";
+            }
+            errs() << "\n";
+        }
+        vm_code_seed_map.emplace_back(vm_code_seed, chain_seed, currbb_begin, currbb_end);
         bb_count++;
     }
 
@@ -3364,6 +3583,8 @@ class GOVMModifier {
                      GlobalVariable *exception_thrown_gv,
                      GlobalVariable *exception_ptr_gv,
                      GlobalVariable *exception_selector_gv,
+                     GlobalVariable *vm_block_chain_state_gv,
+                     GlobalVariable *expected_bb_token_gv,
                      Function *govm_interpreter, Function *resume_unwind_helper,
                      int data_seg_size) {
             this->Mod = F->getParent();
@@ -3381,6 +3602,8 @@ class GOVMModifier {
             this->exception_thrown_gv = exception_thrown_gv;
             this->exception_ptr_gv = exception_ptr_gv;
             this->exception_selector_gv = exception_selector_gv;
+            this->vm_block_chain_state_gv = vm_block_chain_state_gv;
+            this->expected_bb_token_gv = expected_bb_token_gv;
             this->govm_interpreter = govm_interpreter;
             this->resume_unwind_helper = resume_unwind_helper;
             this->data_seg_size = data_seg_size;
@@ -3403,6 +3626,8 @@ class GOVMModifier {
         GlobalVariable *exception_thrown_gv;
         GlobalVariable *exception_ptr_gv;
         GlobalVariable *exception_selector_gv;
+        GlobalVariable *vm_block_chain_state_gv;
+        GlobalVariable *expected_bb_token_gv;
         Function *govm_interpreter;
         Function *resume_unwind_helper;
         int data_seg_size;
@@ -3426,14 +3651,12 @@ void GOVMModifier::run() {
         errs() << "[GOVMModifier] Starting run() for function: " << F->getName() << "\n";
     }
 
-    // 强制使用 O0 优化级别
-    // 添加 optnone 属性禁用所有优化
-    F->addFnAttr(Attribute::OptimizeNone);
-    // 添加 noinline 属性禁用内联
-    F->addFnAttr(Attribute::NoInline);
+    // 第二步改为强制内联，让 wrapper 尽量并回调用点。
+    F->removeFnAttr(Attribute::NoInline);
+    F->addFnAttr(Attribute::AlwaysInline);
 
     if (isIRObfuscationDebugEnabled()) {
-        errs() << "[GOVMModifier]   Added optnone and noinline attributes to force O0 optimization\n";
+        errs() << "[GOVMModifier]   Added alwaysinline attribute for wrapper folding\n";
     }
 
     std::string orig_name = F->getName().str();
@@ -3614,6 +3837,8 @@ void GOVMModifier::run() {
 
     // 重置 ip 为 0，确保每次调用都从函数开头执行
     irbuilder.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), ip);
+    irbuilder.CreateStore(ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0), vm_block_chain_state_gv);
+    irbuilder.CreateStore(ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0), expected_bb_token_gv);
     irbuilder.CreateStore(ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0), exception_thrown_gv);
     irbuilder.CreateStore(ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)), exception_ptr_gv);
     irbuilder.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), exception_selector_gv);
@@ -3707,6 +3932,9 @@ class GOVMInterpreter {
         GlobalVariable *pointer_size_gv;
         GlobalVariable *opcode_xorshift32_state;
         GlobalVariable *vm_code_state;
+        GlobalVariable *vm_function_key_gv;
+        GlobalVariable *vm_block_chain_state_gv;
+        GlobalVariable *expected_bb_token_gv;
         GlobalVariable *exc_thrown_gv;
         GlobalVariable *exc_ptr_gv;
         GlobalVariable *exc_sel_gv;
@@ -3716,6 +3944,8 @@ class GOVMInterpreter {
 
         virtual void run ();
         virtual void construct_gv ();
+        GlobalVariable *get_vm_block_chain_state_gv() { return vm_block_chain_state_gv; }
+        GlobalVariable *get_expected_bb_token_gv() { return expected_bb_token_gv; }
 
 
         Module *llvm_parse_bitcode_from_string()
@@ -3772,8 +4002,16 @@ const std::set<std::string> interpreter_function_names{
                                                         "return_handler",
                                                         "get_opcode",
 #endif
+                                                        "splitmix64Next",
+                                                        "load32_le",
+                                                        "store32_le",
+                                                        "chacha_rotl32",
+                                                        "chacha20_block",
+                                                        "derive_chacha_material",
+                                                        "chacha20_byte_at",
                                                         "vm_trace_push",
                                                         "vm_dump_fault_context",
+                                                        "get_aggregate_addr",
                                                         "vmp_resume_unwind",
                                                         "vm_interpreter",
                                                         "vm_interpreter_callinst_dispatch"      // only for check annotation
@@ -3834,19 +4072,38 @@ void GOVMInterpreter::construct_gv() {
                 pointer_size_initGV, "pointer_size_"+F->getName());
     pointer_size_gv->setSection(".AProtect.data");
 
-    // opcode_xorshift32_state      32bit
-    Constant *opcode_xorshift32_state_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    opcode_xorshift32_state = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
+    // opcode_xorshift32_state      64bit splitmix64 state
+    Constant *opcode_xorshift32_state_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+    opcode_xorshift32_state = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
                 false,  GlobalValue::InternalLinkage,
                 opcode_xorshift32_state_initGV, "opcode_xorshift32_state_"+F->getName());
     opcode_xorshift32_state->setSection(".AProtect.data");
 
-    // vm_code_state                32bit
-    Constant *vm_code_state_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    vm_code_state = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
+    // vm_code_state                64bit payload seed
+    Constant *vm_code_state_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+    vm_code_state = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
                 false,  GlobalValue::InternalLinkage,
                 vm_code_state_initGV, "vm_code_state_"+F->getName());
     vm_code_state->setSection(".AProtect.data");
+
+    Constant *vm_function_key_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()),
+                                                     deriveVMFunctionKey(*F));
+    vm_function_key_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
+                false, GlobalValue::InternalLinkage,
+                vm_function_key_init, "vm_function_key_"+F->getName());
+    vm_function_key_gv->setSection(".AProtect.data");
+
+    Constant *vm_block_chain_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+    vm_block_chain_state_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
+                false, GlobalValue::InternalLinkage,
+                vm_block_chain_init, "vm_block_chain_state_"+F->getName());
+    vm_block_chain_state_gv->setSection(".AProtect.data");
+
+    Constant *expected_bb_token_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
+    expected_bb_token_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
+                false, GlobalValue::InternalLinkage,
+                expected_bb_token_init, "expected_bb_token_"+F->getName());
+    expected_bb_token_gv->setSection(".AProtect.data");
 
     assert(exc_thrown_gv && "missing shared exception_thrown global");
     assert(exc_ptr_gv && "missing shared exception_ptr global");
@@ -4012,8 +4269,8 @@ void GOVMInterpreter::run() {
         errs() << "[GOVMInterpreter]   code_seg_addr = " << (void*)code_seg_addr << "\n";
     }
     
-    std::vector<std::string> gv_list = {"gv_data_seg", "gv_code_seg", "ip", "data_seg_addr", "code_seg_addr", "pointer_size", "opcode_xorshift32_state", "vm_code_state", "exception_thrown", "exception_ptr", "exception_selector", "last_br_from_bb_id", "current_bb_id", "vmp_debug_enabled"};
-    std::vector<GlobalVariable *> new_gv_list = {gv_data_seg, gv_code_seg, ip, data_seg_addr, code_seg_addr, pointer_size_gv, opcode_xorshift32_state, vm_code_state, exc_thrown_gv, exc_ptr_gv, exc_sel_gv, last_bb_gv, curr_bb_gv, vmp_debug_enabled_gv};
+    std::vector<std::string> gv_list = {"gv_data_seg", "gv_code_seg", "ip", "data_seg_addr", "code_seg_addr", "pointer_size", "opcode_xorshift32_state", "vm_code_state", "vm_function_key", "vm_block_chain_state", "expected_bb_token", "exception_thrown", "exception_ptr", "exception_selector", "last_br_from_bb_id", "current_bb_id", "vmp_debug_enabled"};
+    std::vector<GlobalVariable *> new_gv_list = {gv_data_seg, gv_code_seg, ip, data_seg_addr, code_seg_addr, pointer_size_gv, opcode_xorshift32_state, vm_code_state, vm_function_key_gv, vm_block_chain_state_gv, expected_bb_token_gv, exc_thrown_gv, exc_ptr_gv, exc_sel_gv, last_bb_gv, curr_bb_gv, vmp_debug_enabled_gv};
     
     std::map<GlobalVariable*, GlobalVariable*> gv_remap;
     for (unsigned i = 0; i < gv_list.size(); i++) {
@@ -4203,6 +4460,16 @@ void GOVMInterpreter::run() {
                             if (it != interpreter_func_map.end()) {
                                 // 是解释器函数，使用映射的新函数
                                 VMap[Callee] = it->second;
+                            } else if (is_interpreter_function(Callee)) {
+                                std::string calleeFuncName = Callee->getName().str();
+                                std::string mappedName =
+                                    (calleeFuncName.find(F->getName().str()) != std::string::npos)
+                                        ? calleeFuncName
+                                        : (calleeFuncName + "_" + F->getName().str());
+                                Function *TargetCallee = Mod->getFunction(mappedName);
+                                if (TargetCallee) {
+                                    VMap[Callee] = TargetCallee;
+                                }
                             } else if (!Callee->isDeclaration()) {
                                 // 不是解释器函数，也不是声明
                                 // 检查是否是callinst_dispatch函数，如果是，不要重命名
@@ -4218,7 +4485,11 @@ void GOVMInterpreter::run() {
                                 }
                                 
                                 // 其他非声明函数，查找或创建声明
-                                std::string calleeNewName = Callee->getName().str() + "_" + F->getName().str();
+                                std::string calleeFuncName = Callee->getName().str();
+                                std::string calleeNewName =
+                                    (calleeFuncName.find(F->getName().str()) != std::string::npos)
+                                        ? calleeFuncName
+                                        : (calleeFuncName + "_" + F->getName().str());
                                 Function *TargetCallee = Mod->getFunction(calleeNewName);
                                 
                                 if (!TargetCallee) {
@@ -4452,144 +4723,10 @@ struct VMProtect : public ModulePass {
             errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
             continue;
           }
-          // VMP 函数使用 OptimizeNone 防止优化
-          // 注意: 不要添加 AlwaysInline，因为 OptimizeNone 隐含 NoInline，两者冲突
-          F->addFnAttr(Attribute::OptimizeNone);
-          // 跳过标准库函数（只跳过明确的标准库函数，不跳过用户函数）
-          // 带vmp注解的函数不进行标准库名称过滤
-          std::string funcName = F->getName().str();
-          
-          bool is_stdlib = isKnownStdlibLikeFunctionName(funcName);
-          
-          if(F->isDeclaration()) {
-            // 跳过以__开头（编译器内部函数）
-            if(funcName.length() >= 2 && funcName[0] == '_' && funcName[1] == '_') {
-              is_stdlib = true;
-            }
-            // 跳过C标准库函数
-            else if(funcName.find("printf") != std::string::npos ||
-               funcName.find("sprintf") != std::string::npos ||
-               funcName.find("fprintf") != std::string::npos ||
-               funcName.find("vsprintf") != std::string::npos ||
-               funcName.find("vfprintf") != std::string::npos ||
-               funcName.find("vsnprintf") != std::string::npos ||
-               funcName.find("local_stdio") != std::string::npos ||
-               funcName.find("frexp") != std::string::npos ||
-               funcName.find("ldexp") != std::string::npos ||
-               funcName.find("modf") != std::string::npos ||
-               funcName.find("scalbn") != std::string::npos ||
-               funcName.find("ilogb") != std::string::npos ||
-               funcName.find("logb") != std::string::npos ||
-               funcName.find("copysign") != std::string::npos ||
-               funcName.find("nan") != std::string::npos ||
-               funcName.find("nextafter") != std::string::npos ||
-               funcName.find("fdim") != std::string::npos ||
-               funcName.find("fmax") != std::string::npos ||
-               funcName.find("fmin") != std::string::npos ||
-               funcName.find("fma") != std::string::npos ||
-               funcName.find("isnan") != std::string::npos ||
-               funcName.find("isinf") != std::string::npos ||
-               funcName.find("isfinite") != std::string::npos ||
-               funcName.find("fabs") != std::string::npos ||
-               funcName.find("ceil") != std::string::npos ||
-               funcName.find("floor") != std::string::npos ||
-               funcName.find("round") != std::string::npos ||
-               funcName.find("trunc") != std::string::npos ||
-               funcName.find("sqrt") != std::string::npos ||
-               funcName.find("pow") != std::string::npos ||
-               funcName.find("exp") != std::string::npos ||
-               funcName.find("log") != std::string::npos ||
-               funcName.find("sin") != std::string::npos ||
-               funcName.find("cos") != std::string::npos ||
-               funcName.find("tan") != std::string::npos ||
-               funcName.find("asin") != std::string::npos ||
-               funcName.find("acos") != std::string::npos ||
-               funcName.find("atan") != std::string::npos ||
-               funcName.find("atan2") != std::string::npos ||
-               funcName.find("sinh") != std::string::npos ||
-               funcName.find("cosh") != std::string::npos ||
-               funcName.find("tanh") != std::string::npos) {
-              is_stdlib = true;
-            }
-            // 跳过C++随机数库函数
-            else if(funcName.find("random_device") != std::string::npos ||
-               funcName.find("mt19937") != std::string::npos ||
-               funcName.find("mt19937_64") != std::string::npos ||
-               funcName.find("minstd_rand") != std::string::npos ||
-               funcName.find("minstd_rand0") != std::string::npos ||
-               funcName.find("ranlux24") != std::string::npos ||
-               funcName.find("ranlux48") != std::string::npos ||
-               funcName.find("knuth_b") != std::string::npos ||
-               funcName.find("linear_congruential_engine") != std::string::npos ||
-               funcName.find("mersenne_twister_engine") != std::string::npos ||
-               funcName.find("subtract_with_carry_engine") != std::string::npos ||
-               funcName.find("discard_block_engine") != std::string::npos ||
-               funcName.find("independent_bits_engine") != std::string::npos ||
-               funcName.find("shuffle_order_engine") != std::string::npos ||
-               funcName.find("uniform_int_distribution") != std::string::npos ||
-               funcName.find("uniform_real_distribution") != std::string::npos ||
-               funcName.find("bernoulli_distribution") != std::string::npos ||
-               funcName.find("binomial_distribution") != std::string::npos ||
-               funcName.find("geometric_distribution") != std::string::npos ||
-               funcName.find("negative_binomial_distribution") != std::string::npos ||
-               funcName.find("poisson_distribution") != std::string::npos ||
-               funcName.find("exponential_distribution") != std::string::npos ||
-               funcName.find("gamma_distribution") != std::string::npos ||
-               funcName.find("weibull_distribution") != std::string::npos ||
-               funcName.find("extreme_value_distribution") != std::string::npos ||
-               funcName.find("normal_distribution") != std::string::npos ||
-               funcName.find("lognormal_distribution") != std::string::npos ||
-               funcName.find("chi_squared_distribution") != std::string::npos ||
-               funcName.find("cauchy_distribution") != std::string::npos ||
-               funcName.find("fisher_f_distribution") != std::string::npos ||
-               funcName.find("student_t_distribution") != std::string::npos ||
-               funcName.find("discrete_distribution") != std::string::npos ||
-               funcName.find("piecewise_constant_distribution") != std::string::npos ||
-               funcName.find("piecewise_linear_distribution") != std::string::npos ||
-               funcName.find("seed_seq") != std::string::npos) {
-              is_stdlib = true;
-            }
-            // 跳过C++标准库函数（检查std::命名空间）
-            else if(funcName.find("std::") != std::string::npos ||
-               funcName.find("basic_ostream") != std::string::npos ||
-               funcName.find("basic_ios") != std::string::npos ||
-               funcName.find("basic_istream") != std::string::npos ||
-               funcName.find("basic_string") != std::string::npos ||
-               funcName.find("basic_iostream") != std::string::npos ||
-               funcName.find("basic_fstream") != std::string::npos ||
-               funcName.find("basic_ifstream") != std::string::npos ||
-               funcName.find("basic_ofstream") != std::string::npos ||
-               funcName.find("basic_stringbuf") != std::string::npos ||
-               funcName.find("basic_istringstream") != std::string::npos ||
-               funcName.find("basic_ostringstream") != std::string::npos ||
-               funcName.find("basic_stringstream") != std::string::npos ||
-               funcName.find("ctype") != std::string::npos ||
-               funcName.find("locale") != std::string::npos ||
-               funcName.find("char_traits") != std::string::npos ||
-               funcName.find("numpunct") != std::string::npos ||
-               funcName.find("num_put") != std::string::npos ||
-               funcName.find("allocator") != std::string::npos ||
-               funcName.find("ios_base") != std::string::npos ||
-               funcName.find("ostreambuf") != std::string::npos ||
-               funcName.find("istreambuf") != std::string::npos ||
-               funcName.find("bad_cast") != std::string::npos ||
-               funcName.find("bad_alloc") != std::string::npos ||
-               funcName.find("exception") != std::string::npos ||
-               funcName.find("bad_exception") != std::string::npos ||
-               funcName.find("runtime_error") != std::string::npos ||
-               funcName.find("logic_error") != std::string::npos ||
-               funcName.find("out_of_range") != std::string::npos ||
-               funcName.find("length_error") != std::string::npos ||
-               funcName.find("domain_error") != std::string::npos ||
-               funcName.find("invalid_argument") != std::string::npos ||
-               funcName.find("range_error") != std::string::npos ||
-               funcName.find("overflow_error") != std::string::npos ||
-               funcName.find("underflow_error") != std::string::npos) {
-              is_stdlib = true;
-            }
-          }
-          
-          if(is_stdlib) {
+          if (F->isDeclaration()) {
+            errs() << "[VMP Warning] Function '" << F->getName()
+                   << "' is declaration-only, which is not supported by VMP.\n";
+            errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
             continue;
           }
           functions_to_process.push_back(F);
@@ -4641,6 +4778,8 @@ struct VMProtect : public ModulePass {
                                                     translator->exception_thrown,
                                                     translator->exception_ptr_global,
                                                     translator->exception_selector_global,
+                                                    interpreter->get_vm_block_chain_state_gv(),
+                                                    interpreter->get_expected_bb_token_gv(),
                                                     vm_interpreter_func,
                                                     resume_unwind_helper_func,
                                                     translator->get_data_seg_size());
@@ -4682,76 +4821,10 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
         errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
         continue;
       }
-      // VMP 函数使用 OptimizeNone 防止优化
-      // 注意: 不要添加 AlwaysInline，因为 OptimizeNone 隐含 NoInline，两者冲突
-      F->addFnAttr(Attribute::OptimizeNone);
-      std::string funcName = F->getName().str();
-      
-      bool is_stdlib = isKnownStdlibLikeFunctionName(funcName);
-      
-      // 只对声明函数（外部函数）进行标准库过滤
-      if(F->isDeclaration()) {
-        // 跳过以__开头的编译器内部函数
-        if(funcName.length() >= 2 && funcName[0] == '_' && funcName[1] == '_') {
-          is_stdlib = true;
-        }
-        // 跳过 SyscallProtect 创建的 wrapper 函数
-        else if(funcName.find("__syscall_") == 0) {
-          is_stdlib = true;
-        }
-        // 跳过 SyscallProtect 创建的 __real_ 函数
-        else if(funcName.find("__real_") == 0) {
-          is_stdlib = true;
-        }
-        else if(funcName.find("printf") != std::string::npos ||
-           funcName.find("sprintf") != std::string::npos ||
-           funcName.find("fprintf") != std::string::npos ||
-           funcName.find("malloc") != std::string::npos ||
-           funcName.find("free") != std::string::npos ||
-           funcName.find("std::") != std::string::npos ||
-           funcName.find("basic_ostream") != std::string::npos ||
-           funcName.find("basic_string") != std::string::npos ||
-           // C++随机数库
-           funcName.find("random_device") != std::string::npos ||
-           funcName.find("mt19937") != std::string::npos ||
-           funcName.find("mt19937_64") != std::string::npos ||
-           funcName.find("minstd_rand") != std::string::npos ||
-           funcName.find("minstd_rand0") != std::string::npos ||
-           funcName.find("ranlux24") != std::string::npos ||
-           funcName.find("ranlux48") != std::string::npos ||
-           funcName.find("knuth_b") != std::string::npos ||
-           funcName.find("linear_congruential_engine") != std::string::npos ||
-           funcName.find("mersenne_twister_engine") != std::string::npos ||
-           funcName.find("subtract_with_carry_engine") != std::string::npos ||
-           funcName.find("discard_block_engine") != std::string::npos ||
-           funcName.find("independent_bits_engine") != std::string::npos ||
-           funcName.find("shuffle_order_engine") != std::string::npos ||
-           funcName.find("uniform_int_distribution") != std::string::npos ||
-           funcName.find("uniform_real_distribution") != std::string::npos ||
-           funcName.find("bernoulli_distribution") != std::string::npos ||
-           funcName.find("binomial_distribution") != std::string::npos ||
-           funcName.find("geometric_distribution") != std::string::npos ||
-           funcName.find("negative_binomial_distribution") != std::string::npos ||
-           funcName.find("poisson_distribution") != std::string::npos ||
-           funcName.find("exponential_distribution") != std::string::npos ||
-           funcName.find("gamma_distribution") != std::string::npos ||
-           funcName.find("weibull_distribution") != std::string::npos ||
-           funcName.find("extreme_value_distribution") != std::string::npos ||
-           funcName.find("normal_distribution") != std::string::npos ||
-           funcName.find("lognormal_distribution") != std::string::npos ||
-           funcName.find("chi_squared_distribution") != std::string::npos ||
-           funcName.find("cauchy_distribution") != std::string::npos ||
-           funcName.find("fisher_f_distribution") != std::string::npos ||
-           funcName.find("student_t_distribution") != std::string::npos ||
-           funcName.find("discrete_distribution") != std::string::npos ||
-           funcName.find("piecewise_constant_distribution") != std::string::npos ||
-           funcName.find("piecewise_linear_distribution") != std::string::npos ||
-           funcName.find("seed_seq") != std::string::npos) {
-          is_stdlib = true;
-        }
-      }
-      
-      if(is_stdlib) {
+      if (F->isDeclaration()) {
+        errs() << "[VMP Warning] Function '" << F->getName()
+               << "' is declaration-only, which is not supported by VMP.\n";
+        errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
         continue;
       }
       
@@ -4799,6 +4872,8 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
                                                 translator->exception_thrown,
                                                 translator->exception_ptr_global,
                                                 translator->exception_selector_global,
+                                                interpreter->get_vm_block_chain_state_gv(),
+                                                interpreter->get_expected_bb_token_gv(),
                                                 vm_interpreter_func,
                                                 resume_unwind_helper_func,
                                                 translator->get_data_seg_size());
