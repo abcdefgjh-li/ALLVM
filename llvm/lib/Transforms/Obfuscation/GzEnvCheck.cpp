@@ -92,23 +92,33 @@ bool GzEnvCheck::runOnModule(Module &M) {
         }
     }
 
-    // 写入 clang 同目录下的 .gz_env_key[.<tag>] 文件
-    SmallString<256> keyFilePath;
-    std::string keyFileName = ".gz_env_key";
-    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-        keyFileName += "." + *keyTag;
-    sys::path::append(keyFilePath, clangDir, keyFileName);
-    std::error_code EC;
-    raw_fd_ostream keyFile(keyFilePath, EC, sys::fs::OF_None);
-    if (!EC) {
+    auto writeKeyFile = [&](StringRef fileName) -> bool {
+        SmallString<256> keyFilePath;
+        sys::path::append(keyFilePath, clangDir, fileName);
+        std::error_code EC;
+        raw_fd_ostream keyFile(keyFilePath, EC, sys::fs::OF_None);
+        if (EC) {
+            errs() << "[GzEnvCheck] Warning: Cannot write " << keyFilePath << ": "
+                   << EC.message() << "\n";
+            return false;
+        }
+
         keyFile << gz_env_key;
         keyFile.close();
         if (isIRObfuscationDebugEnabled()) {
             errs() << "[DEBUG] GzEnvCheck: Generated key: " << gz_env_key << "\n";
             errs() << "[DEBUG] GzEnvCheck: Key written to " << keyFilePath << "\n";
         }
-    } else {
-        errs() << "[GzEnvCheck] Warning: Cannot write " << keyFilePath << ": " << EC.message() << "\n";
+        return true;
+    };
+
+    // 始终写稳定主文件，供编译/链接分离场景复用。
+    writeKeyFile(".gz_env_key");
+
+    // 兼容旧逻辑：如果存在 tag，再额外写一份带 tag 的文件。
+    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG")) {
+        std::string taggedFileName = ".gz_env_key." + *keyTag;
+        writeKeyFile(taggedFileName);
     }
 
     // 创建报告函数

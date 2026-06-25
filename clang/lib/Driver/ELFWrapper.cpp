@@ -507,29 +507,39 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   uint8_t key[32], nonce[12];
   generate_random_key(key, nonce);
 
-  // 从 clang 同目录的 .linker_env_key[.<tag>] 文件读取密钥（由 EnvCheck Pass 生成）
+  // 从 clang 同目录读取 EnvCheck 生成的密钥。
   SmallString<256> linkerKeyPath;
-  std::string linkerKeyFileName = ".linker_env_key";
-  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-    linkerKeyFileName += "." + *keyTag;
-  sys::path::append(linkerKeyPath, clangDir, linkerKeyFileName);
-  std::string linkerKeyPathStr = std::string(linkerKeyPath.str());
   std::string env_key(32, '\0');
   {
-    std::ifstream keyFile(linkerKeyPathStr);
-    if (keyFile.is_open()) {
+    SmallVector<std::string, 2> keyCandidates;
+    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+      keyCandidates.push_back(".linker_env_key." + *keyTag);
+    keyCandidates.push_back(".linker_env_key");
+
+    bool keyLoaded = false;
+    for (const std::string &candidate : keyCandidates) {
+      SmallString<256> candidatePath;
+      sys::path::append(candidatePath, clangDir, candidate);
+      std::ifstream keyFile(std::string(candidatePath.str()));
+      if (!keyFile.is_open())
+        continue;
+
       keyFile.read(&env_key[0], 32);
       keyFile.close();
-      if (DebugMode) outs() << "[irobf-linker] Read key from " << linkerKeyPath << ": " << env_key << "\n";
-    } else {
-      // 如果文件不存在，生成随机密钥
-      if (DebugMode) outs() << "[irobf-linker] Warning: " << linkerKeyPath << " not found, generating random key\n";
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<int> dist(0, 15);
-      const char hex[] = "0123456789abcdef";
-      for (int i = 0; i < 32; i++)
-        env_key[i] = hex[dist(gen)];
+      linkerKeyPath = candidatePath;
+      keyLoaded = true;
+      if (DebugMode)
+        outs() << "[irobf-linker] Read key from " << linkerKeyPath << ": "
+               << env_key << "\n";
+      break;
+    }
+
+    if (!keyLoaded) {
+      errs() << "Error: [irobf-linker] Cannot find .linker_env_key";
+      if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+        errs() << " (tag=" << *keyTag << ")";
+      errs() << " in " << clangDir << "\n";
+      return false;
     }
   }
 
@@ -797,29 +807,39 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
     }
   }
 
-  // 从 clang 同目录的 .gz_env_key[.<tag>] 文件读取密钥（由 GzEnvCheck Pass 生成）
+  // 从 clang 同目录读取 GzEnvCheck 生成的密钥。
   SmallString<256> gzKeyPath;
-  std::string gzKeyFileName = ".gz_env_key";
-  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-    gzKeyFileName += "." + *keyTag;
-  sys::path::append(gzKeyPath, clangDir, gzKeyFileName);
-  std::string gzKeyPathStr = std::string(gzKeyPath.str());
   std::string gz_env_key(32, '\0');
   {
-    std::ifstream keyFile(gzKeyPathStr);
-    if (keyFile.is_open()) {
+    SmallVector<std::string, 2> keyCandidates;
+    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+      keyCandidates.push_back(".gz_env_key." + *keyTag);
+    keyCandidates.push_back(".gz_env_key");
+
+    bool keyLoaded = false;
+    for (const std::string &candidate : keyCandidates) {
+      SmallString<256> candidatePath;
+      sys::path::append(candidatePath, clangDir, candidate);
+      std::ifstream keyFile(std::string(candidatePath.str()));
+      if (!keyFile.is_open())
+        continue;
+
       keyFile.read(&gz_env_key[0], 32);
       keyFile.close();
-      if (DebugMode) outs() << "[irobf-gz] Read key from " << gzKeyPath << ": " << gz_env_key << "\n";
-    } else {
-      // 如果文件不存在，生成随机密钥
-      if (DebugMode) outs() << "[irobf-gz] Warning: " << gzKeyPath << " not found, generating random key\n";
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<int> dist(0, 15);
-      const char hex[] = "0123456789abcdef";
-      for (int i = 0; i < 32; i++)
-        gz_env_key[i] = hex[dist(gen)];
+      gzKeyPath = candidatePath;
+      keyLoaded = true;
+      if (DebugMode)
+        outs() << "[irobf-gz] Read key from " << gzKeyPath << ": "
+               << gz_env_key << "\n";
+      break;
+    }
+
+    if (!keyLoaded) {
+      errs() << "Error: [irobf-gz] Cannot find .gz_env_key";
+      if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+        errs() << " (tag=" << *keyTag << ")";
+      errs() << " in " << clangDir << "\n";
+      return false;
     }
   }
 
