@@ -237,9 +237,9 @@ namespace {
 		                             SmallPtrSetImpl<CSPEntry *> &Entries);
 
 		/**
-		 * @brief 在当前基本块结束前擦除解密缓冲区，避免明文长期驻留
+		 * @brief 在当前基本块结束前擦除并释放解密堆缓冲区，避免明文长期驻留
 		 * @param BB 需要插入擦除逻辑的基本块
-		 * @param GV 需要擦除的全局缓冲区
+		 * @param GV 保存堆指针的全局槽位
 		 */
 		void scheduleWipeAtBlockEnd(BasicBlock *BB, GlobalVariable *GV);
 		static bool shouldSkipBlockEndWipe(BasicBlock *BB, Instruction *InsertBefore);
@@ -313,14 +313,15 @@ bool StringEncryption::runOnModule(Module &M) {
 					Entry->Data.push_back(static_cast<uint8_t>(Data[i]));
 				}
 				Entry->ID = static_cast<unsigned>(ConstantStringPool.size());
-				Constant *ZeroInit = Constant::getNullValue(CDS->getType());
-				GlobalVariable *DecGV = new GlobalVariable(M, CDS->getType(), false, GlobalValue::PrivateLinkage,
-				    ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
+				Type *HeapSlotTy = M.getDataLayout().getIntPtrType(Ctx, 0);
+				Constant *ZeroInit = ConstantInt::get(HeapSlotTy, 0);
+				GlobalVariable *DecGV = new GlobalVariable(M, HeapSlotTy, false, GlobalValue::PrivateLinkage,
+				    ZeroInit, "decptr_" + Twine::utohexstr(Entry->ID) + GV.getName());
 				GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
 				    Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+				DecGV->setInitializer(ZeroInit);
 				DecGV->setSection(".AProtect.data");
 				DecStatus->setSection(".AProtect.data");
-				DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
 				DecGV->setMetadata("noobf", MDNode::get(Ctx, {}));
 				DecStatus->setMetadata("noobf", MDNode::get(Ctx, {}));
 				Entry->DecGV = DecGV;
@@ -341,14 +342,15 @@ bool StringEncryption::runOnModule(Module &M) {
 						Entry->Data16.push_back(static_cast<uint16_t>(v));
 					}
 					Entry->ID = static_cast<unsigned>(ConstantStringPool.size());
-					Constant *ZeroInit = Constant::getNullValue(CDS->getType());
-					GlobalVariable *DecGV = new GlobalVariable(M, CDS->getType(), false, GlobalValue::PrivateLinkage,
-					    ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
+					Type *HeapSlotTy = M.getDataLayout().getIntPtrType(Ctx, 0);
+					Constant *ZeroInit = ConstantInt::get(HeapSlotTy, 0);
+					GlobalVariable *DecGV = new GlobalVariable(M, HeapSlotTy, false, GlobalValue::PrivateLinkage,
+					    ZeroInit, "decptr_" + Twine::utohexstr(Entry->ID) + GV.getName());
 					GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
 					    Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+					DecGV->setInitializer(ZeroInit);
 					DecGV->setSection(".AProtect.data");
 					DecStatus->setSection(".AProtect.data");
-					DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
 					DecGV->setMetadata("noobf", MDNode::get(Ctx, {}));
 					DecStatus->setMetadata("noobf", MDNode::get(Ctx, {}));
 					Entry->DecGV = DecGV;
@@ -505,11 +507,8 @@ bool StringEncryption::runOnModule(Module &M) {
 		}
 
 		if (auto *StrGV = dyn_cast<GlobalVariable>(C)) {
-			if (CSPEntry *Entry = resolveCSPEntryGlobal(StrGV)) {
-				if (StrGV != Entry->DecGV) {
-					MaybeDeadGlobalVars.insert(StrGV);
-				}
-				return Entry->DecGV;
+			if (resolveCSPEntryGlobal(StrGV)) {
+				return C;
 			}
 			if (CSUser *User = resolveCSUserGlobal(StrGV)) {
 				if (StrGV != User->DecGV) {
@@ -663,137 +662,154 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
 	PointerType *PlainPtrTy = PointerType::get(Ctx, 0);
 	PointerType *DataPtrTy = PointerType::get(Ctx, 0);
 
-	FunctionType *FuncTy = FunctionType::get(
-	                           Type::getVoidTy(Ctx),
-	{PlainPtrTy, DataPtrTy},
-	false);
+	FunctionType *FuncTy =
+	    FunctionType::get(PlainPtrTy, {DataPtrTy}, false);
 	Function *DecFunc =
-	    Function::Create(FuncTy, GlobalValue::PrivateLinkage, "abcdefgjh_decrypt_string_" + Twine::utohexstr(Entry->ID), M);
+	    Function::Create(FuncTy, GlobalValue::PrivateLinkage,
+	                     "abcdefgjh_decrypt_string_" + Twine::utohexstr(Entry->ID), M);
 
 	auto ArgIt = DecFunc->arg_begin();
-	Argument *PlainString = ArgIt;
-	++ArgIt;
 	Argument *Data = ArgIt;
 
 	AttrBuilder NoCaptureAttrBuilder{Ctx};
 	NoCaptureAttrBuilder.addCapturesAttr(llvm::CaptureInfo(llvm::CaptureComponents::None));
 
-	PlainString->setName("plain_string");
-	PlainString->addAttrs(NoCaptureAttrBuilder);
 	Data->setName("data");
 	Data->addAttrs(NoCaptureAttrBuilder);
 
 	BasicBlock *Enter = BasicBlock::Create(Ctx, "Enter", DecFunc);
+	BasicBlock *ReadyExit = BasicBlock::Create(Ctx, "ReadyExit", DecFunc);
+	BasicBlock *Alloc = BasicBlock::Create(Ctx, "Alloc", DecFunc);
 	BasicBlock *LoopBody = BasicBlock::Create(Ctx, "LoopBody", DecFunc);
-	BasicBlock *LoopBr0 = BasicBlock::Create(Ctx, "LoopBr0", DecFunc);
-	BasicBlock *LoopBr1 = BasicBlock::Create(Ctx, "LoopBr1", DecFunc);
-	BasicBlock *LoopEnd = BasicBlock::Create(Ctx, "LoopEnd", DecFunc);
 	BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", DecFunc);
 
 	IRB.SetInsertPoint(Enter);
-	ConstantInt *KeyElemSize = ConstantInt::get(Type::getInt32Ty(Ctx), Entry->IsUTF16 ? static_cast<uint32_t>(Entry->EncKey16.size()) : static_cast<uint32_t>(Entry->EncKey.size()));
-	uint32_t KeySizeInBytes = Entry->IsUTF16 ? static_cast<uint32_t>(Entry->EncKey16.size() * 2) : static_cast<uint32_t>(Entry->EncKey.size());
+	ConstantInt *KeyElemSize =
+	    ConstantInt::get(Type::getInt32Ty(Ctx),
+	                     Entry->IsUTF16 ? static_cast<uint32_t>(Entry->EncKey16.size())
+	                                    : static_cast<uint32_t>(Entry->EncKey.size()));
+	uint32_t KeySizeInBytes =
+	    Entry->IsUTF16 ? static_cast<uint32_t>(Entry->EncKey16.size() * 2)
+	                   : static_cast<uint32_t>(Entry->EncKey.size());
 	ConstantInt *KeySizeBytesConst = ConstantInt::get(Type::getInt32Ty(Ctx), KeySizeInBytes);
-
-	Value *EncPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeySizeBytesConst);
 	Value *DecStatus = IRB.CreateLoad(Type::getInt32Ty(Ctx), Entry->DecStatus, "dec_status");
 	Value *AlreadyDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1), "already_decrypted");
-	IRB.CreateCondBr(AlreadyDecrypted, Exit, LoopBody);
+	IRB.CreateCondBr(AlreadyDecrypted, ReadyExit, Alloc);
+
+	IRB.SetInsertPoint(ReadyExit);
+	Type *HeapSlotTy = Entry->DecGV->getValueType();
+	Value *CachedBits = IRB.CreateLoad(HeapSlotTy, Entry->DecGV, "cached_heap_bits");
+	Value *CachedPtr = IRB.CreateIntToPtr(CachedBits, PlainPtrTy, "cached_heap_ptr");
+	IRB.CreateRet(CachedPtr);
+
+	IRB.SetInsertPoint(Alloc);
+	Value *EncPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeySizeBytesConst);
+	uint64_t PlainSizeBytes = Entry->IsUTF16
+	                              ? static_cast<uint64_t>(Entry->Data16.size()) * 2ULL
+	                              : static_cast<uint64_t>(Entry->Data.size());
+	uint32_t ElemCount = Entry->IsUTF16 ? static_cast<uint32_t>(Entry->Data16.size())
+	                                    : static_cast<uint32_t>(Entry->Data.size());
+	FunctionCallee MallocFn = M->getOrInsertFunction(
+	    "malloc", FunctionType::get(PlainPtrTy, {IRB.getInt64Ty()}, false));
+	Value *HeapPtr = IRB.CreateCall(MallocFn, {IRB.getInt64(PlainSizeBytes)}, "heap_string");
+	IRB.CreateMemCpy(HeapPtr, MaybeAlign(1), EncPtr, MaybeAlign(1), PlainSizeBytes);
+	if (ElemCount == 0) {
+		IRB.CreateStore(IRB.CreatePtrToInt(HeapPtr, HeapSlotTy), Entry->DecGV);
+		IRB.CreateStore(IRB.getInt32(1), Entry->DecStatus);
+		IRB.CreateRet(HeapPtr);
+	} else {
+		IRB.CreateBr(LoopBody);
+	}
 
 	IRB.SetInsertPoint(LoopBody);
 	PHINode *LoopCounter = IRB.CreatePHI(IRB.getInt32Ty(), 2);
-	LoopCounter->addIncoming(IRB.getInt32(0), Enter);
-
+	LoopCounter->addIncoming(IRB.getInt32(0), Alloc);
 	PHINode *LastDecrypted = IRB.CreatePHI(PlainEltTy, 2);
-	LastDecrypted->addIncoming(Constant::getNullValue(PlainEltTy), Enter);
-
+	LastDecrypted->addIncoming(Constant::getNullValue(PlainEltTy), Alloc);
 	Value *KeyIdx = IRB.CreateURem(LoopCounter, KeyElemSize);
 
 	Value *KeyChar = nullptr;
+	Value *EncChar = nullptr;
+	Value *DecChar = nullptr;
 	if (!Entry->IsUTF16) {
 		Value *KeyCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeyIdx);
 		KeyChar = IRB.CreateLoad(IRB.getInt8Ty(), KeyCharPtr);
+		Value *HeapCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), HeapPtr, LoopCounter);
+		EncChar = IRB.CreateLoad(IRB.getInt8Ty(), HeapCharPtr, true);
+		Value *KeyIdxZext = IRB.CreateZExt(KeyIdx, IRB.getInt32Ty());
+		Value *KeyCharZext = IRB.CreateZExt(KeyChar, IRB.getInt32Ty());
+		Value *Mul = IRB.CreateMul(KeyIdxZext, KeyCharZext);
+		Value *BrKey = IRB.CreateAnd(Mul, IRB.getInt32(1));
+		Value *BrCond = IRB.CreateICmpEQ(BrKey, IRB.getInt32(0));
+		BasicBlock *LoopBr0 = BasicBlock::Create(Ctx, "LoopBr0", DecFunc);
+		BasicBlock *LoopBr1 = BasicBlock::Create(Ctx, "LoopBr1", DecFunc);
+		BasicBlock *LoopEnd = BasicBlock::Create(Ctx, "LoopEnd", DecFunc);
+		IRB.CreateCondBr(BrCond, LoopBr0, LoopBr1);
+
+		IRB.SetInsertPoint(LoopBr0);
+		Value *Tmp0 = IRB.CreateAdd(EncChar, LastDecrypted);
+		Tmp0 = IRB.CreateXor(Tmp0, KeyChar);
+		Tmp0 = IRB.CreateNot(Tmp0);
+		IRB.CreateBr(LoopEnd);
+
+		IRB.SetInsertPoint(LoopBr1);
+		Value *Tmp1 = IRB.CreateSub(EncChar, LastDecrypted);
+		Tmp1 = IRB.CreateXor(Tmp1, KeyChar);
+		Tmp1 = IRB.CreateNeg(Tmp1);
+		IRB.CreateBr(LoopEnd);
+
+		IRB.SetInsertPoint(LoopEnd);
+		PHINode *BrDecChar = IRB.CreatePHI(PlainEltTy, 2);
+		BrDecChar->addIncoming(Tmp0, LoopBr0);
+		BrDecChar->addIncoming(Tmp1, LoopBr1);
+		DecChar = IRB.CreateXor(BrDecChar, KeyChar);
+		IRB.CreateStore(DecChar, HeapCharPtr);
 	} else {
-		Value *KeyBase = IRB.CreateBitCast(Data, PointerType::get(Ctx, 0));
+		Value *KeyBase = IRB.CreateBitCast(Data, PlainPtrTy);
 		Value *KeyCharPtr = IRB.CreateInBoundsGEP(Type::getInt16Ty(Ctx), KeyBase, KeyIdx);
 		KeyChar = IRB.CreateLoad(Type::getInt16Ty(Ctx), KeyCharPtr);
-	}
+		Value *HeapCharPtr = IRB.CreateInBoundsGEP(Type::getInt16Ty(Ctx), HeapPtr, LoopCounter);
+		EncChar = IRB.CreateLoad(Type::getInt16Ty(Ctx), HeapCharPtr, true);
+		Value *KeyIdxZext = IRB.CreateZExt(KeyIdx, IRB.getInt32Ty());
+		Value *KeyCharZext = IRB.CreateZExt(KeyChar, IRB.getInt32Ty());
+		Value *Mul = IRB.CreateMul(KeyIdxZext, KeyCharZext);
+		Value *BrKey = IRB.CreateAnd(Mul, IRB.getInt32(1));
+		Value *BrCond = IRB.CreateICmpEQ(BrKey, IRB.getInt32(0));
+		BasicBlock *LoopBr0 = BasicBlock::Create(Ctx, "LoopBr0", DecFunc);
+		BasicBlock *LoopBr1 = BasicBlock::Create(Ctx, "LoopBr1", DecFunc);
+		BasicBlock *LoopEnd = BasicBlock::Create(Ctx, "LoopEnd", DecFunc);
+		IRB.CreateCondBr(BrCond, LoopBr0, LoopBr1);
 
-	Value *EncChar = nullptr;
-	if (!Entry->IsUTF16) {
-		Value *EncCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr, LoopCounter);
-		EncChar = IRB.CreateLoad(IRB.getInt8Ty(), EncCharPtr, true);
-	} else {
-		Value *Two = IRB.getInt32(2);
-		Value *IdxBytes = IRB.CreateMul(LoopCounter, Two);
-		Value *EncCharBytePtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr, IdxBytes);
-		Value *EncChar16Ptr = IRB.CreateBitCast(EncCharBytePtr, PointerType::get(Ctx, 0));
-		EncChar = IRB.CreateLoad(Type::getInt16Ty(Ctx), EncChar16Ptr, true);
-	}
-
-	Value *KeyIdxZext = IRB.CreateZExt(KeyIdx, IRB.getInt32Ty());
-	Value *KeyCharZext = nullptr;
-	if (!Entry->IsUTF16) {
-		KeyCharZext = IRB.CreateZExt(KeyChar, IRB.getInt32Ty());
-	} else {
-		KeyCharZext = IRB.CreateZExt(KeyChar, IRB.getInt32Ty());
-	}
-	Value *Mul = IRB.CreateMul(KeyIdxZext, KeyCharZext);
-	Value *BrKey = IRB.CreateAnd(Mul, IRB.getInt32(1));
-	Value *BrCond = IRB.CreateICmpEQ(BrKey, IRB.getInt32(0));
-	IRB.CreateCondBr(BrCond, LoopBr0, LoopBr1);
-
-	IRB.SetInsertPoint(LoopBr0);
-	Value *DecChar0 = nullptr;
-	if (!Entry->IsUTF16) {
+		IRB.SetInsertPoint(LoopBr0);
 		Value *Tmp0 = IRB.CreateAdd(EncChar, LastDecrypted);
 		Tmp0 = IRB.CreateXor(Tmp0, KeyChar);
 		Tmp0 = IRB.CreateNot(Tmp0);
-		DecChar0 = Tmp0;
-	} else {
-		Value *Tmp0 = IRB.CreateAdd(EncChar, LastDecrypted);
-		Tmp0 = IRB.CreateXor(Tmp0, KeyChar);
-		Tmp0 = IRB.CreateNot(Tmp0);
-		DecChar0 = Tmp0;
-	}
-	IRB.CreateBr(LoopEnd);
+		IRB.CreateBr(LoopEnd);
 
-	IRB.SetInsertPoint(LoopBr1);
-	Value *DecChar1 = nullptr;
-	if (!Entry->IsUTF16) {
+		IRB.SetInsertPoint(LoopBr1);
 		Value *Tmp1 = IRB.CreateSub(EncChar, LastDecrypted);
 		Tmp1 = IRB.CreateXor(Tmp1, KeyChar);
 		Tmp1 = IRB.CreateNeg(Tmp1);
-		DecChar1 = Tmp1;
-	} else {
-		Value *Tmp1 = IRB.CreateSub(EncChar, LastDecrypted);
-		Tmp1 = IRB.CreateXor(Tmp1, KeyChar);
-		Tmp1 = IRB.CreateNeg(Tmp1);
-		DecChar1 = Tmp1;
+		IRB.CreateBr(LoopEnd);
+
+		IRB.SetInsertPoint(LoopEnd);
+		PHINode *BrDecChar = IRB.CreatePHI(PlainEltTy, 2);
+		BrDecChar->addIncoming(Tmp0, LoopBr0);
+		BrDecChar->addIncoming(Tmp1, LoopBr1);
+		DecChar = IRB.CreateXor(BrDecChar, KeyChar);
+		IRB.CreateStore(DecChar, HeapCharPtr);
 	}
-	IRB.CreateBr(LoopEnd);
 
-	IRB.SetInsertPoint(LoopEnd);
-	PHINode *BrDecChar = IRB.CreatePHI(PlainEltTy, 2);
-	BrDecChar->addIncoming(DecChar0, LoopBr0);
-	BrDecChar->addIncoming(DecChar1, LoopBr1);
-	Value *DecChar = IRB.CreateXor(BrDecChar, KeyChar);
-
-	LastDecrypted->addIncoming(DecChar, LoopEnd);
-	Value *DecCharPtr = IRB.CreateInBoundsGEP(PlainEltTy,
-	                    PlainString, LoopCounter);
-	IRB.CreateStore(DecChar, DecCharPtr);
-
+	LastDecrypted->addIncoming(DecChar, IRB.GetInsertBlock());
 	Value *NewCounter = IRB.CreateAdd(LoopCounter, IRB.getInt32(1), "", true, true);
-	LoopCounter->addIncoming(NewCounter, LoopEnd);
-
-	uint32_t DataSize = Entry->IsUTF16 ? static_cast<uint32_t>(Entry->Data16.size()) : static_cast<uint32_t>(Entry->Data.size());
-	Value *Cond = IRB.CreateICmpEQ(NewCounter, IRB.getInt32(static_cast<uint32_t>(DataSize)));
+	LoopCounter->addIncoming(NewCounter, IRB.GetInsertBlock());
+	Value *Cond = IRB.CreateICmpEQ(NewCounter, IRB.getInt32(ElemCount));
 	IRB.CreateCondBr(Cond, Exit, LoopBody);
 
 	IRB.SetInsertPoint(Exit);
+	IRB.CreateStore(IRB.CreatePtrToInt(HeapPtr, HeapSlotTy), Entry->DecGV);
 	IRB.CreateStore(IRB.getInt32(1), Entry->DecStatus);
-	IRB.CreateRetVoid();
+	IRB.CreateRet(HeapPtr);
 
 	return DecFunc;
 }
@@ -853,13 +869,53 @@ void StringEncryption::lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value
 		return;
 	}
 
+	auto materializeRuntimeLeaf = [&](auto &&Self, Constant *Leaf) -> Value * {
+		if (!Leaf) {
+			return nullptr;
+		}
+		if (auto *GV = dyn_cast<GlobalVariable>(Leaf)) {
+			if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
+				Value *HeapBits = IRB.CreateLoad(Entry->DecGV->getValueType(), Entry->DecGV,
+				                                Entry->DecGV->getName() + ".bits");
+				return IRB.CreateIntToPtr(HeapBits, PointerType::get(IRB.getContext(), 0),
+				                          Entry->DecGV->getName() + ".heap");
+			}
+			return nullptr;
+		}
+		if (auto *CE = dyn_cast<ConstantExpr>(Leaf)) {
+			Constant *Base = cast<Constant>(CE->getOperand(0));
+			Value *RuntimeBase = Self(Self, Base);
+			if (!RuntimeBase) {
+				return nullptr;
+			}
+			switch (CE->getOpcode()) {
+			case Instruction::GetElementPtr: {
+				auto *GEP = cast<GEPOperator>(CE);
+				SmallVector<Value *, 4> Indices;
+				for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
+					Indices.push_back(CE->getOperand(i));
+				}
+				return IRB.CreateInBoundsGEP(GEP->getSourceElementType(), RuntimeBase, Indices,
+				                             "heap_gep");
+			}
+			case Instruction::BitCast:
+				return IRB.CreateBitCast(RuntimeBase, CE->getType(), "heap_bitcast");
+			case Instruction::AddrSpaceCast:
+				return IRB.CreateAddrSpaceCast(RuntimeBase, CE->getType(), "heap_asc");
+			default:
+				return nullptr;
+			}
+		}
+		return nullptr;
+	};
+
 	std::function<Constant *(Constant *)> remapLeafConstant = [&](Constant *Leaf) -> Constant * {
 		if (!Leaf) {
 			return Leaf;
 		}
 		if (auto *GV = dyn_cast<GlobalVariable>(Leaf)) {
 			if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
-				return Entry->DecGV;
+				return Leaf;
 			}
 			if (CSUser *User = resolveCSUserGlobal(GV)) {
 				return User->DecGV;
@@ -899,6 +955,14 @@ void StringEncryption::lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value
 	} else if (ConstantStruct *CS = dyn_cast<ConstantStruct>(CV)) {
 		lowerGlobalConstantStruct(CS, IRB, Ptr, Ty);
 	} else {
+		if (Value *RuntimeLeaf = materializeRuntimeLeaf(materializeRuntimeLeaf, CV)) {
+			Value *StoreV = RuntimeLeaf;
+			if (StoreV->getType() != CV->getType()) {
+				StoreV = IRB.CreateBitCast(StoreV, CV->getType());
+			}
+			IRB.CreateStore(StoreV, Ptr);
+			return;
+		}
 		IRB.CreateStore(remapLeafConstant(CV), Ptr);
 	}
 }
@@ -979,20 +1043,38 @@ void StringEncryption::scheduleWipeAtBlockEnd(BasicBlock *BB, GlobalVariable *GV
 		return;
 	}
 
-	const Module *M = BB->getModule();
-	if (!M) {
-		return;
+	uint64_t Size = 0;
+	if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
+		Size = Entry->IsUTF16 ? static_cast<uint64_t>(Entry->Data16.size()) * 2ULL
+		                      : static_cast<uint64_t>(Entry->Data.size());
+	} else {
+		const Module *M = BB->getModule();
+		if (!M) {
+			return;
+		}
+		const DataLayout &DL = M->getDataLayout();
+		Size = DL.getTypeAllocSize(GV->getValueType());
 	}
-
-	const DataLayout &DL = M->getDataLayout();
-	uint64_t Size = DL.getTypeAllocSize(GV->getValueType());
 	if (Size == 0) {
 		return;
 	}
 
 	IRBuilder<> IRB(BB->getTerminator());
-	Value *Buf = IRB.CreateBitCast(GV, PointerType::get(BB->getContext(), 0));
-	IRB.CreateMemSet(Buf, IRB.getInt8(0), Size, MaybeAlign(GV->getAlignment()));
+	Value *Buf = nullptr;
+	if (resolveCSPEntryGlobal(GV)) {
+		Value *HeapBits = IRB.CreateLoad(GV->getValueType(), GV, GV->getName() + ".bits");
+		Buf = IRB.CreateIntToPtr(HeapBits, PointerType::get(BB->getContext(), 0), GV->getName() + ".heap");
+		IRB.CreateMemSet(Buf, IRB.getInt8(0), Size, MaybeAlign(1));
+		FunctionCallee FreeFn =
+		    BB->getModule()->getOrInsertFunction("free", FunctionType::get(IRB.getVoidTy(),
+		                                                                   {PointerType::get(BB->getContext(), 0)},
+		                                                                   false));
+		IRB.CreateCall(FreeFn, {Buf});
+		IRB.CreateStore(ConstantInt::get(GV->getValueType(), 0), GV);
+	} else {
+		Buf = IRB.CreateBitCast(GV, PointerType::get(BB->getContext(), 0));
+		IRB.CreateMemSet(Buf, IRB.getInt8(0), Size, MaybeAlign(GV->getAlignment()));
+	}
 
 	if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
 		if (Entry->DecStatus) {
@@ -1009,6 +1091,9 @@ void StringEncryption::scheduleWipeAtBlockEnd(BasicBlock *BB, GlobalVariable *GV
 
 bool StringEncryption::shouldSkipBlockEndWipe(BasicBlock *BB, Instruction *InsertBefore) {
 	if (!BB) {
+		return true;
+	}
+	if (InsertBefore && (isa<StoreInst>(InsertBefore) || isa<PHINode>(InsertBefore))) {
 		return true;
 	}
 	Instruction *Term = BB->getTerminator();
@@ -1043,9 +1128,14 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 	if (!opt.isEnabled()) {
 		return false;
 	}
-	LLVMContext &Ctx = F->getContext();
+	for (CSPEntry *Entry : ConstantStringPool) {
+		if (Entry && Entry->DecFunc == F) {
+			return false;
+		}
+	}
 	LowerConstantExpr(*F);
 	SmallPtrSet<GlobalVariable *, 16> LiveBuffers;
+	std::map<CSPEntry *, Value *> LiveEntryPointers;
 	bool Changed = false;
 
 	auto getSafeInsertPoint = [](Instruction *Inst) -> Instruction * {
@@ -1066,6 +1156,30 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 		return &*PrevBB->getFirstInsertionPt();
 	};
 
+	auto ensureEntryReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB, CSPEntry *Entry) -> Value * {
+		if (!InsertBefore || !WipeBB || !Entry) {
+			return nullptr;
+		}
+		auto LiveIt = LiveEntryPointers.find(Entry);
+		if (LiveIt != LiveEntryPointers.end()) {
+			return LiveIt->second;
+		}
+		IRBuilder<> IRB(getSafeInsertPoint(InsertBefore));
+		Value *Data = IRB.CreateInBoundsGEP(
+		                  EncryptedStringTable->getValueType(),
+		                  EncryptedStringTable,
+		                  {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+		CallBase *DecCall = fixEH(IRB.CreateCall(Entry->DecFunc, {Data}));
+		Value *HeapPtr = DecCall;
+		if (PinnedEntries.count(Entry) == 0 && !shouldSkipBlockEndWipe(WipeBB, InsertBefore)) {
+			scheduleWipeAtBlockEnd(WipeBB, Entry->DecGV);
+		}
+		LiveBuffers.insert(Entry->DecGV);
+		LiveEntryPointers[Entry] = HeapPtr;
+		Changed = true;
+		return HeapPtr;
+	};
+
 	auto ensureUserReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB, CSUser *User) {
 		if (!InsertBefore || !WipeBB || !User || LiveBuffers.count(User->DecGV) > 0) {
 			return;
@@ -1074,40 +1188,12 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 		auto UserEntriesIt = UserReferencedEntries.find(User);
 		if (UserEntriesIt != UserReferencedEntries.end()) {
 			for (CSPEntry *Entry : UserEntriesIt->second) {
-				if (!Entry || LiveBuffers.count(Entry->DecGV) > 0) {
-					continue;
-				}
-				Value *OutBuf = IRB.CreateBitCast(Entry->DecGV, PointerType::get(Ctx, 0));
-				Value *Data = IRB.CreateInBoundsGEP(
-				                  EncryptedStringTable->getValueType(),
-				                  EncryptedStringTable,
-				                  {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-				fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-				if (PinnedEntries.count(Entry) == 0 && !shouldSkipBlockEndWipe(WipeBB, InsertBefore)) {
-					scheduleWipeAtBlockEnd(WipeBB, Entry->DecGV);
-				}
-				LiveBuffers.insert(Entry->DecGV);
+				ensureEntryReady(InsertBefore, WipeBB, Entry);
 			}
 		}
 		fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
 		LiveBuffers.insert(User->DecGV);
-	};
-
-	auto ensureEntryReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB, CSPEntry *Entry) {
-		if (!InsertBefore || !WipeBB || !Entry || LiveBuffers.count(Entry->DecGV) > 0) {
-			return;
-		}
-		IRBuilder<> IRB(getSafeInsertPoint(InsertBefore));
-		Value *OutBuf = IRB.CreateBitCast(Entry->DecGV, PointerType::get(Ctx, 0));
-		Value *Data = IRB.CreateInBoundsGEP(
-		                  EncryptedStringTable->getValueType(),
-		                  EncryptedStringTable,
-		                  {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-		fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-		if (PinnedEntries.count(Entry) == 0 && !shouldSkipBlockEndWipe(WipeBB, InsertBefore)) {
-			scheduleWipeAtBlockEnd(WipeBB, Entry->DecGV);
-		}
-		LiveBuffers.insert(Entry->DecGV);
+		Changed = true;
 	};
 
 	auto ensureGlobalEntriesReady = [&](Instruction *InsertBefore, BasicBlock *WipeBB,
@@ -1124,40 +1210,33 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 		}
 	};
 
-	auto rewriteResolvedGlobal = [&](Instruction &Inst, Value *Carrier, GlobalVariable *From,
-	                                 GlobalVariable *To) {
-		if (!From || !To || From == To) {
-			return;
+	auto materializeHeapCarrier = [&](Instruction *InsertBefore, Value *Carrier, Value *BasePtr) -> Value * {
+		if (!InsertBefore || !Carrier || !BasePtr) {
+			return nullptr;
 		}
-		if (auto *GEP = dyn_cast<GetElementPtrInst>(Carrier)) {
-			GEP->replaceUsesOfWith(From, To);
-		} else if (auto *CE = dyn_cast<ConstantExpr>(Carrier)) {
-			Constant *NewConst = nullptr;
+		if (isa<GlobalVariable>(Carrier)) {
+			return BasePtr;
+		}
+		if (auto *CE = dyn_cast<ConstantExpr>(Carrier)) {
+			IRBuilder<> IRB(getSafeInsertPoint(InsertBefore));
 			switch (CE->getOpcode()) {
 			case Instruction::GetElementPtr: {
-				SmallVector<Constant *, 4> Indices;
+				auto *GEP = cast<GEPOperator>(CE);
+				SmallVector<Value *, 4> Indices;
 				for (unsigned i = 1; i < CE->getNumOperands(); ++i) {
-					Indices.push_back(cast<Constant>(CE->getOperand(i)));
+					Indices.push_back(CE->getOperand(i));
 				}
-				NewConst = ConstantExpr::getGetElementPtr(To->getValueType(), To, Indices);
-				break;
+				return IRB.CreateInBoundsGEP(GEP->getSourceElementType(), BasePtr, Indices, "heap_gep");
 			}
 			case Instruction::BitCast:
-				NewConst = ConstantExpr::getBitCast(To, CE->getType());
-				break;
+				return IRB.CreateBitCast(BasePtr, CE->getType(), "heap_bitcast");
 			case Instruction::AddrSpaceCast:
-				NewConst = ConstantExpr::getAddrSpaceCast(To, CE->getType());
-				break;
+				return IRB.CreateAddrSpaceCast(BasePtr, CE->getType(), "heap_asc");
 			default:
-				break;
+				return nullptr;
 			}
-			if (NewConst) {
-				Inst.replaceUsesOfWith(CE, NewConst);
-			}
-		} else {
-			Inst.replaceUsesOfWith(From, To);
 		}
-		MaybeDeadGlobalVars.insert(From);
+		return nullptr;
 	};
 
 	auto handleResolvedOperand = [&](Instruction &Inst, Value *Carrier,
@@ -1173,15 +1252,35 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 			if (F == User->InitFunc) {
 				return false;
 			}
+			if (GV == User->DecGV) {
+				return false;
+			}
 			ensureUserReady(InsertBefore, WipeBB, User);
-			rewriteResolvedGlobal(Inst, Carrier, GV, User->DecGV);
-			return true;
+			Value *NewValue = materializeHeapCarrier(InsertBefore, Carrier, User->DecGV);
+			if (NewValue) {
+				Inst.replaceUsesOfWith(Carrier, NewValue);
+				if (GV != User->DecGV) {
+					MaybeDeadGlobalVars.insert(GV);
+				}
+				return true;
+			}
+			return false;
 		}
 
 		if (CSPEntry *Entry = resolveCSPEntryGlobal(GV)) {
-			ensureEntryReady(InsertBefore, WipeBB, Entry);
-			rewriteResolvedGlobal(Inst, Carrier, GV, Entry->DecGV);
-			return true;
+			if (GV == Entry->DecGV) {
+				return false;
+			}
+			Value *HeapPtr = ensureEntryReady(InsertBefore, WipeBB, Entry);
+			Value *NewValue = materializeHeapCarrier(InsertBefore, Carrier, HeapPtr);
+			if (NewValue) {
+				Inst.replaceUsesOfWith(Carrier, NewValue);
+				if (GV != Entry->DecGV) {
+					MaybeDeadGlobalVars.insert(GV);
+				}
+				return true;
+			}
+			return false;
 		}
 
 		if (auto *DirectGV = dyn_cast<GlobalVariable>(Carrier)) {
@@ -1208,6 +1307,7 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 
 	for (BasicBlock &BB : *F) {
 		LiveBuffers.clear();
+		LiveEntryPointers.clear();
 		Instruction *BlockInsertPoint = &*BB.getFirstInsertionPt();
 		for (Instruction &Inst : BB) {
 			if (PHINode *PHI = dyn_cast<PHINode>(&Inst)) {
@@ -1398,10 +1498,6 @@ bool StringEncryption::isValidToEncrypt(GlobalVariable *GV) {
  */
 void StringEncryption::deleteUnusedGlobalVariable() {
 	for (GlobalVariable *GV : MaybeDeadGlobalVars) {
-		if (!GV->hasLocalLinkage() && !GV->hasPrivateLinkage()) {
-			continue;
-		}
-
 		GV->removeDeadConstantUsers();
 		
 		if (GV->hasInitializer()) {
