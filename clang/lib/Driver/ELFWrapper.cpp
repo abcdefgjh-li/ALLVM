@@ -870,26 +870,52 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
   OS << "#!/system/bin/sh\n";
   OS << "# By.abcdefgjh 给小辈一个面子，别破解了，相信大牛你的实力了\n\n";
 
-  // 解码并执行
   OS << "TMPFILE=\"/data/local/tmp/.gz_$$\"\n";
-  OS << "base64 -d << '" << eof_marker << "' > \"$TMPFILE\" 2>/dev/null\n";
 
-  // 写入 base64 数据（每行 76 字符）
+  // 拆分 base64 EOF 标志
+  std::string eof1 = eof_marker + "1";
+  std::string eof2 = eof_marker + "2";
+
+  // 将环境变量命令拆分为两半
+  std::string env_cmd = "export lc_gz=\"" + gz_env_key + "\"";
+  size_t env_half = env_cmd.length() / 2;
+  std::string env_p1 = env_cmd.substr(0, env_half);
+  std::string env_p2 = env_cmd.substr(env_half);
+
+  // 写入第一半 base64 数据
+  OS << "base64 -d << '" << eof1 << "' > \"$TMPFILE\" 2>/dev/null\n";
   const size_t line_width = 76;
-  for (size_t i = 0; i < b64_data.size(); i += line_width) {
+  size_t total_lines = (b64_data.size() + line_width - 1) / line_width;
+  size_t half_lines = total_lines / 2;
+  size_t split_pos = half_lines * line_width;
+
+  for (size_t i = 0; i < split_pos; i += line_width) {
+    size_t end = std::min(i + line_width, split_pos);
+    OS << StringRef(b64_data.data() + i, end - i) << "\n";
+  }
+  OS << eof1 << "\n\n";
+
+  // 插入环境变量第一部分到 base64 中间
+  OS << "_E1='" << env_p1 << "'\n\n";
+
+  // 写入第二半 base64 数据
+  OS << "base64 -d << '" << eof2 << "' >> \"$TMPFILE\" 2>/dev/null\n";
+  for (size_t i = split_pos; i < b64_data.size(); i += line_width) {
     size_t end = std::min(i + line_width, b64_data.size());
     OS << StringRef(b64_data.data() + i, end - i) << "\n";
   }
+  OS << eof2 << "\n\n";
 
-  OS << eof_marker << "\n\n";
+  // 结尾插入环境变量第二部分，并拼接执行
+  OS << "_E2='" << env_p2 << "'\n";
+  OS << "eval \"$_E1$_E2\"\n\n";
 
-  // 设置环境变量（数据之后、启动之前）
-  OS << "export lc_gz=\"" << gz_env_key << "\"\n\n";
-
-  // 执行
+  // 执行并清理
   OS << "chmod 777 \"$TMPFILE\"\n";
-  OS << "exec \"$TMPFILE\" \"$@\"\n";
+  OS << "\"$TMPFILE\" \"$@\"\n";
+  OS << "RET=$?\n";
   OS << "rm -f \"$TMPFILE\"\n";
+  OS << "exit $RET\n";
 
   OS.flush();
 
