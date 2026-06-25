@@ -82,11 +82,12 @@ struct ExceptionToErrorHandlingPass : public FunctionPass {
       return false;
     }
 
-    // 发出警告
-    errs() << "[VMP Warning] Function '" << F.getName()
-           << "' uses C++ exception handling, which is not supported by VMP.\n";
-    errs() << "[VMP Warning] Please use C-style error handling (return codes) instead.\n";
-    errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
+    // Legacy pass warning: the main VMProtect pipeline has partial EH support now,
+    // but this compatibility pass still declines EH-heavy functions when invoked.
+    errs() << "[VMP Legacy Warning] Function '" << F.getName()
+           << "' uses C++ exception handling.\n";
+    errs() << "[VMP Legacy Warning] This compatibility pass is outdated relative to the main VMP EH support.\n";
+    errs() << "[VMP Legacy Warning] If this pass is enabled, VMP protection will be skipped for this function.\n";
 
     // 移除 VMP 保护属性
     F.removeFnAttr("vmp");
