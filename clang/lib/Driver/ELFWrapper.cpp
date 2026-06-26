@@ -507,39 +507,29 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   uint8_t key[32], nonce[12];
   generate_random_key(key, nonce);
 
-  // 从 clang 同目录读取 EnvCheck 生成的密钥。
+  // 从 clang 同目录的 .linker_env_key[.<tag>] 文件读取密钥（由 EnvCheck Pass 生成）
   SmallString<256> linkerKeyPath;
+  std::string linkerKeyFileName = ".linker_env_key";
+  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+    linkerKeyFileName += "." + *keyTag;
+  sys::path::append(linkerKeyPath, clangDir, linkerKeyFileName);
+  std::string linkerKeyPathStr = std::string(linkerKeyPath.str());
   std::string env_key(32, '\0');
   {
-    SmallVector<std::string, 2> keyCandidates;
-    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-      keyCandidates.push_back(".linker_env_key." + *keyTag);
-    keyCandidates.push_back(".linker_env_key");
-
-    bool keyLoaded = false;
-    for (const std::string &candidate : keyCandidates) {
-      SmallString<256> candidatePath;
-      sys::path::append(candidatePath, clangDir, candidate);
-      std::ifstream keyFile(std::string(candidatePath.str()));
-      if (!keyFile.is_open())
-        continue;
-
+    std::ifstream keyFile(linkerKeyPathStr);
+    if (keyFile.is_open()) {
       keyFile.read(&env_key[0], 32);
       keyFile.close();
-      linkerKeyPath = candidatePath;
-      keyLoaded = true;
-      if (DebugMode)
-        outs() << "[irobf-linker] Read key from " << linkerKeyPath << ": "
-               << env_key << "\n";
-      break;
-    }
-
-    if (!keyLoaded) {
-      errs() << "Error: [irobf-linker] Cannot find .linker_env_key";
-      if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-        errs() << " (tag=" << *keyTag << ")";
-      errs() << " in " << clangDir << "\n";
-      return false;
+      if (DebugMode) outs() << "[irobf-linker] Read key from " << linkerKeyPath << ": " << env_key << "\n";
+    } else {
+      // 如果文件不存在，生成随机密钥
+      if (DebugMode) outs() << "[irobf-linker] Warning: " << linkerKeyPath << " not found, generating random key\n";
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<int> dist(0, 15);
+      const char hex[] = "0123456789abcdef";
+      for (int i = 0; i < 32; i++)
+        env_key[i] = hex[dist(gen)];
     }
   }
 
@@ -807,39 +797,29 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
     }
   }
 
-  // 从 clang 同目录读取 GzEnvCheck 生成的密钥。
+  // 从 clang 同目录的 .gz_env_key[.<tag>] 文件读取密钥（由 GzEnvCheck Pass 生成）
   SmallString<256> gzKeyPath;
+  std::string gzKeyFileName = ".gz_env_key";
+  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+    gzKeyFileName += "." + *keyTag;
+  sys::path::append(gzKeyPath, clangDir, gzKeyFileName);
+  std::string gzKeyPathStr = std::string(gzKeyPath.str());
   std::string gz_env_key(32, '\0');
   {
-    SmallVector<std::string, 2> keyCandidates;
-    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-      keyCandidates.push_back(".gz_env_key." + *keyTag);
-    keyCandidates.push_back(".gz_env_key");
-
-    bool keyLoaded = false;
-    for (const std::string &candidate : keyCandidates) {
-      SmallString<256> candidatePath;
-      sys::path::append(candidatePath, clangDir, candidate);
-      std::ifstream keyFile(std::string(candidatePath.str()));
-      if (!keyFile.is_open())
-        continue;
-
+    std::ifstream keyFile(gzKeyPathStr);
+    if (keyFile.is_open()) {
       keyFile.read(&gz_env_key[0], 32);
       keyFile.close();
-      gzKeyPath = candidatePath;
-      keyLoaded = true;
-      if (DebugMode)
-        outs() << "[irobf-gz] Read key from " << gzKeyPath << ": "
-               << gz_env_key << "\n";
-      break;
-    }
-
-    if (!keyLoaded) {
-      errs() << "Error: [irobf-gz] Cannot find .gz_env_key";
-      if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-        errs() << " (tag=" << *keyTag << ")";
-      errs() << " in " << clangDir << "\n";
-      return false;
+      if (DebugMode) outs() << "[irobf-gz] Read key from " << gzKeyPath << ": " << gz_env_key << "\n";
+    } else {
+      // 如果文件不存在，生成随机密钥
+      if (DebugMode) outs() << "[irobf-gz] Warning: " << gzKeyPath << " not found, generating random key\n";
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<int> dist(0, 15);
+      const char hex[] = "0123456789abcdef";
+      for (int i = 0; i < 32; i++)
+        gz_env_key[i] = hex[dist(gen)];
     }
   }
 
@@ -870,52 +850,26 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
   OS << "#!/system/bin/sh\n";
   OS << "# By.abcdefgjh 给小辈一个面子，别破解了，相信大牛你的实力了\n\n";
 
+  // 解码并执行
   OS << "TMPFILE=\"/data/local/tmp/.gz_$$\"\n";
+  OS << "base64 -d << '" << eof_marker << "' > \"$TMPFILE\" 2>/dev/null\n";
 
-  // 拆分 base64 EOF 标志
-  std::string eof1 = eof_marker + "1";
-  std::string eof2 = eof_marker + "2";
-
-  // 将环境变量命令拆分为两半
-  std::string env_cmd = "export lc_gz=\"" + gz_env_key + "\"";
-  size_t env_half = env_cmd.length() / 2;
-  std::string env_p1 = env_cmd.substr(0, env_half);
-  std::string env_p2 = env_cmd.substr(env_half);
-
-  // 写入第一半 base64 数据
-  OS << "base64 -d << '" << eof1 << "' > \"$TMPFILE\" 2>/dev/null\n";
+  // 写入 base64 数据（每行 76 字符）
   const size_t line_width = 76;
-  size_t total_lines = (b64_data.size() + line_width - 1) / line_width;
-  size_t half_lines = total_lines / 2;
-  size_t split_pos = half_lines * line_width;
-
-  for (size_t i = 0; i < split_pos; i += line_width) {
-    size_t end = std::min(i + line_width, split_pos);
-    OS << StringRef(b64_data.data() + i, end - i) << "\n";
-  }
-  OS << eof1 << "\n\n";
-
-  // 插入环境变量第一部分到 base64 中间
-  OS << "_E1='" << env_p1 << "'\n\n";
-
-  // 写入第二半 base64 数据
-  OS << "base64 -d << '" << eof2 << "' >> \"$TMPFILE\" 2>/dev/null\n";
-  for (size_t i = split_pos; i < b64_data.size(); i += line_width) {
+  for (size_t i = 0; i < b64_data.size(); i += line_width) {
     size_t end = std::min(i + line_width, b64_data.size());
     OS << StringRef(b64_data.data() + i, end - i) << "\n";
   }
-  OS << eof2 << "\n\n";
 
-  // 结尾插入环境变量第二部分，并拼接执行
-  OS << "_E2='" << env_p2 << "'\n";
-  OS << "eval \"$_E1$_E2\"\n\n";
+  OS << eof_marker << "\n\n";
 
-  // 执行并清理
+  // 设置环境变量（数据之后、启动之前）
+  OS << "export lc_gz=\"" << gz_env_key << "\"\n\n";
+
+  // 执行
   OS << "chmod 777 \"$TMPFILE\"\n";
-  OS << "\"$TMPFILE\" \"$@\"\n";
-  OS << "RET=$?\n";
+  OS << "exec \"$TMPFILE\" \"$@\"\n";
   OS << "rm -f \"$TMPFILE\"\n";
-  OS << "exit $RET\n";
 
   OS.flush();
 

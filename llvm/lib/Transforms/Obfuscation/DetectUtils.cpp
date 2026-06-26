@@ -73,6 +73,13 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
 
+    createStderrWrite(
+        M,
+        Builder,
+        "[AProtect] " + detectName + " detected, exiting.\n",
+        ".detect.report.release"
+    );
+    
     // 声明外部函数
     FunctionCallee PrintfFunc = M.getOrInsertFunction(
         "printf",
@@ -84,16 +91,9 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
         FunctionType::get(Int32Ty, {CharPtrTy}, false)
     );
 
-    // 调试模式只输出检测名称；普通模式只输出品牌和版本号。
+    // 打印检测信息（仅在 debug 模式下）
     if (isIRObfuscationDebugEnabled()) {
-        createStderrWrite(
-            M,
-            Builder,
-            "[AProtect] " + detectName + " detected, exiting.\n",
-            ".detect.report.release"
-        );
-    } else {
-        // 打印 A-protector（普通模式）
+        // 打印 A-protector（白色）
         Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protector\n");
         GlobalVariable *AProtectGV = new GlobalVariable(
             M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
@@ -101,13 +101,26 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
         Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
         Builder.CreateCall(PrintfFunc, {AProtectPtr});
 
-        // 打印版本号（普通模式）
+        // 打印版本号
         Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
         GlobalVariable *VersionGV = new GlobalVariable(
             M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
             VersionStr, ".detect.version");
         Constant *VersionPtr = ConstantExpr::getBitCast(VersionGV, CharPtrTy);
         Builder.CreateCall(PrintfFunc, {VersionPtr});
+
+        // 打印检测信息
+        std::string detectMsg = "[DEBUG] " + detectName + " detected! Killing process...\n";
+        Constant *MsgStr = ConstantDataArray::getString(Ctx, detectMsg);
+        GlobalVariable *MsgGV = new GlobalVariable(
+            M, MsgStr->getType(), true,
+            GlobalValue::PrivateLinkage, MsgStr,
+            ".detect.debug.msg"
+        );
+        MsgGV->setSection(".AProtect.rodata");
+        Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
+
+        Builder.CreateCall(PrintfFunc, {MsgPtr});
         Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
     }
 
@@ -944,8 +957,14 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
     Value *EnvNotNull = Builder.CreateICmpNE(EnvVal, ConstantPointerNull::get(CharPtrTy));
     Builder.CreateCondBr(EnvNotNull, GetEnvOkBB, GetEnvFailBB);
 
-    // getenv 返回 NULL → 环境变量不存在 → 走统一报告
+    // getenv 返回 NULL → 环境变量不存在 → kill
     Builder.SetInsertPoint(GetEnvFailBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[EnvCheck] lc is missing, expected linker wrapper.\n",
+        ".env.missing"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -983,8 +1002,14 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
     IPhi->addIncoming(INext, CmpBodyBB);
     Builder.CreateCondBr(CharsEqual, CmpLoopBB, MismatchBB);
 
-    // 不匹配 → 走统一报告
+    // 不匹配 → kill
     Builder.SetInsertPoint(MismatchBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[EnvCheck] lc mismatch, expected linker wrapper value.\n",
+        ".env.mismatch"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1084,8 +1109,14 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
     Value *EnvNotNull = Builder.CreateICmpNE(EnvVal, ConstantPointerNull::get(CharPtrTy));
     Builder.CreateCondBr(EnvNotNull, GetEnvOkBB, GetEnvFailBB);
 
-    // getenv 返回 NULL → 环境变量不存在 → 走统一报告
+    // getenv 返回 NULL → 环境变量不存在 → kill
     Builder.SetInsertPoint(GetEnvFailBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[GzEnvCheck] lc_gz is missing, expected gz wrapper.\n",
+        ".gz.env.missing"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1118,8 +1149,14 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
     IPhi->addIncoming(INext, CmpBodyBB);
     Builder.CreateCondBr(CharsEqual, CmpLoopBB, MismatchBB);
 
-    // 不匹配 → 走统一报告
+    // 不匹配 → kill
     Builder.SetInsertPoint(MismatchBB);
+    createStderrWrite(
+        M,
+        Builder,
+        "[GzEnvCheck] lc_gz mismatch, expected gz wrapper value.\n",
+        ".gz.env.mismatch"
+    );
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
