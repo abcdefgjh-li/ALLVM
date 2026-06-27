@@ -931,7 +931,7 @@ int main(int argc, char* argv[]) {
 
     printf("\n");
     printf("  +------------------------------------------+\n");
-    printf("  |       OLLVM Build Script v21.x          |\n");
+    printf("  |       OLLVM Build Script v21.x           |\n");
     printf("  +------------------------------------------+\n");
 
     std::string target_triple = "aarch64-linux-android";
