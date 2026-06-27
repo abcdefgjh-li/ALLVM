@@ -334,8 +334,8 @@ static std::string detect_device_abi(const std::string& adb_path, const std::str
 
 static std::string find_test_binary(const std::string& project_dir, const std::string& abi) {
     const std::string candidates[] = {
-        project_dir + "\\obj\\local\\" + abi + "\\allvm_fla_test",
-        project_dir + "\\libs\\" + abi + "\\allvm_fla_test"
+        project_dir + "\\obj\\local\\" + abi + "\\allvm_test",
+        project_dir + "\\libs\\" + abi + "\\allvm_test"
     };
     for (const auto& candidate : candidates) {
         if (file_exists(candidate)) return candidate;
@@ -476,7 +476,7 @@ static bool write_fla_test_project() {
 }
 
 static bool build_and_run_fla_test(int jobs) {
-    printf("\n[Test] Generating flattening test project...\n");
+    printf("\n[Test] Generating ALLVM_TEST project...\n");
     if (g_ndk_dir.empty() || !file_exists(g_ndk_dir + "\\ndk-build.cmd")) {
         printf("[Error] NDK not found, cannot run emulator test\n");
         return false;
@@ -528,7 +528,7 @@ static bool build_and_run_fla_test(int jobs) {
     }
 
     std::string output;
-    std::string push_cmd = "\"" + adb_path + "\" -s " + serial + " push \"" + binary + "\" /data/local/tmp/allvm_fla_test";
+    std::string push_cmd = "\"" + adb_path + "\" -s " + serial + " push \"" + binary + "\" /data/local/tmp/allvm_test";
     ret = run_cmd_capture(push_cmd, output);
     if (!output.empty()) printf("%s", output.c_str());
     if (ret != 0) {
@@ -536,7 +536,7 @@ static bool build_and_run_fla_test(int jobs) {
         return false;
     }
 
-    std::string exec_cmd = "\"" + adb_path + "\" -s " + serial + " shell \"chmod 755 /data/local/tmp/allvm_fla_test && /data/local/tmp/allvm_fla_test\"";
+    std::string exec_cmd = "\"" + adb_path + "\" -s " + serial + " shell \"chmod 755 /data/local/tmp/allvm_test && /data/local/tmp/allvm_test\"";
     output.clear();
     ret = run_cmd_capture(exec_cmd, output);
     if (!output.empty()) printf("%s", output.c_str());
@@ -545,7 +545,7 @@ static bool build_and_run_fla_test(int jobs) {
         return false;
     }
 
-    printf("[Done] Emulator flattening test passed\n");
+    printf("[Done] Emulator ALLVM_TEST passed\n");
     return true;
 }
 
