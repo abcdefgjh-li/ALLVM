@@ -49,12 +49,16 @@ static void createStderrWrite(Module &M, IRBuilder<> &Builder,
     });
 }
 
+static void createAProtectBannerWrite(Module &M, IRBuilder<> &Builder) {
+    createStderrWrite(M, Builder, "A-Protect\n", ".detect.banner");
+    createStderrWrite(M, Builder, "Protection v1.1.0\n", ".detect.version");
+}
+
 Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &detectName) {
     LLVMContext &Ctx = M.getContext();
     
     Type *VoidTy = Type::getVoidTy(Ctx);
     Type *Int32Ty = Type::getInt32Ty(Ctx);
-    PointerType *CharPtrTy = PointerType::get(Ctx, 0);
     
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);
     Function *Func = Function::Create(
@@ -73,55 +77,16 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
 
-    createStderrWrite(
-        M,
-        Builder,
-        "[AProtect] " + detectName + " detected, exiting.\n",
-        ".detect.report.release"
-    );
-    
-    // 声明外部函数
-    FunctionCallee PrintfFunc = M.getOrInsertFunction(
-        "printf",
-        FunctionType::get(Int32Ty, {CharPtrTy}, true)
-    );
-    
-    FunctionCallee FflushFunc = M.getOrInsertFunction(
-        "fflush",
-        FunctionType::get(Int32Ty, {CharPtrTy}, false)
-    );
+    createAProtectBannerWrite(M, Builder);
 
-    // 打印检测信息（仅在 debug 模式下）
+    // 详细检测原因仅在 debug 模式下输出。
     if (isIRObfuscationDebugEnabled()) {
-        // 打印 A-protector（白色）
-        Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protector\n");
-        GlobalVariable *AProtectGV = new GlobalVariable(
-            M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
-            AProtectStr, ".detect.apstr");
-        Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
-        Builder.CreateCall(PrintfFunc, {AProtectPtr});
-
-        // 打印版本号
-        Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
-        GlobalVariable *VersionGV = new GlobalVariable(
-            M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
-            VersionStr, ".detect.version");
-        Constant *VersionPtr = ConstantExpr::getBitCast(VersionGV, CharPtrTy);
-        Builder.CreateCall(PrintfFunc, {VersionPtr});
-
-        // 打印检测信息
-        std::string detectMsg = "[DEBUG] " + detectName + " detected! Killing process...\n";
-        Constant *MsgStr = ConstantDataArray::getString(Ctx, detectMsg);
-        GlobalVariable *MsgGV = new GlobalVariable(
-            M, MsgStr->getType(), true,
-            GlobalValue::PrivateLinkage, MsgStr,
-            ".detect.debug.msg"
+        createStderrWrite(
+            M,
+            Builder,
+            "[AProtect] " + detectName + " detected, exiting.\n",
+            ".detect.report.debug"
         );
-        MsgGV->setSection(".AProtect.rodata");
-        Constant *MsgPtr = ConstantExpr::getBitCast(MsgGV, CharPtrTy);
-
-        Builder.CreateCall(PrintfFunc, {MsgPtr});
-        Builder.CreateCall(FflushFunc, {ConstantPointerNull::get(CharPtrTy)});
     }
 
     // 获取进程ID并终止
@@ -959,12 +924,14 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
 
     // getenv 返回 NULL → 环境变量不存在 → kill
     Builder.SetInsertPoint(GetEnvFailBB);
-    createStderrWrite(
-        M,
-        Builder,
-        "[EnvCheck] lc is missing, expected linker wrapper.\n",
-        ".env.missing"
-    );
+    if (isIRObfuscationDebugEnabled()) {
+        createStderrWrite(
+            M,
+            Builder,
+            "[EnvCheck] lc is missing, expected linker wrapper.\n",
+            ".env.missing"
+        );
+    }
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1004,12 +971,14 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
 
     // 不匹配 → kill
     Builder.SetInsertPoint(MismatchBB);
-    createStderrWrite(
-        M,
-        Builder,
-        "[EnvCheck] lc mismatch, expected linker wrapper value.\n",
-        ".env.mismatch"
-    );
+    if (isIRObfuscationDebugEnabled()) {
+        createStderrWrite(
+            M,
+            Builder,
+            "[EnvCheck] lc mismatch, expected linker wrapper value.\n",
+            ".env.mismatch"
+        );
+    }
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1111,12 +1080,14 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
 
     // getenv 返回 NULL → 环境变量不存在 → kill
     Builder.SetInsertPoint(GetEnvFailBB);
-    createStderrWrite(
-        M,
-        Builder,
-        "[GzEnvCheck] lc_gz is missing, expected gz wrapper.\n",
-        ".gz.env.missing"
-    );
+    if (isIRObfuscationDebugEnabled()) {
+        createStderrWrite(
+            M,
+            Builder,
+            "[GzEnvCheck] lc_gz is missing, expected gz wrapper.\n",
+            ".gz.env.missing"
+        );
+    }
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 
@@ -1151,12 +1122,14 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
 
     // 不匹配 → kill
     Builder.SetInsertPoint(MismatchBB);
-    createStderrWrite(
-        M,
-        Builder,
-        "[GzEnvCheck] lc_gz mismatch, expected gz wrapper value.\n",
-        ".gz.env.mismatch"
-    );
+    if (isIRObfuscationDebugEnabled()) {
+        createStderrWrite(
+            M,
+            Builder,
+            "[GzEnvCheck] lc_gz mismatch, expected gz wrapper value.\n",
+            ".gz.env.mismatch"
+        );
+    }
     Builder.CreateCall(reportFunc);
     Builder.CreateUnreachable();
 

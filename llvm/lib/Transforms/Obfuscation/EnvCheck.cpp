@@ -91,12 +91,9 @@ bool EnvCheck::runOnModule(Module &M) {
         }
     }
 
-    // 写入 clang 同目录下的 .linker_env_key[.<tag>] 文件
+    // 写入 clang 同目录下的 .linker_env_key 文件
     SmallString<256> keyFilePath;
-    std::string keyFileName = ".linker_env_key";
-    if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-        keyFileName += "." + *keyTag;
-    sys::path::append(keyFilePath, clangDir, keyFileName);
+    sys::path::append(keyFilePath, clangDir, ".linker_env_key");
     std::error_code EC;
     raw_fd_ostream keyFile(keyFilePath, EC, sys::fs::OF_None);
     if (!EC) {

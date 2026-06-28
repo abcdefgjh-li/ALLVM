@@ -183,7 +183,7 @@ static bool generatePayloadH(const std::string &output_path,
 // 生成 loader.cpp 壳源码
 // ============================================================================
 
-static bool generateLoaderCpp(const std::string &output_path) {
+static bool generateLoaderCpp(const std::string &output_path, bool DebugMode) {
   std::error_code EC;
   raw_fd_ostream OS(output_path, EC, sys::fs::OF_None);
   if (EC) {
@@ -216,6 +216,26 @@ static bool generateLoaderCpp(const std::string &output_path) {
 #include "payload.h"
 
 #define LOG_TAG "ELFLoader"
+
+static void aprotect_report_and_kill(pid_t child, const char* debug_msg) {
+    write(2, "A-Protect\n", 10);
+    write(2, "Protection v1.1.0\n", 18);
+)";
+  if (DebugMode) {
+    OS << R"(
+    if (debug_msg) {
+        write(2, debug_msg, strlen(debug_msg));
+    }
+)";
+  } else {
+    OS << R"(
+    (void)debug_msg;
+)";
+  }
+  OS << R"(
+    if (child > 0) kill(child, SIGKILL);
+    _exit(9);
+}
 
 static inline uint32_t rotl32(uint32_t v, int n) {
     return (v << n) | (v >> (32 - n));
@@ -306,9 +326,9 @@ static void* anti_debug_thread(void* arg) {
         // 异常情况：TracerPid == 0（trace 关系被断开，被反调试绕过）
         pid_t tracer = get_tracerpid_of(child);
         if (tracer == 0) {
-            // TracerPid 为 0：trace 关系被断开，杀掉子进程
-            kill(child, SIGKILL);
-            _exit(9);
+            aprotect_report_and_kill(
+                child,
+                "[AProtect] LinkerAntiDebug detected, exiting.\n");
         }
         usleep(200000);
     }
@@ -507,12 +527,9 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   uint8_t key[32], nonce[12];
   generate_random_key(key, nonce);
 
-  // 从 clang 同目录的 .linker_env_key[.<tag>] 文件读取密钥（由 EnvCheck Pass 生成）
+  // 从 clang 同目录的 .linker_env_key 文件读取密钥（由 EnvCheck Pass 生成）
   SmallString<256> linkerKeyPath;
-  std::string linkerKeyFileName = ".linker_env_key";
-  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-    linkerKeyFileName += "." + *keyTag;
-  sys::path::append(linkerKeyPath, clangDir, linkerKeyFileName);
+  sys::path::append(linkerKeyPath, clangDir, ".linker_env_key");
   std::string linkerKeyPathStr = std::string(linkerKeyPath.str());
   std::string env_key(32, '\0');
   {
@@ -554,7 +571,7 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
     return false;
   }
 
-  if (!generateLoaderCpp(loader_cpp_path)) {
+  if (!generateLoaderCpp(loader_cpp_path, DebugMode)) {
     sys::fs::remove_directories(tmp_dir);
     return false;
   }
@@ -797,12 +814,9 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
     }
   }
 
-  // 从 clang 同目录的 .gz_env_key[.<tag>] 文件读取密钥（由 GzEnvCheck Pass 生成）
+  // 从 clang 同目录的 .gz_env_key 文件读取密钥（由 GzEnvCheck Pass 生成）
   SmallString<256> gzKeyPath;
-  std::string gzKeyFileName = ".gz_env_key";
-  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
-    gzKeyFileName += "." + *keyTag;
-  sys::path::append(gzKeyPath, clangDir, gzKeyFileName);
+  sys::path::append(gzKeyPath, clangDir, ".gz_env_key");
   std::string gzKeyPathStr = std::string(gzKeyPath.str());
   std::string gz_env_key(32, '\0');
   {

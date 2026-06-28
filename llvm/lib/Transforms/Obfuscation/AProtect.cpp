@@ -62,8 +62,8 @@ bool AProtect::runOnModule(Module &M) {
     FunctionCallee PrintfFunc = M.getOrInsertFunction(
         "printf", FunctionType::get(Int32Ty, {CharPtrTy}, true));
 
-    // 打印 A-protector（白色）
-    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-protector\n");
+    // 打印 A-Protect 标识
+    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-Protect\n");
     GlobalVariable *AProtectGV = new GlobalVariable(
         M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
         AProtectStr, ".ap.str");
@@ -71,7 +71,7 @@ bool AProtect::runOnModule(Module &M) {
     Builder.CreateCall(PrintfFunc, {AProtectPtr});
 
     // 打印版本号
-    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.0.0\n");
+    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.1.0\n");
     GlobalVariable *VersionGV = new GlobalVariable(
         M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
         VersionStr, ".ap.version");
