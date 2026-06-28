@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="qrcode_1780325911909.jpg" alt="逆向大家庭" width="300">
+  <img src="qq.jpg" alt="逆向大家庭" width="300">
   <br>
   <b>逆向大家庭</b>
   <br><br>
