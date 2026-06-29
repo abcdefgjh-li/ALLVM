@@ -183,7 +183,8 @@ static bool generatePayloadH(const std::string &output_path,
 // 生成 loader.cpp 壳源码
 // ============================================================================
 
-static bool generateLoaderCpp(const std::string &output_path) {
+static bool generateLoaderCpp(const std::string &output_path, bool DebugMode,
+                              bool UseAsmTrampoline) {
   std::error_code EC;
   raw_fd_ostream OS(output_path, EC, sys::fs::OF_None);
   if (EC) {
@@ -200,11 +201,15 @@ static bool generateLoaderCpp(const std::string &output_path) {
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
+#include <elf.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -216,6 +221,44 @@ static bool generateLoaderCpp(const std::string &output_path) {
 #include "payload.h"
 
 #define LOG_TAG "ELFLoader"
+#define IROBF_LINKER_DEBUG )";
+  OS << (DebugMode ? "1" : "0");
+  OS << R"(
+
+extern char** environ;
+
+#if IROBF_LINKER_DEBUG
+static void debug_log(const char* msg) {
+    if (msg) write(2, msg, strlen(msg));
+}
+
+static void debug_log_errno(const char* prefix) {
+    char buf[256];
+    int e = errno;
+    int n = snprintf(buf, sizeof(buf), "%s errno=%d\n", prefix, e);
+    if (n > 0) write(2, buf, (size_t)n);
+}
+#else
+static void debug_log(const char* msg) { (void)msg; }
+static void debug_log_errno(const char* prefix) { (void)prefix; }
+#endif
+
+#define PAGE_SIZE 4096UL
+#define ALIGN_MASK (PAGE_SIZE - 1)
+#define ROUND_PG(x) (((x) + ALIGN_MASK) & ~ALIGN_MASK)
+#define TRUNC_PG(x) ((x) & ~ALIGN_MASK)
+#define PFLAGS(x) ((((x) & PF_R) ? PROT_READ : 0) | \
+                   (((x) & PF_W) ? PROT_WRITE : 0) | \
+                   (((x) & PF_X) ? PROT_EXEC : 0))
+#define LOAD_ERR ((unsigned long)-1)
+
+static void __attribute__((naked)) trampo_jump(unsigned long entry,
+                                               unsigned long *stack) {
+    __asm__ volatile(
+        "mov sp, x1\n"
+        "br x0\n"
+    );
+}
 
 static inline uint32_t rotl32(uint32_t v, int n) {
     return (v << n) | (v >> (32 - n));
@@ -316,106 +359,225 @@ static void* anti_debug_thread(void* arg) {
 }
 
 // ============================================================================
-// ELF 头擦除
+// 手工 ELF 加载
 // ============================================================================
-static bool erase_elf_header(pid_t pid, const char* target_path) {
-    char maps_path[64];
-    snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
-    FILE* maps = fopen(maps_path, "r");
-    if (!maps) return false;
-    uint64_t base_addr = 0;
-    char line[512];
-    while (fgets(line, sizeof(line), maps)) {
-        if (strstr(line, target_path) && strstr(line, "r-xp")) {
-            unsigned long long start, end;
-            if (sscanf(line, "%llx-%llx", &start, &end) == 2) { base_addr = start; break; }
-        }
-    }
-    fclose(maps);
-    if (base_addr == 0) return false;
-    char mem_path[64];
-    snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", pid);
-    int mem_fd = open(mem_path, O_WRONLY);
-    if (mem_fd < 0) return false;
-    uint8_t zero_header[64] = {};
-    pwrite(mem_fd, zero_header, sizeof(zero_header), (off_t)base_addr);
-    close(mem_fd);
-    return true;
+static int check_ehdr(Elf64_Ehdr *ehdr) {
+    unsigned char *e = ehdr->e_ident;
+    return (e[EI_MAG0] == ELFMAG0 &&
+            e[EI_MAG1] == ELFMAG1 &&
+            e[EI_MAG2] == ELFMAG2 &&
+            e[EI_MAG3] == ELFMAG3 &&
+            e[EI_CLASS] == ELFCLASS64 &&
+            e[EI_VERSION] == EV_CURRENT &&
+            (ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN));
 }
 
-static char g_temp_path[256] = {};
+static unsigned long loadelf_mem(unsigned char *data, size_t data_sz,
+                                 Elf64_Ehdr *ehdr, Elf64_Phdr *phdr) {
+    unsigned long minva = (unsigned long)-1, maxva = 0;
+    int dyn = (ehdr->e_type == ET_DYN);
+    for (int i = 0; i < ehdr->e_phnum; i++) {
+        if (phdr[i].p_type != PT_LOAD) continue;
+        if (phdr[i].p_offset + phdr[i].p_filesz > data_sz) return LOAD_ERR;
+        if (phdr[i].p_vaddr < minva) minva = phdr[i].p_vaddr;
+        if (phdr[i].p_vaddr + phdr[i].p_memsz > maxva)
+            maxva = phdr[i].p_vaddr + phdr[i].p_memsz;
+    }
+    if (minva == (unsigned long)-1) return LOAD_ERR;
+
+    minva = TRUNC_PG(minva);
+    maxva = ROUND_PG(maxva);
+    int flags = (dyn ? 0 : MAP_FIXED) | MAP_PRIVATE | MAP_ANONYMOUS;
+    unsigned char *base = (unsigned char*)mmap(
+        dyn ? NULL : (void*)minva, maxva - minva, PROT_NONE, flags, -1, 0);
+    if (base == MAP_FAILED) return LOAD_ERR;
+    munmap(base, maxva - minva);
+
+    flags = MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE;
+    for (int i = 0; i < ehdr->e_phnum; i++) {
+        if (phdr[i].p_type != PT_LOAD) continue;
+        unsigned long off = phdr[i].p_vaddr & ALIGN_MASK;
+        unsigned long start =
+            (dyn ? (unsigned long)base : 0) + TRUNC_PG(phdr[i].p_vaddr);
+        size_t segsz = ROUND_PG(phdr[i].p_memsz + off);
+        unsigned char *p = (unsigned char*)mmap(
+            (void*)start, segsz, PROT_WRITE, flags, -1, 0);
+        if (p == MAP_FAILED) return LOAD_ERR;
+        memcpy(p + off, data + phdr[i].p_offset, phdr[i].p_filesz);
+        if (phdr[i].p_memsz > phdr[i].p_filesz)
+            memset(p + off + phdr[i].p_filesz, 0,
+                   phdr[i].p_memsz - phdr[i].p_filesz);
+        int prot = PFLAGS(phdr[i].p_flags);
+        if (mprotect(p, segsz, prot) < 0) return LOAD_ERR;
+    }
+    return (unsigned long)base;
+}
+
+static void rewrite_auxv(char **argv, char **envp, Elf64_Ehdr *ehdr,
+                         unsigned long base, unsigned long entry) {
+    char **p = envp;
+    while (*p++ != NULL) {}
+    Elf64_auxv_t *av = (Elf64_auxv_t*)p;
+    while (av->a_type != AT_NULL) {
+        switch (av->a_type) {
+            case AT_PHDR:
+                av->a_un.a_val = base + ehdr->e_phoff;
+                break;
+            case AT_PHNUM:
+                av->a_un.a_val = ehdr->e_phnum;
+                break;
+            case AT_PHENT:
+                av->a_un.a_val = ehdr->e_phentsize;
+                break;
+            case AT_ENTRY:
+                av->a_un.a_val = entry;
+                break;
+            case AT_BASE:
+                av->a_un.a_val = (ehdr->e_type == ET_DYN) ? base : 0;
+                break;
+            case AT_EXECFN:
+                if (argv && argv[0])
+                    av->a_un.a_val = (unsigned long)argv[0];
+                break;
+        }
+        av++;
+    }
+}
+
+static uint8_t *g_decrypted_image = NULL;
+static size_t g_decrypted_size = 0;
 static pid_t g_child_pid = -1;
 static char g_env_key[33] = {};
 
 static bool do_load(const uint8_t* encrypted_data, size_t encrypted_size) {
+    debug_log("[irobf-linker] do_load begin\n");
     uint8_t* decrypted = (uint8_t*)malloc(encrypted_size);
     if (!decrypted) return false;
     const uint8_t key[] = CHACHA20_KEY;
     const uint8_t nonce[] = CHACHA20_NONCE;
     chacha20_decrypt(encrypted_data, encrypted_size, key, nonce, decrypted);
-    char temp_template[] = "/data/local/tmp/.ld_XXXXXX";
-    int fd = mkstemp(temp_template);
-    if (fd < 0) { free(decrypted); return false; }
-    strncpy(g_temp_path, temp_template, sizeof(g_temp_path) - 1);
-    write(fd, decrypted, encrypted_size);
-    close(fd);
-    free(decrypted);
-    chmod(g_temp_path, 0755);
+
+    Elf64_Ehdr *ehdr = (Elf64_Ehdr*)decrypted;
+    if (!check_ehdr(ehdr)) {
+        debug_log("[irobf-linker] invalid decrypted elf\n");
+        memset(decrypted, 0, encrypted_size);
+        free(decrypted);
+        return false;
+    }
+
+    g_decrypted_image = decrypted;
+    g_decrypted_size = encrypted_size;
+    debug_log("[irobf-linker] do_load ok\n");
     return true;
 }
 
-static int do_execute(int argc, char** argv) {
-    if (g_temp_path[0] == '\0') return -1;
+static int do_execute(int argc, char** argv, char** envp) {
+    if (!g_decrypted_image || g_decrypted_size == 0) return -1;
+    debug_log("[irobf-linker] fork child\n");
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
-        // 子进程：PTRACE_TRACEME 让父进程 trace 自己
-        // execv 后 trace 关系保持，外部进程无法再 ptrace 附加
-        ptrace(PTRACE_TRACEME, 0, NULL, NULL);
-        // 设置环境变量 lc，供内嵌的 EnvCheck Pass 校验
+        prctl(PR_SET_DUMPABLE, 0);
         setenv("lc", g_env_key, 1);
-        execv(g_temp_path, argv);
+
+        Elf64_Ehdr *ehdr = (Elf64_Ehdr*)g_decrypted_image;
+        Elf64_Phdr *phdr = (Elf64_Phdr*)(g_decrypted_image + ehdr->e_phoff);
+        unsigned long base = loadelf_mem(g_decrypted_image, g_decrypted_size,
+                                         ehdr, phdr);
+        if (base == LOAD_ERR) {
+            debug_log_errno("[irobf-linker] loadelf_mem failed");
+            _exit(127);
+        }
+
+        unsigned long entry =
+            ehdr->e_entry + (ehdr->e_type == ET_DYN ? base : 0);
+        rewrite_auxv(argv, envp, ehdr, base, entry);
+        memset(g_decrypted_image, 0, g_decrypted_size);
+        free(g_decrypted_image);
+        g_decrypted_image = NULL;
+        g_decrypted_size = 0;
+        debug_log("[irobf-linker] trampo jump\n");
+
+        unsigned long *sp = (unsigned long*)argv - 1;
+        sp[0] = (unsigned long)argc;
+        trampo_jump(entry, sp);
         _exit(127);
     }
     g_child_pid = pid;
-
-    // 父进程：等待子进程 exec 产生的 SIGTRAP
     int status = 0;
-    waitpid(pid, &status, 0);
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-
-    // 子进程已停在 exec 的 SIGTRAP，继续运行
-    ptrace(PTRACE_CONT, pid, NULL, NULL);
-
-    // 擦除 ELF 头
-    erase_elf_header(pid, g_temp_path);
-
-    // 启动反调试监控线程：持续检测子进程 TracerPid
-    static pid_t child_pid_copy;
-    child_pid_copy = pid;
-    pthread_t tid;
-    pthread_create(&tid, NULL, anti_debug_thread, &child_pid_copy);
-    pthread_detach(tid);
-
-    // 等待子进程结束
     waitpid(pid, &status, 0);
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return -WTERMSIG(status);
     return -1;
 }
 
-int main(int argc, char* argv[]) {
+extern "C" int irobf_loader_entry(int argc, char* argv[], char* envp[]) {
     // 初始化环境变量密钥
     const char* ek = ENV_KEY;
     strncpy(g_env_key, ek, sizeof(g_env_key) - 1);
     g_env_key[sizeof(g_env_key) - 1] = '\0';
 
     if (!do_load(payload_data, payload_data_size)) return 1;
-    int result = do_execute(argc, argv);
-    if (g_temp_path[0] != '\0') unlink(g_temp_path);
+    int result = do_execute(argc, argv, envp);
+    if (g_decrypted_image) {
+        memset(g_decrypted_image, 0, g_decrypted_size);
+        free(g_decrypted_image);
+        g_decrypted_image = NULL;
+        g_decrypted_size = 0;
+    }
     return result;
 }
+
 )";
+  if (!UseAsmTrampoline) {
+    OS << R"(
+int main(int argc, char* argv[]) {
+    return irobf_loader_entry(argc, argv, environ);
+}
+)";
+  }
+  OS << R"()";
+  OS.flush();
+  return true;
+}
+
+// ============================================================================
+// 生成 loader.S 壳入口跳板
+// ============================================================================
+
+static bool generateLoaderAsm(const std::string &output_path,
+                              StringRef TargetTriple) {
+  std::error_code EC;
+  raw_fd_ostream OS(output_path, EC, sys::fs::OF_None);
+  if (EC) {
+    errs() << "Error: Cannot write loader.S: " << EC.message() << "\n";
+    return false;
+  }
+
+  if (TargetTriple.starts_with("aarch64")) {
+    OS << R"(.text
+.globl _start
+.type _start, %function
+.extern irobf_loader_entry
+_start:
+    mov x29, xzr
+    mov x30, xzr
+    ldr x0, [sp]
+    add x1, sp, #8
+    add x2, x1, x0, lsl #3
+    add x2, x2, #8
+    bl irobf_loader_entry
+    mov x8, #93
+    svc #0
+    b .
+.size _start, . - _start
+.section .note.GNU-stack,"",%progbits
+)";
+  } else {
+    errs() << "Error: [irobf-linker] loader.S trampoline only supports aarch64 currently\n";
+    return false;
+  }
+
   OS.flush();
   return true;
 }
@@ -550,15 +712,23 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
 
   std::string payload_h_path = (tmp_dir + "/payload.h").str();
   std::string loader_cpp_path = (tmp_dir + "/loader.cpp").str();
+  std::string loader_asm_path = (tmp_dir + "/loader.S").str();
   std::string wrapped_elf_path = (tmp_dir + "/wrapped.elf").str();
+  bool useAsmTrampoline = StringRef(TargetTriple).starts_with("aarch64");
 
-  // 4. 生成 payload.h 和 loader.cpp
+  // 4. 生成 payload.h / loader.cpp / loader.S
   if (!generatePayloadH(payload_h_path, encrypted_data.data(), file_size, key, nonce, env_key)) {
     sys::fs::remove_directories(tmp_dir);
     return false;
   }
 
-  if (!generateLoaderCpp(loader_cpp_path)) {
+  if (!generateLoaderCpp(loader_cpp_path, DebugMode, useAsmTrampoline)) {
+    sys::fs::remove_directories(tmp_dir);
+    return false;
+  }
+
+  if (useAsmTrampoline &&
+      !generateLoaderAsm(loader_asm_path, TargetTriple)) {
     sys::fs::remove_directories(tmp_dir);
     return false;
   }
@@ -584,6 +754,8 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   if (!normalized_sysroot.empty())
     compile_cmd += " --sysroot=\"" + normalized_sysroot + "\"";
   compile_cmd += std::string(" -O2 -std=c++17 -fno-exceptions -frtti -fPIE -pie");
+  if (useAsmTrampoline)
+    compile_cmd += " -nostartfiles -Wl,-e,_start";
   // 混淆编译参数已注释关闭（保持仅基础编译参数）
   // compile_cmd += " -mllvm -irobf";
   // compile_cmd += " -mllvm -irobf-indbr -mllvm -level-indbr=3";
@@ -598,6 +770,8 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   compile_cmd += " -lm -ldl -llog";
   compile_cmd += " -o \"" + wrapped_elf_path + "\"";
   compile_cmd += " \"" + loader_cpp_path + "\"";
+  if (useAsmTrampoline)
+    compile_cmd += " \"" + loader_asm_path + "\"";
   compile_cmd += " -I\"" + std::string(tmp_dir.str()) + "\"";
 
   if (DebugMode) outs() << "[irobf-linker] Compiling wrapper with max obfuscation...\n";
@@ -617,6 +791,10 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   argv.push_back("-frtti");
   argv.push_back("-fPIE");
   argv.push_back("-pie");
+  if (useAsmTrampoline) {
+    argv.push_back("-nostartfiles");
+    argv.push_back("-Wl,-e,_start");
+  }
   // 混淆编译参数已注释关闭（保持仅基础编译参数）
   // argv.push_back("-mllvm"); argv.push_back("-irobf");
   // argv.push_back("-mllvm"); argv.push_back("-irobf-indbr");
@@ -639,6 +817,8 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   argv.push_back("-o");
   argv.push_back(wrapped_elf_path);
   argv.push_back(loader_cpp_path);
+  if (useAsmTrampoline)
+    argv.push_back(loader_asm_path);
   std::string include_arg = "-I" + std::string(tmp_dir.str());
   argv.push_back(include_arg);
 
