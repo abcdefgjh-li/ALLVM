@@ -225,6 +225,14 @@ static bool generateLoaderCpp(const std::string &output_path, bool DebugMode,
   OS << (DebugMode ? "1" : "0");
   OS << R"(
 
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC 0x0001U
+#endif
+
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
+
 extern char** environ;
 
 #if IROBF_LINKER_DEBUG
@@ -243,22 +251,16 @@ static void debug_log(const char* msg) { (void)msg; }
 static void debug_log_errno(const char* prefix) { (void)prefix; }
 #endif
 
-#define PAGE_SIZE 4096UL
-#define ALIGN_MASK (PAGE_SIZE - 1)
-#define ROUND_PG(x) (((x) + ALIGN_MASK) & ~ALIGN_MASK)
-#define TRUNC_PG(x) ((x) & ~ALIGN_MASK)
+#define IROBF_PAGE_SIZE 4096UL
+#define IROBF_ALIGN_MASK (IROBF_PAGE_SIZE - 1)
+#define ROUND_PG(x) (((x) + IROBF_ALIGN_MASK) & ~IROBF_ALIGN_MASK)
+#define TRUNC_PG(x) ((x) & ~IROBF_ALIGN_MASK)
 #define PFLAGS(x) ((((x) & PF_R) ? PROT_READ : 0) | \
                    (((x) & PF_W) ? PROT_WRITE : 0) | \
                    (((x) & PF_X) ? PROT_EXEC : 0))
 #define LOAD_ERR ((unsigned long)-1)
 
-static void __attribute__((naked)) trampo_jump(unsigned long entry,
-                                               unsigned long *stack) {
-    __asm__ volatile(
-        "mov sp, x1\n"
-        "br x0\n"
-    );
-}
+extern "C" void trampo_jump(unsigned long entry, unsigned long *stack);
 
 static inline uint32_t rotl32(uint32_t v, int n) {
     return (v << n) | (v >> (32 - n));
@@ -396,7 +398,7 @@ static unsigned long loadelf_mem(unsigned char *data, size_t data_sz,
     flags = MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE;
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdr[i].p_type != PT_LOAD) continue;
-        unsigned long off = phdr[i].p_vaddr & ALIGN_MASK;
+        unsigned long off = phdr[i].p_vaddr & IROBF_ALIGN_MASK;
         unsigned long start =
             (dyn ? (unsigned long)base : 0) + TRUNC_PG(phdr[i].p_vaddr);
         size_t segsz = ROUND_PG(phdr[i].p_memsz + off);
@@ -444,8 +446,52 @@ static void rewrite_auxv(char **argv, char **envp, Elf64_Ehdr *ehdr,
     }
 }
 
+static bool requires_kernel_elf_loader(Elf64_Ehdr *ehdr, Elf64_Phdr *phdr) {
+    for (int i = 0; i < ehdr->e_phnum; i++) {
+        if (phdr[i].p_type == PT_INTERP || phdr[i].p_type == PT_DYNAMIC)
+            return true;
+    }
+    return false;
+}
+
+static ssize_t write_all(int fd, const uint8_t* data, size_t size) {
+    size_t written = 0;
+    while (written < size) {
+        ssize_t n = write(fd, data + written, size - written);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        written += (size_t)n;
+    }
+    return (ssize_t)written;
+}
+
+static int create_exec_fd(void) {
+#ifdef __NR_memfd_create
+    return syscall(__NR_memfd_create, "ap_ld_mem", MFD_CLOEXEC);
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+static int exec_loaded_image(int exec_fd, char** argv) {
+#ifdef __NR_execveat
+    syscall(__NR_execveat, exec_fd, "", argv, environ, AT_EMPTY_PATH);
+    if (errno != ENOSYS) return -1;
+#endif
+    char proc_path[64];
+    snprintf(proc_path, sizeof(proc_path), "/proc/self/fd/%d", exec_fd);
+    execve(proc_path, argv, environ);
+    return -1;
+}
+
 static uint8_t *g_decrypted_image = NULL;
 static size_t g_decrypted_size = 0;
+static int g_exec_fd = -1;
+static int g_use_kernel_loader = 0;
 static pid_t g_child_pid = -1;
 static char g_env_key[33] = {};
 
@@ -465,6 +511,35 @@ static bool do_load(const uint8_t* encrypted_data, size_t encrypted_size) {
         return false;
     }
 
+    Elf64_Phdr *phdr = (Elf64_Phdr*)(decrypted + ehdr->e_phoff);
+    g_use_kernel_loader = requires_kernel_elf_loader(ehdr, phdr) ? 1 : 0;
+    if (g_use_kernel_loader) {
+        debug_log("[irobf-linker] dynamic elf -> memfd path\n");
+        int fd = create_exec_fd();
+        if (fd < 0) {
+            debug_log_errno("[irobf-linker] memfd_create failed");
+            memset(decrypted, 0, encrypted_size);
+            free(decrypted);
+            return false;
+        }
+        if (write_all(fd, decrypted, encrypted_size) != (ssize_t)encrypted_size ||
+            lseek(fd, 0, SEEK_SET) < 0) {
+            debug_log_errno("[irobf-linker] write memfd failed");
+            close(fd);
+            memset(decrypted, 0, encrypted_size);
+            free(decrypted);
+            return false;
+        }
+        memset(decrypted, 0, encrypted_size);
+        free(decrypted);
+        g_exec_fd = fd;
+        g_decrypted_image = NULL;
+        g_decrypted_size = 0;
+        debug_log("[irobf-linker] memfd ready\n");
+        return true;
+    }
+
+    debug_log("[irobf-linker] simple elf -> manual map path\n");
     g_decrypted_image = decrypted;
     g_decrypted_size = encrypted_size;
     debug_log("[irobf-linker] do_load ok\n");
@@ -472,13 +547,23 @@ static bool do_load(const uint8_t* encrypted_data, size_t encrypted_size) {
 }
 
 static int do_execute(int argc, char** argv, char** envp) {
-    if (!g_decrypted_image || g_decrypted_size == 0) return -1;
+    if (!g_use_kernel_loader && (!g_decrypted_image || g_decrypted_size == 0))
+        return -1;
+    if (g_use_kernel_loader && g_exec_fd < 0)
+        return -1;
     debug_log("[irobf-linker] fork child\n");
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
         prctl(PR_SET_DUMPABLE, 0);
         setenv("lc", g_env_key, 1);
+
+        if (g_use_kernel_loader) {
+            debug_log("[irobf-linker] exec memfd path\n");
+            exec_loaded_image(g_exec_fd, argv);
+            debug_log_errno("[irobf-linker] exec memfd failed");
+            _exit(127);
+        }
 
         Elf64_Ehdr *ehdr = (Elf64_Ehdr*)g_decrypted_image;
         Elf64_Phdr *phdr = (Elf64_Phdr*)(g_decrypted_image + ehdr->e_phoff);
@@ -506,8 +591,20 @@ static int do_execute(int argc, char** argv, char** envp) {
     g_child_pid = pid;
     int status = 0;
     waitpid(pid, &status, 0);
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    if (WIFSIGNALED(status)) return -WTERMSIG(status);
+    if (WIFEXITED(status)) {
+        char buf[96];
+        int n = snprintf(buf, sizeof(buf),
+                         "[irobf-linker] child exit=%d\n", WEXITSTATUS(status));
+        if (n > 0) debug_log(buf);
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        char buf[96];
+        int n = snprintf(buf, sizeof(buf),
+                         "[irobf-linker] child signal=%d\n", WTERMSIG(status));
+        if (n > 0) debug_log(buf);
+        return -WTERMSIG(status);
+    }
     return -1;
 }
 
@@ -525,6 +622,11 @@ extern "C" int irobf_loader_entry(int argc, char* argv[], char* envp[]) {
         g_decrypted_image = NULL;
         g_decrypted_size = 0;
     }
+    if (g_exec_fd >= 0) {
+        close(g_exec_fd);
+        g_exec_fd = -1;
+    }
+    g_use_kernel_loader = 0;
     return result;
 }
 
@@ -558,6 +660,8 @@ static bool generateLoaderAsm(const std::string &output_path,
     OS << R"(.text
 .globl _start
 .type _start, %function
+.globl trampo_jump
+.type trampo_jump, %function
 .extern irobf_loader_entry
 _start:
     mov x29, xzr
@@ -571,6 +675,10 @@ _start:
     svc #0
     b .
 .size _start, . - _start
+trampo_jump:
+    mov sp, x1
+    br x0
+.size trampo_jump, . - trampo_jump
 .section .note.GNU-stack,"",%progbits
 )";
   } else {
