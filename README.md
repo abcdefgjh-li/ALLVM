@@ -350,7 +350,7 @@ include $(BUILD_EXECUTABLE)
 
 ## 特别感谢
 
-- **saye**：linker壳提供
+- **saye**：提供linker壳包装
 
 ## License
 
