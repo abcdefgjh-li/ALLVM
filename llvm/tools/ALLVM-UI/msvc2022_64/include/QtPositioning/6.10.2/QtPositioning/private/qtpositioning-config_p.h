@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_Positioning_qtpositioning_src_positioning_qtpositioning_config_p_h_H
+#define QT_FEATURES_Positioning_qtpositioning_src_positioning_qtpositioning_config_p_h_H
+
+#define QT_FEATURE_winrt_geolocation 1
+
+
+#endif // QT_FEATURES_Positioning_qtpositioning_src_positioning_qtpositioning_config_p_h_H

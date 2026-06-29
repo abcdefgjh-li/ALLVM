@@ -1,0 +1,11 @@
+QT.quicktimelineblendtrees_private.VERSION = 6.10.2
+QT.quicktimelineblendtrees_private.name = QtQuickTimelineBlendTrees
+QT.quicktimelineblendtrees_private.module =
+QT.quicktimelineblendtrees_private.libs = $$QT_MODULE_LIB_BASE
+QT.quicktimelineblendtrees_private.includes = $$QT_MODULE_INCLUDE_BASE/QtQuickTimelineBlendTrees/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtQuickTimelineBlendTrees/6.10.2/QtQuickTimelineBlendTrees
+QT.quicktimelineblendtrees_private.frameworks = 
+QT.quicktimelineblendtrees_private.depends = quicktimelineblendtrees
+QT.quicktimelineblendtrees_private.uses = 
+QT.quicktimelineblendtrees_private.module_config = v2 staticlib internal_module
+QT.quicktimelineblendtrees_private.enabled_features = 
+QT.quicktimelineblendtrees_private.disabled_features = 

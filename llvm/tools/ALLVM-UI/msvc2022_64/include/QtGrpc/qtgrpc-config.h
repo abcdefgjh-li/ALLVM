@@ -1,0 +1,9 @@
+#ifndef QT_FEATURES_Grpc_qtgrpc_src_grpc_qtgrpc_config_h_H
+#define QT_FEATURES_Grpc_qtgrpc_src_grpc_qtgrpc_config_h_H
+
+#define QT_FEATURE_grpc 1
+
+#define QT_FEATURE_grpcquick 1
+
+
+#endif // QT_FEATURES_Grpc_qtgrpc_src_grpc_qtgrpc_config_h_H

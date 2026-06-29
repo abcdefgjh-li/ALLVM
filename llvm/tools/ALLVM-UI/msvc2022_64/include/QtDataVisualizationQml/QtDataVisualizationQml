@@ -1,0 +1,5 @@
+#ifndef QT_QTDATAVISUALIZATIONQML_MODULE_H
+#define QT_QTDATAVISUALIZATIONQML_MODULE_H
+#include <QtDataVisualizationQml/QtDataVisualizationQmlDepends>
+#include "qtdatavisualizationqmlversion.h"
+#endif

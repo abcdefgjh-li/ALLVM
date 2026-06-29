@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_TextToSpeech_qtspeech_src_tts_qttexttospeech_config_p_h_H
+#define QT_FEATURES_TextToSpeech_qtspeech_src_tts_qttexttospeech_config_p_h_H
+
+#define QT_FEATURE_flite -1
+
+
+#endif // QT_FEATURES_TextToSpeech_qtspeech_src_tts_qttexttospeech_config_p_h_H

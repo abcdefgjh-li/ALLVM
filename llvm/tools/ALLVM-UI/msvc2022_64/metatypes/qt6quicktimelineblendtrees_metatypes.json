@@ -1,0 +1,280 @@
+[
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "BlendAnimationNode"
+                    }
+                ],
+                "className": "QBlendAnimationNode",
+                "lineNumber": 25,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 0,
+                        "lineNumber": 28,
+                        "name": "source1",
+                        "notify": "source1Changed",
+                        "read": "source1",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QBlendTreeNode*",
+                        "user": false,
+                        "write": "setSource1"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 1,
+                        "lineNumber": 29,
+                        "name": "source2",
+                        "notify": "source2Changed",
+                        "read": "source2",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QBlendTreeNode*",
+                        "user": false,
+                        "write": "setSource2"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 2,
+                        "lineNumber": 30,
+                        "name": "weight",
+                        "notify": "weightChanged",
+                        "read": "weight",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "qreal",
+                        "user": false,
+                        "write": "setWeight"
+                    }
+                ],
+                "qualifiedClassName": "QBlendAnimationNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 48,
+                        "name": "source1Changed",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 49,
+                        "name": "source2Changed",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 50,
+                        "name": "weightChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "index": 3,
+                        "lineNumber": 45,
+                        "name": "handleInputFrameDataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QBlendTreeNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qblendanimationnode_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "BlendTreeNode"
+                    },
+                    {
+                        "name": "QML.Creatable",
+                        "value": "false"
+                    },
+                    {
+                        "name": "QML.UncreatableReason",
+                        "value": "Interface Class"
+                    }
+                ],
+                "className": "QBlendTreeNode",
+                "lineNumber": 25,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 0,
+                        "lineNumber": 28,
+                        "name": "outputEnabled",
+                        "notify": "outputEnabledChanged",
+                        "read": "outputEnabled",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setOutputEnabled"
+                    }
+                ],
+                "qualifiedClassName": "QBlendTreeNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 40,
+                        "name": "frameDataChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 41,
+                        "name": "outputEnabledChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "index": 2,
+                        "lineNumber": 47,
+                        "name": "handleFrameDataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qblendtreenode_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "TimelineAnimationNode"
+                    }
+                ],
+                "className": "QTimelineAnimationNode",
+                "lineNumber": 26,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 0,
+                        "lineNumber": 29,
+                        "name": "animation",
+                        "notify": "animationChanged",
+                        "read": "animation",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQuickTimelineAnimation*",
+                        "user": false,
+                        "write": "setAnimation"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 1,
+                        "lineNumber": 30,
+                        "name": "timeline",
+                        "notify": "timelineChanged",
+                        "read": "timeline",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQuickTimeline*",
+                        "user": false,
+                        "write": "setTimeline"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": true,
+                        "index": 2,
+                        "lineNumber": 31,
+                        "name": "currentFrame",
+                        "notify": "currentFrameChanged",
+                        "read": "currentFrame",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "qreal",
+                        "user": false,
+                        "write": "setCurrentFrame"
+                    }
+                ],
+                "qualifiedClassName": "QTimelineAnimationNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 46,
+                        "name": "animationChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 47,
+                        "name": "timelineChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 48,
+                        "name": "currentFrameChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QBlendTreeNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qtimelineanimationnode_p.h",
+        "outputRevision": 69
+    }
+]

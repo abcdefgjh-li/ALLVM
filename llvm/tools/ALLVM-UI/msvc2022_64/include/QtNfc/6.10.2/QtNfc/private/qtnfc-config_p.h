@@ -1,0 +1,5 @@
+#ifndef QT_FEATURES_Nfc_qtconnectivity_src_nfc_qtnfc_config_p_h_H
+#define QT_FEATURES_Nfc_qtconnectivity_src_nfc_qtnfc_config_p_h_H
+
+
+#endif // QT_FEATURES_Nfc_qtconnectivity_src_nfc_qtnfc_config_p_h_H

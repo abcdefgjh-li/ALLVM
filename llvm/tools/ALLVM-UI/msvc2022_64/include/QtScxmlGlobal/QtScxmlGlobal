@@ -1,0 +1,5 @@
+#ifndef QT_QTSCXMLGLOBAL_MODULE_H
+#define QT_QTSCXMLGLOBAL_MODULE_H
+#include <QtScxmlGlobal/QtScxmlGlobalDepends>
+#include "qtscxmlglobalversion.h"
+#endif

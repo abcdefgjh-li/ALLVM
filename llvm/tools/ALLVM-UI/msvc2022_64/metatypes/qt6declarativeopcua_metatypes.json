@@ -1,0 +1,4103 @@
+[
+    {
+        "classes": [
+            {
+                "className": "OpcUaAttributeCache",
+                "lineNumber": 28,
+                "object": true,
+                "qualifiedClassName": "OpcUaAttributeCache",
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attribute",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 37,
+                        "name": "setAttributeValue",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 38,
+                        "name": "invalidate",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaattributecache_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "AttributeOperand"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaAttributeOperand",
+                "lineNumber": 31,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 33,
+                        "name": "browsePath",
+                        "read": "browsePath",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQmlListProperty<OpcUaRelativeNodePath>",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 34,
+                        "name": "indexRange",
+                        "read": "indexRange",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setIndexRange"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 35,
+                        "name": "nodeAttribute",
+                        "read": "nodeAttribute",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeAttribute",
+                        "user": false,
+                        "write": "setNodeAttribute"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 36,
+                        "name": "typeId",
+                        "read": "typeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaNodeId*",
+                        "user": false,
+                        "write": "setTypeId"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 37,
+                        "name": "alias",
+                        "read": "alias",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setAlias"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaAttributeOperand",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 66,
+                        "name": "dataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaOperandBase"
+                    },
+                    {
+                        "access": "private",
+                        "name": "QOpcUaAttributeOperand"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaattributeoperand_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaAttributeValue",
+                "lineNumber": 24,
+                "object": true,
+                "qualifiedClassName": "OpcUaAttributeValue",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 36,
+                        "name": "changed",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaattributevalue_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "Connection"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaConnection",
+                "lineNumber": 33,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QJSValue"
+                            }
+                        ],
+                        "index": 17,
+                        "lineNumber": 64,
+                        "name": "readNodeAttributes",
+                        "returnType": "bool"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QJSValue"
+                            }
+                        ],
+                        "index": 18,
+                        "lineNumber": 65,
+                        "name": "writeNodeAttributes",
+                        "returnType": "bool"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 37,
+                        "name": "availableBackends",
+                        "notify": "availableBackendsChanged",
+                        "read": "availableBackends",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QStringList",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 38,
+                        "name": "connected",
+                        "notify": "connectedChanged",
+                        "read": "connected",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 39,
+                        "name": "backend",
+                        "notify": "backendChanged",
+                        "read": "backend",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setBackend"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 40,
+                        "name": "defaultConnection",
+                        "notify": "defaultConnectionChanged",
+                        "read": "defaultConnection",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setDefaultConnection"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 41,
+                        "name": "namespaces",
+                        "notify": "namespacesChanged",
+                        "read": "namespaces",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QStringList",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 42,
+                        "name": "authenticationInformation",
+                        "read": "authenticationInformation",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaAuthenticationInformation",
+                        "user": false,
+                        "write": "setAuthenticationInformation"
+                    },
+                    {
+                        "constant": true,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 43,
+                        "name": "supportedSecurityPolicies",
+                        "read": "supportedSecurityPolicies",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QStringList",
+                        "user": false
+                    },
+                    {
+                        "constant": true,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 44,
+                        "name": "supportedUserTokenTypes",
+                        "read": "supportedUserTokenTypes",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QJSValue",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 8,
+                        "lineNumber": 45,
+                        "name": "currentEndpoint",
+                        "read": "currentEndpoint",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaEndpointDescription",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 9,
+                        "lineNumber": 46,
+                        "name": "connection",
+                        "notify": "connectionChanged",
+                        "read": "connection",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaClient*",
+                        "user": false,
+                        "write": "setConnection"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaConnection",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 80,
+                        "name": "availableBackendsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 81,
+                        "name": "connectedChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 82,
+                        "name": "backendChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 83,
+                        "name": "defaultConnectionChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 84,
+                        "name": "namespacesChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 85,
+                        "name": "readNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 86,
+                        "name": "writeNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 7,
+                        "lineNumber": 87,
+                        "name": "connectionChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "endpointDescription",
+                                "type": "QOpcUaEndpointDescription"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 73,
+                        "name": "connectToEndpoint",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 9,
+                        "lineNumber": 74,
+                        "name": "disconnectFromEndpoint",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "defaultConnection",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 10,
+                        "lineNumber": 75,
+                        "name": "setDefaultConnection",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 11,
+                        "isCloned": true,
+                        "lineNumber": 75,
+                        "name": "setDefaultConnection",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "authenticationInformation",
+                                "type": "QOpcUaAuthenticationInformation"
+                            }
+                        ],
+                        "index": 12,
+                        "lineNumber": 76,
+                        "name": "setAuthenticationInformation",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "client",
+                                "type": "QOpcUaClient*"
+                            }
+                        ],
+                        "index": 13,
+                        "lineNumber": 77,
+                        "name": "setConnection",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "QOpcUaClient::ClientState"
+                            }
+                        ],
+                        "index": 14,
+                        "lineNumber": 90,
+                        "name": "clientStateHandler",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaReadResult>"
+                            }
+                        ],
+                        "index": 15,
+                        "lineNumber": 91,
+                        "name": "handleReadNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaWriteResult>"
+                            }
+                        ],
+                        "index": 16,
+                        "lineNumber": 92,
+                        "name": "handleWriteNodeAttributesFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaconnection_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "DataChangeFilter"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaDataChangeFilter",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 35,
+                        "name": "DataChangeTrigger",
+                        "values": [
+                            "Status",
+                            "StatusOrValue",
+                            "StatusOrValueOrTimestamp"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 43,
+                        "name": "DeadbandType",
+                        "values": [
+                            "None",
+                            "Absolute",
+                            "Percent"
+                        ]
+                    }
+                ],
+                "lineNumber": 24,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 26,
+                        "name": "trigger",
+                        "read": "trigger",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "DataChangeTrigger",
+                        "user": false,
+                        "write": "setTrigger"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 27,
+                        "name": "deadbandType",
+                        "read": "deadbandType",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "DeadbandType",
+                        "user": false,
+                        "write": "setDeadbandType"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 28,
+                        "name": "deadbandValue",
+                        "read": "deadbandValue",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "double",
+                        "user": false,
+                        "write": "setDeadbandValue"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaDataChangeFilter",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 63,
+                        "name": "filterChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "trigger",
+                                "type": "DataChangeTrigger"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 66,
+                        "name": "setTrigger",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "deadbandType",
+                                "type": "DeadbandType"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 67,
+                        "name": "setDeadbandType",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "deadbandValue",
+                                "type": "double"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 68,
+                        "name": "setDeadbandValue",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuadatachangefilter_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "ElementOperand"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaElementOperand",
+                "lineNumber": 26,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 28,
+                        "name": "index",
+                        "read": "index",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "quint32",
+                        "user": false,
+                        "write": "setIndex"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaElementOperand",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 41,
+                        "name": "dataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaOperandBase"
+                    },
+                    {
+                        "access": "private",
+                        "name": "QOpcUaElementOperand"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaelementoperand_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "EndpointDiscovery"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaEndpointDiscovery",
+                "interfaces": [
+                    [
+                        {
+                            "className": "QQmlParserStatus",
+                            "id": "\"org.qt-project.Qt.QQmlParserStatus\""
+                        }
+                    ]
+                ],
+                "lineNumber": 32,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "row",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 8,
+                        "isConst": true,
+                        "lineNumber": 51,
+                        "name": "at",
+                        "returnType": "QOpcUaEndpointDescription"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 35,
+                        "name": "serverUrl",
+                        "notify": "serverUrlChanged",
+                        "read": "serverUrl",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setServerUrl"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 36,
+                        "name": "count",
+                        "notify": "countChanged",
+                        "read": "count",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 37,
+                        "name": "status",
+                        "notify": "statusChanged",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaStatus",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 38,
+                        "name": "connection",
+                        "notify": "connectionChanged",
+                        "read": "connection",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaConnection*",
+                        "user": false,
+                        "write": "setConnection"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaEndpointDiscovery",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "serverUrl",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 57,
+                        "name": "serverUrlChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 58,
+                        "name": "endpointsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 59,
+                        "name": "countChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 60,
+                        "name": "statusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "OpcUaConnection*"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 61,
+                        "name": "connectionChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "index": 5,
+                        "lineNumber": 64,
+                        "name": "connectSignals",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "endpoints",
+                                "type": "QList<QOpcUaEndpointDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 65,
+                        "name": "handleEndpoints",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 7,
+                        "lineNumber": 66,
+                        "name": "startRequestEndpoints",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    },
+                    {
+                        "access": "public",
+                        "name": "QQmlParserStatus"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaendpointdiscovery_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "EventFilter"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaEventFilter",
+                "lineNumber": 32,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 34,
+                        "name": "where",
+                        "read": "filterElements",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQmlListProperty<OpcUaFilterElement>",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 35,
+                        "name": "select",
+                        "read": "selectors",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQmlListProperty<OpcUaSimpleAttributeOperand>",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "OpcUaEventFilter",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 59,
+                        "name": "dataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaeventfilter_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "FilterElement"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaFilterElement",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 41,
+                        "name": "FilterOperator",
+                        "type": "quint32",
+                        "values": [
+                            "Equals",
+                            "IsNull",
+                            "GreaterThan",
+                            "LessThan",
+                            "GreaterThanOrEqual",
+                            "LessThanOrEqual",
+                            "Like",
+                            "Not",
+                            "Between",
+                            "InList",
+                            "And",
+                            "Or",
+                            "Cast",
+                            "InView",
+                            "OfType",
+                            "RelatedTo",
+                            "BitwiseAnd",
+                            "BitwiseOr"
+                        ]
+                    }
+                ],
+                "lineNumber": 29,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 31,
+                        "name": "operator",
+                        "read": "operatorType",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "FilterOperator",
+                        "user": false,
+                        "write": "setOperatorType"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 32,
+                        "name": "firstOperand",
+                        "read": "firstOperand",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaOperandBase*",
+                        "user": false,
+                        "write": "setFirstOperand"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 33,
+                        "name": "secondOperand",
+                        "read": "secondOperand",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaOperandBase*",
+                        "user": false,
+                        "write": "setSecondOperand"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaFilterElement",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 77,
+                        "name": "dataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuafilterelement_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QOpcUa"
+                    },
+                    {
+                        "name": "QML.ForeignIsNamespace",
+                        "value": "true"
+                    },
+                    {
+                        "name": "QML.Extended",
+                        "value": "QOpcUaUserTokenPolicy"
+                    },
+                    {
+                        "name": "QML.Element",
+                        "value": "auto"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "Constants",
+                "lineNumber": 28,
+                "namespace": true,
+                "qualifiedClassName": "Constants"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QOpcUaApplicationDescription"
+                    },
+                    {
+                        "name": "QML.ForeignIsNamespace",
+                        "value": "true"
+                    },
+                    {
+                        "name": "QML.Element",
+                        "value": "ApplicationDescription"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "QOpcUaApplicationDescriptionForeign",
+                "lineNumber": 37,
+                "namespace": true,
+                "qualifiedClassName": "QOpcUaApplicationDescriptionForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QOpcUaUserTokenPolicy"
+                    },
+                    {
+                        "name": "QML.ForeignIsNamespace",
+                        "value": "true"
+                    },
+                    {
+                        "name": "QML.Element",
+                        "value": "UserTokenPolicy"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "QOpcUaUserTokenPolicyForeign",
+                "lineNumber": 45,
+                "namespace": true,
+                "qualifiedClassName": "QOpcUaUserTokenPolicyForeign"
+            }
+        ],
+        "inputFile": "opcuaforeign_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "LiteralOperand"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaLiteralOperand",
+                "lineNumber": 26,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 28,
+                        "name": "value",
+                        "read": "value",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setValue"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 29,
+                        "name": "type",
+                        "read": "type",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::Types",
+                        "user": false,
+                        "write": "setType"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaLiteralOperand",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 45,
+                        "name": "dataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaOperandBase"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcualiteraloperand_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "MethodArgument"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaMethodArgument",
+                "lineNumber": 25,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 28,
+                        "name": "value",
+                        "read": "value",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setValue"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 29,
+                        "name": "type",
+                        "read": "type",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::Types",
+                        "user": false,
+                        "write": "setType"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaMethodArgument",
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 40,
+                        "name": "setValue",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "type",
+                                "type": "QOpcUa::Types"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 41,
+                        "name": "setType",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuamethodargument_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "MethodNode"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaMethodNode",
+                "lineNumber": 29,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 32,
+                        "name": "objectNodeId",
+                        "notify": "objectNodeIdChanged",
+                        "read": "objectNodeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaNodeIdType*",
+                        "user": false,
+                        "write": "setObjectNodeId"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 33,
+                        "name": "inputArguments",
+                        "notify": "inputArgumentsChanged",
+                        "read": "inputArguments",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQmlListProperty<OpcUaMethodArgument>",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 34,
+                        "name": "outputArguments",
+                        "notify": "outputArgumentsChanged",
+                        "read": "outputArguments",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariantList",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 35,
+                        "name": "resultStatus",
+                        "notify": "resultStatusChanged",
+                        "read": "resultStatus",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaStatus",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "OpcUaMethodNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 53,
+                        "name": "objectNodeIdChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 54,
+                        "name": "inputArgumentsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 55,
+                        "name": "outputArgumentsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "status",
+                                "type": "OpcUaStatus"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 57,
+                        "name": "resultStatusChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "OpcUaNodeIdType*"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 49,
+                        "name": "setObjectNodeId",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 50,
+                        "name": "callMethod",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 6,
+                        "lineNumber": 60,
+                        "name": "handleObjectNodeIdChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "methodNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "result",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 61,
+                        "name": "handleMethodCallFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuamethodnode_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "RegisterEnumClassesUnscoped",
+                        "value": "false"
+                    },
+                    {
+                        "name": "QML.Element",
+                        "value": "Node"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaNode",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 59,
+                        "name": "Status",
+                        "values": [
+                            "Valid",
+                            "InvalidNodeId",
+                            "NoConnection",
+                            "InvalidNodeType",
+                            "InvalidClient",
+                            "FailedToResolveNode",
+                            "InvalidObjectNode",
+                            "FailedToReadAttributes",
+                            "FailedToSetupMonitoring",
+                            "FailedToWriteAttribute",
+                            "FailedToModifyMonitoring",
+                            "FailedToDisableMonitoring"
+                        ]
+                    }
+                ],
+                "lineNumber": 34,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QOpcUa::NodeAttribute"
+                            }
+                        ],
+                        "index": 17,
+                        "isConst": true,
+                        "lineNumber": 99,
+                        "name": "getSourceTimestamp",
+                        "returnType": "QDateTime"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QOpcUa::NodeAttribute"
+                            }
+                        ],
+                        "index": 18,
+                        "isConst": true,
+                        "lineNumber": 100,
+                        "name": "getServerTimestamp",
+                        "returnType": "QDateTime"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 40,
+                        "name": "nodeId",
+                        "notify": "nodeIdChanged",
+                        "read": "nodeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaNodeIdType*",
+                        "user": false,
+                        "write": "setNodeId"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 41,
+                        "name": "connection",
+                        "notify": "connectionChanged",
+                        "read": "connection",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaConnection*",
+                        "user": false,
+                        "write": "setConnection"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 42,
+                        "name": "readyToUse",
+                        "notify": "readyToUseChanged",
+                        "read": "readyToUse",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 43,
+                        "name": "status",
+                        "notify": "statusChanged",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaNode::Status",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 44,
+                        "name": "errorMessage",
+                        "notify": "errorMessageChanged",
+                        "read": "errorMessage",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 45,
+                        "name": "eventFilter",
+                        "notify": "eventFilterChanged",
+                        "read": "eventFilter",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaEventFilter*",
+                        "user": false,
+                        "write": "setEventFilter"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 48,
+                        "name": "browseName",
+                        "notify": "browseNameChanged",
+                        "read": "browseName",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setBrowseName"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 49,
+                        "name": "nodeClass",
+                        "notify": "nodeClassChanged",
+                        "read": "nodeClass",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeClass",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 8,
+                        "lineNumber": 50,
+                        "name": "displayName",
+                        "notify": "displayNameChanged",
+                        "read": "displayName",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaLocalizedText",
+                        "user": false,
+                        "write": "setDisplayName"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 9,
+                        "lineNumber": 51,
+                        "name": "description",
+                        "notify": "descriptionChanged",
+                        "read": "description",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaLocalizedText",
+                        "user": false,
+                        "write": "setDescription"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "OpcUaNodeIdType*"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 113,
+                        "name": "nodeIdChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "OpcUaConnection*"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 114,
+                        "name": "connectionChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 115,
+                        "name": "nodeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 116,
+                        "name": "readyToUseChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 117,
+                        "name": "browseNameChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 118,
+                        "name": "nodeClassChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 6,
+                        "lineNumber": 119,
+                        "name": "displayNameChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 7,
+                        "lineNumber": 120,
+                        "name": "descriptionChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 8,
+                        "lineNumber": 121,
+                        "name": "statusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 9,
+                        "lineNumber": 122,
+                        "name": "errorMessageChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 10,
+                        "lineNumber": 123,
+                        "name": "eventFilterChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "values",
+                                "type": "QVariantList"
+                            }
+                        ],
+                        "index": 11,
+                        "lineNumber": 124,
+                        "name": "eventOccurred",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "OpcUaNodeIdType*"
+                            }
+                        ],
+                        "index": 12,
+                        "lineNumber": 109,
+                        "name": "setNodeId",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "OpcUaConnection*"
+                            }
+                        ],
+                        "index": 13,
+                        "lineNumber": 110,
+                        "name": "setConnection",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "protected",
+                        "arguments": [
+                            {
+                                "name": "absoluteNodePath",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 14,
+                        "lineNumber": 127,
+                        "name": "setupNode",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "protected",
+                        "index": 15,
+                        "lineNumber": 128,
+                        "name": "updateNode",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "protected",
+                        "index": 16,
+                        "lineNumber": 129,
+                        "name": "updateEventFilter",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuanode_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "NodeId"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaNodeId",
+                "lineNumber": 24,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 27,
+                        "name": "ns",
+                        "notify": "nodeNamespaceChanged",
+                        "read": "nodeNamespace",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setNodeNamespace"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 28,
+                        "name": "identifier",
+                        "notify": "identifierChanged",
+                        "read": "identifier",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setIdentifier"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaNodeId",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 37,
+                        "name": "nodeNamespaceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 38,
+                        "name": "identifierChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 39,
+                        "name": "nodeChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaNodeIdType"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuanodeid_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "NodeIdType"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    },
+                    {
+                        "name": "QML.Creatable",
+                        "value": "false"
+                    },
+                    {
+                        "name": "QML.UncreatableReason",
+                        "value": "The type 'NodeIdType' is not creatable. Use 'NodeId' or 'RelativeNodeId' instead."
+                    }
+                ],
+                "className": "OpcUaNodeIdType",
+                "lineNumber": 25,
+                "object": true,
+                "qualifiedClassName": "OpcUaNodeIdType",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 48,
+                        "name": "nodeNamespaceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 49,
+                        "name": "identifierChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 50,
+                        "name": "nodeChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuanodeidtype_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaOperandBase",
+                "lineNumber": 26,
+                "object": true,
+                "qualifiedClassName": "OpcUaOperandBase",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaoperandbase_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaPathResolver",
+                "lineNumber": 34,
+                "object": true,
+                "qualifiedClassName": "OpcUaPathResolver",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "UniversalNode"
+                            },
+                            {
+                                "name": "errorMessage",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 43,
+                        "name": "resolvedStartNode",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "node",
+                                "type": "UniversalNode"
+                            },
+                            {
+                                "name": "errorMessage",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 44,
+                        "name": "resolvedNode",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "startNode",
+                                "type": "UniversalNode"
+                            },
+                            {
+                                "name": "errorMessage",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 47,
+                        "name": "startNodeResolved",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaBrowsePathTarget>"
+                            },
+                            {
+                                "name": "path",
+                                "type": "QList<QOpcUaRelativePathElement>"
+                            },
+                            {
+                                "name": "status",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 48,
+                        "name": "browsePathFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuapathresolver_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaReadItem",
+                "gadget": true,
+                "lineNumber": 28,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 31,
+                        "name": "attribute",
+                        "read": "attribute",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeAttribute",
+                        "user": false,
+                        "write": "setAttribute"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 32,
+                        "name": "indexRange",
+                        "read": "indexRange",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setIndexRange"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 33,
+                        "name": "nodeId",
+                        "read": "nodeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setNodeId"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 34,
+                        "name": "ns",
+                        "read": "namespaceIdentifier",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setNamespaceIdentifier"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaReadItem"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "ReadItem"
+                    },
+                    {
+                        "name": "QML.Singleton",
+                        "value": "true"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaReadItemFactory",
+                "lineNumber": 58,
+                "methods": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 66,
+                        "name": "create",
+                        "returnType": "OpcUaReadItem"
+                    }
+                ],
+                "object": true,
+                "qualifiedClassName": "OpcUaReadItemFactory",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuareaditem_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaReadResult",
+                "gadget": true,
+                "lineNumber": 29,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 32,
+                        "name": "attribute",
+                        "read": "attribute",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeAttribute",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 33,
+                        "name": "indexRange",
+                        "read": "indexRange",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 34,
+                        "name": "nodeId",
+                        "read": "nodeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 35,
+                        "name": "namespaceName",
+                        "read": "namespaceName",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 36,
+                        "name": "serverTimestamp",
+                        "read": "serverTimestamp",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QDateTime",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 37,
+                        "name": "sourceTimestamp",
+                        "read": "sourceTimestamp",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QDateTime",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 38,
+                        "name": "value",
+                        "read": "value",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 39,
+                        "name": "status",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaStatus",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "OpcUaReadResult"
+            }
+        ],
+        "inputFile": "opcuareadresult_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "RelativeNodeId"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaRelativeNodeId",
+                "lineNumber": 29,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 33,
+                        "name": "startNode",
+                        "notify": "startNodeChanged",
+                        "read": "startNode",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaNodeIdType*",
+                        "user": false,
+                        "write": "setStartNode"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 34,
+                        "name": "path",
+                        "read": "paths",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQmlListProperty<OpcUaRelativeNodePath>",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "OpcUaRelativeNodeId",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "startNode",
+                                "type": "OpcUaNodeIdType*"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 50,
+                        "name": "startNodeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 51,
+                        "name": "pathChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "startNode",
+                                "type": "OpcUaNodeIdType*"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 54,
+                        "name": "setStartNode",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaNodeIdType"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuarelativenodeid_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "RelativeNodePath"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaRelativeNodePath",
+                "lineNumber": 30,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 33,
+                        "name": "ns",
+                        "notify": "nodeNamespaceChanged",
+                        "read": "nodeNamespace",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setNodeNamespace"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 34,
+                        "name": "browseName",
+                        "notify": "browseNameChanged",
+                        "read": "browseName",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setBrowseName"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 35,
+                        "name": "referenceType",
+                        "notify": "referenceTypeChanged",
+                        "read": "referenceType",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setReferenceType"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 36,
+                        "name": "includeSubtypes",
+                        "notify": "includeSubtypesChanged",
+                        "read": "includeSubtypes",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setIncludeSubtypes"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 37,
+                        "name": "isInverse",
+                        "notify": "isInverseChanged",
+                        "read": "isInverse",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setIsInverse"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaRelativeNodePath",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "ns",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 52,
+                        "name": "nodeNamespaceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "browseName",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 53,
+                        "name": "browseNameChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 54,
+                        "name": "referenceTypeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "includeSubtypes",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 55,
+                        "name": "includeSubtypesChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "isInverse",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 56,
+                        "name": "isInverseChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "ns",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 59,
+                        "name": "setNodeNamespace",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "browseName",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 60,
+                        "name": "setBrowseName",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "referenceType",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 61,
+                        "name": "setReferenceType",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "includeSubtypes",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 62,
+                        "name": "setIncludeSubtypes",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "isInverse",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 63,
+                        "name": "setIsInverse",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuarelativenodepath_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "ServerDiscovery"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaServerDiscovery",
+                "lineNumber": 28,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "row",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 8,
+                        "isConst": true,
+                        "lineNumber": 46,
+                        "name": "at",
+                        "returnType": "QOpcUaApplicationDescription"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 31,
+                        "name": "discoveryUrl",
+                        "notify": "discoveryUrlChanged",
+                        "read": "discoveryUrl",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setDiscoveryUrl"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 32,
+                        "name": "count",
+                        "notify": "countChanged",
+                        "read": "count",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 33,
+                        "name": "status",
+                        "notify": "statusChanged",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaStatus",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 34,
+                        "name": "connection",
+                        "notify": "connectionChanged",
+                        "read": "connection",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaConnection*",
+                        "user": false,
+                        "write": "setConnection"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaServerDiscovery",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 52,
+                        "name": "discoveryUrlChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 53,
+                        "name": "serversChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 54,
+                        "name": "countChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 55,
+                        "name": "statusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "OpcUaConnection*"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 56,
+                        "name": "connectionChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "index": 5,
+                        "lineNumber": 59,
+                        "name": "connectSignals",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "servers",
+                                "type": "QList<QOpcUaApplicationDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 60,
+                        "name": "handleServers",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 7,
+                        "lineNumber": 61,
+                        "name": "startFindServers",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QStandardItemModel"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuaserverdiscovery_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "SimpleAttributeOperand"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaSimpleAttributeOperand",
+                "lineNumber": 30,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 32,
+                        "name": "browsePath",
+                        "read": "browsePath",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQmlListProperty<OpcUaNodeId>",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 33,
+                        "name": "indexRange",
+                        "read": "indexRange",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setIndexRange"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 34,
+                        "name": "nodeAttribute",
+                        "read": "nodeAttribute",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeAttribute",
+                        "user": false,
+                        "write": "setNodeAttribute"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 35,
+                        "name": "typeId",
+                        "read": "typeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setTypeId"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaSimpleAttributeOperand",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 62,
+                        "name": "dataChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaOperandBase"
+                    },
+                    {
+                        "access": "private",
+                        "name": "QOpcUaSimpleAttributeOperand"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuasimpleattributeoperand_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "status"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaStatus",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 40,
+                        "name": "Status",
+                        "values": [
+                            "Good",
+                            "Uncertain",
+                            "Bad",
+                            "BadUnexpectedError",
+                            "BadInternalError",
+                            "BadOutOfMemory",
+                            "BadResourceUnavailable",
+                            "BadCommunicationError",
+                            "BadEncodingError",
+                            "BadDecodingError",
+                            "BadEncodingLimitsExceeded",
+                            "BadRequestTooLarge",
+                            "BadResponseTooLarge",
+                            "BadUnknownResponse",
+                            "BadTimeout",
+                            "BadServiceUnsupported",
+                            "BadShutdown",
+                            "BadServerNotConnected",
+                            "BadServerHalted",
+                            "BadNothingToDo",
+                            "BadTooManyOperations",
+                            "BadTooManyMonitoredItems",
+                            "BadDataTypeIdUnknown",
+                            "BadCertificateInvalid",
+                            "BadSecurityChecksFailed",
+                            "BadCertificatePolicyCheckFailed",
+                            "BadCertificateTimeInvalid",
+                            "BadCertificateIssuerTimeInvalid",
+                            "BadCertificateHostNameInvalid",
+                            "BadCertificateUriInvalid",
+                            "BadCertificateUseNotAllowed",
+                            "BadCertificateIssuerUseNotAllowed",
+                            "BadCertificateUntrusted",
+                            "BadCertificateRevocationUnknown",
+                            "BadCertificateIssuerRevocationUnknown",
+                            "BadCertificateRevoked",
+                            "BadCertificateIssuerRevoked",
+                            "BadCertificateChainIncomplete",
+                            "BadUserAccessDenied",
+                            "BadIdentityTokenInvalid",
+                            "BadIdentityTokenRejected",
+                            "BadSecureChannelIdInvalid",
+                            "BadInvalidTimestamp",
+                            "BadNonceInvalid",
+                            "BadSessionIdInvalid",
+                            "BadSessionClosed",
+                            "BadSessionNotActivated",
+                            "BadSubscriptionIdInvalid",
+                            "BadRequestHeaderInvalid",
+                            "BadTimestampsToReturnInvalid",
+                            "BadRequestCancelledByClient",
+                            "BadTooManyArguments",
+                            "BadLicenseExpired",
+                            "BadLicenseLimitsExceeded",
+                            "BadLicenseNotAvailable",
+                            "GoodSubscriptionTransferred",
+                            "GoodCompletesAsynchronously",
+                            "GoodOverload",
+                            "GoodClamped",
+                            "BadNoCommunication",
+                            "BadWaitingForInitialData",
+                            "BadNodeIdInvalid",
+                            "BadNodeIdUnknown",
+                            "BadAttributeIdInvalid",
+                            "BadIndexRangeInvalid",
+                            "BadIndexRangeNoData",
+                            "BadDataEncodingInvalid",
+                            "BadDataEncodingUnsupported",
+                            "BadNotReadable",
+                            "BadNotWritable",
+                            "BadOutOfRange",
+                            "BadNotSupported",
+                            "BadNotFound",
+                            "BadObjectDeleted",
+                            "BadNotImplemented",
+                            "BadMonitoringModeInvalid",
+                            "BadMonitoredItemIdInvalid",
+                            "BadMonitoredItemFilterInvalid",
+                            "BadMonitoredItemFilterUnsupported",
+                            "BadFilterNotAllowed",
+                            "BadStructureMissing",
+                            "BadEventFilterInvalid",
+                            "BadContentFilterInvalid",
+                            "BadFilterOperatorInvalid",
+                            "BadFilterOperatorUnsupported",
+                            "BadFilterOperandCountMismatch",
+                            "BadFilterOperandInvalid",
+                            "BadFilterElementInvalid",
+                            "BadFilterLiteralInvalid",
+                            "BadContinuationPointInvalid",
+                            "BadNoContinuationPoints",
+                            "BadReferenceTypeIdInvalid",
+                            "BadBrowseDirectionInvalid",
+                            "BadNodeNotInView",
+                            "BadNumericOverflow",
+                            "BadServerUriInvalid",
+                            "BadServerNameMissing",
+                            "BadDiscoveryUrlMissing",
+                            "BadSempahoreFileMissing",
+                            "BadRequestTypeInvalid",
+                            "BadSecurityModeRejected",
+                            "BadSecurityPolicyRejected",
+                            "BadTooManySessions",
+                            "BadUserSignatureInvalid",
+                            "BadApplicationSignatureInvalid",
+                            "BadNoValidCertificates",
+                            "BadIdentityChangeNotSupported",
+                            "BadRequestCancelledByRequest",
+                            "BadParentNodeIdInvalid",
+                            "BadReferenceNotAllowed",
+                            "BadNodeIdRejected",
+                            "BadNodeIdExists",
+                            "BadNodeClassInvalid",
+                            "BadBrowseNameInvalid",
+                            "BadBrowseNameDuplicated",
+                            "BadNodeAttributesInvalid",
+                            "BadTypeDefinitionInvalid",
+                            "BadSourceNodeIdInvalid",
+                            "BadTargetNodeIdInvalid",
+                            "BadDuplicateReferenceNotAllowed",
+                            "BadInvalidSelfReference",
+                            "BadReferenceLocalOnly",
+                            "BadNoDeleteRights",
+                            "UncertainReferenceNotDeleted",
+                            "BadServerIndexInvalid",
+                            "BadViewIdUnknown",
+                            "BadViewTimestampInvalid",
+                            "BadViewParameterMismatch",
+                            "BadViewVersionInvalid",
+                            "UncertainNotAllNodesAvailable",
+                            "GoodResultsMayBeIncomplete",
+                            "BadNotTypeDefinition",
+                            "UncertainReferenceOutOfServer",
+                            "BadTooManyMatches",
+                            "BadQueryTooComplex",
+                            "BadNoMatch",
+                            "BadMaxAgeInvalid",
+                            "BadSecurityModeInsufficient",
+                            "BadHistoryOperationInvalid",
+                            "BadHistoryOperationUnsupported",
+                            "BadInvalidTimestampArgument",
+                            "BadWriteNotSupported",
+                            "BadTypeMismatch",
+                            "BadMethodInvalid",
+                            "BadArgumentsMissing",
+                            "BadNotExecutable",
+                            "BadTooManySubscriptions",
+                            "BadTooManyPublishRequests",
+                            "BadNoSubscription",
+                            "BadSequenceNumberUnknown",
+                            "GoodRetransmissionQueueNotSupported",
+                            "BadMessageNotAvailable",
+                            "BadInsufficientClientProfile",
+                            "BadStateNotActive",
+                            "BadAlreadyExists",
+                            "BadTcpServerTooBusy",
+                            "BadTcpMessageTypeInvalid",
+                            "BadTcpSecureChannelUnknown",
+                            "BadTcpMessageTooLarge",
+                            "BadTcpNotEnoughResources",
+                            "BadTcpInternalError",
+                            "BadTcpEndpointUrlInvalid",
+                            "BadRequestInterrupted",
+                            "BadRequestTimeout",
+                            "BadSecureChannelClosed",
+                            "BadSecureChannelTokenUnknown",
+                            "BadSequenceNumberInvalid",
+                            "BadProtocolVersionUnsupported",
+                            "BadConfigurationError",
+                            "BadNotConnected",
+                            "BadDeviceFailure",
+                            "BadSensorFailure",
+                            "BadOutOfService",
+                            "BadDeadbandFilterInvalid",
+                            "UncertainNoCommunicationLastUsableValue",
+                            "UncertainLastUsableValue",
+                            "UncertainSubstituteValue",
+                            "UncertainInitialValue",
+                            "UncertainSensorNotAccurate",
+                            "UncertainEngineeringUnitsExceeded",
+                            "UncertainSubNormal",
+                            "GoodLocalOverride",
+                            "BadRefreshInProgress",
+                            "BadConditionAlreadyDisabled",
+                            "BadConditionAlreadyEnabled",
+                            "BadConditionDisabled",
+                            "BadEventIdUnknown",
+                            "BadEventNotAcknowledgeable",
+                            "BadDialogNotActive",
+                            "BadDialogResponseInvalid",
+                            "BadConditionBranchAlreadyAcked",
+                            "BadConditionBranchAlreadyConfirmed",
+                            "BadConditionAlreadyShelved",
+                            "BadConditionNotShelved",
+                            "BadShelvingTimeOutOfRange",
+                            "BadNoData",
+                            "BadBoundNotFound",
+                            "BadBoundNotSupported",
+                            "BadDataLost",
+                            "BadDataUnavailable",
+                            "BadEntryExists",
+                            "BadNoEntryExists",
+                            "BadTimestampNotSupported",
+                            "GoodEntryInserted",
+                            "GoodEntryReplaced",
+                            "UncertainDataSubNormal",
+                            "GoodNoData",
+                            "GoodMoreData",
+                            "BadAggregateListMismatch",
+                            "BadAggregateNotSupported",
+                            "BadAggregateInvalidInputs",
+                            "BadAggregateConfigurationRejected",
+                            "GoodDataIgnored",
+                            "BadRequestNotAllowed",
+                            "BadRequestNotComplete",
+                            "BadTransactionPending",
+                            "BadTicketRequired",
+                            "BadTicketInvalid",
+                            "BadLocked",
+                            "GoodEdited",
+                            "GoodPostActionFailed",
+                            "UncertainDominantValueChanged",
+                            "GoodDependentValueChanged",
+                            "BadDominantValueChanged",
+                            "UncertainDependentValueChanged",
+                            "BadDependentValueChanged",
+                            "GoodEdited_DependentValueChanged",
+                            "GoodEdited_DominantValueChanged",
+                            "GoodEdited_DominantValueChanged_DependentValueChanged",
+                            "BadEdited_OutOfRange",
+                            "BadInitialValue_OutOfRange",
+                            "BadOutOfRange_DominantValueChanged",
+                            "BadEdited_OutOfRange_DominantValueChanged",
+                            "BadOutOfRange_DominantValueChanged_DependentValueChanged",
+                            "BadEdited_OutOfRange_DominantValueChanged_DependentValueChanged",
+                            "GoodCommunicationEvent",
+                            "GoodShutdownEvent",
+                            "GoodCallAgain",
+                            "GoodNonCriticalTimeout",
+                            "BadInvalidArgument",
+                            "BadConnectionRejected",
+                            "BadDisconnect",
+                            "BadConnectionClosed",
+                            "BadInvalidState",
+                            "BadEndOfStream",
+                            "BadNoDataAvailable",
+                            "BadWaitingForResponse",
+                            "BadOperationAbandoned",
+                            "BadExpectedStreamToBlock",
+                            "BadWouldBlock",
+                            "BadSyntaxError",
+                            "BadMaxConnectionsReached",
+                            "UncertainTransducerInManual",
+                            "UncertainSimulatedValue",
+                            "UncertainSensorCalibration",
+                            "UncertainConfigurationError",
+                            "GoodCascadeInitializationAcknowledged",
+                            "GoodCascadeInitializationRequest",
+                            "GoodCascadeNotInvited",
+                            "GoodCascadeNotSelected",
+                            "GoodFaultStateActive",
+                            "GoodInitiateFaultState",
+                            "GoodCascade",
+                            "BadDataSetIdInvalid"
+                        ]
+                    }
+                ],
+                "gadget": true,
+                "lineNumber": 28,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 31,
+                        "name": "isGood",
+                        "read": "isGood",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 32,
+                        "name": "isBad",
+                        "read": "isBad",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 33,
+                        "name": "status",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Status",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "OpcUaStatus"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "OpcUaStatus"
+                    },
+                    {
+                        "name": "QML.ForeignIsNamespace",
+                        "value": "true"
+                    },
+                    {
+                        "name": "QML.Element",
+                        "value": "Status"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcuaStatusForeign",
+                "lineNumber": 322,
+                "namespace": true,
+                "qualifiedClassName": "OpcuaStatusForeign"
+            }
+        ],
+        "inputFile": "opcuastatus_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "ValueNode"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1292"
+                    }
+                ],
+                "className": "OpcUaValueNode",
+                "lineNumber": 25,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 29,
+                        "name": "value",
+                        "notify": "valueChanged",
+                        "read": "value",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setValue"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 30,
+                        "name": "valueType",
+                        "read": "valueType",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::Types",
+                        "user": false,
+                        "write": "setValueType"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 31,
+                        "name": "serverTimestamp",
+                        "read": "serverTimestamp",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QDateTime",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 32,
+                        "name": "sourceTimestamp",
+                        "read": "sourceTimestamp",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QDateTime",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 33,
+                        "name": "monitored",
+                        "notify": "monitoredChanged",
+                        "read": "monitored",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setMonitored"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 34,
+                        "name": "publishingInterval",
+                        "notify": "publishingIntervalChanged",
+                        "read": "publishingInterval",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "double",
+                        "user": false,
+                        "write": "setPublishingInterval"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 35,
+                        "name": "filter",
+                        "notify": "filterChanged",
+                        "read": "filter",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaDataChangeFilter*",
+                        "user": false,
+                        "write": "setFilter"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaValueNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 61,
+                        "name": "valueChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "monitored",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 62,
+                        "name": "monitoredChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "publishingInterval",
+                                "type": "double"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 63,
+                        "name": "publishingIntervalChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 64,
+                        "name": "dataChangeOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 65,
+                        "name": "filterChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 54,
+                        "name": "setValue",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "monitored",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 55,
+                        "name": "setMonitored",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "publishingInterval",
+                                "type": "double"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 56,
+                        "name": "setPublishingInterval",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "valueType",
+                                "type": "QOpcUa::Types"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 57,
+                        "name": "setValueType",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "absolutePath",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 68,
+                        "name": "setupNode",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 10,
+                        "lineNumber": 69,
+                        "name": "updateSubscription",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 11,
+                        "isConst": true,
+                        "lineNumber": 70,
+                        "name": "updateFilters",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "OpcUaNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuavaluenode_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaWriteItem",
+                "gadget": true,
+                "lineNumber": 31,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 34,
+                        "name": "nodeId",
+                        "read": "nodeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setNodeId"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 35,
+                        "name": "ns",
+                        "read": "namespaceIdentifier",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setNamespaceIdentifier"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 36,
+                        "name": "attribute",
+                        "read": "attribute",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeAttribute",
+                        "user": false,
+                        "write": "setAttribute"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 37,
+                        "name": "indexRange",
+                        "read": "indexRange",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setIndexRange"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 38,
+                        "name": "value",
+                        "read": "value",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVariant",
+                        "user": false,
+                        "write": "setValue"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 39,
+                        "name": "valueType",
+                        "read": "valueType",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::Types",
+                        "user": false,
+                        "write": "setValueType"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 40,
+                        "name": "sourceTimestamp",
+                        "read": "sourceTimestamp",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QDateTime",
+                        "user": false,
+                        "write": "setSourceTimestamp"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 41,
+                        "name": "serverTimestamp",
+                        "read": "serverTimestamp",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QDateTime",
+                        "user": false,
+                        "write": "setServerTimestamp"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 8,
+                        "lineNumber": 42,
+                        "name": "statusCode",
+                        "read": "statusCode",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaStatus::Status",
+                        "user": false,
+                        "write": "setStatusCode"
+                    }
+                ],
+                "qualifiedClassName": "OpcUaWriteItem"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "WriteItem"
+                    },
+                    {
+                        "name": "QML.Singleton",
+                        "value": "true"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1293"
+                    }
+                ],
+                "className": "OpcUaWriteItemFactory",
+                "lineNumber": 82,
+                "methods": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 90,
+                        "name": "create",
+                        "returnType": "OpcUaWriteItem"
+                    }
+                ],
+                "object": true,
+                "qualifiedClassName": "OpcUaWriteItemFactory",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "opcuawriteitem_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "OpcUaWriteResult",
+                "gadget": true,
+                "lineNumber": 29,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 32,
+                        "name": "attribute",
+                        "read": "attribute",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUa::NodeAttribute",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 33,
+                        "name": "indexRange",
+                        "read": "indexRange",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 34,
+                        "name": "nodeId",
+                        "read": "nodeId",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 35,
+                        "name": "namespaceName",
+                        "read": "namespaceName",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 36,
+                        "name": "status",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OpcUaStatus",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "OpcUaWriteResult"
+            }
+        ],
+        "inputFile": "opcuawriteresult_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "UniversalNode",
+                "lineNumber": 31,
+                "object": true,
+                "qualifiedClassName": "UniversalNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 85,
+                        "name": "namespaceNameChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "quint16"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 86,
+                        "name": "namespaceIndexChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 87,
+                        "name": "nodeIdentifierChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 88,
+                        "name": "nodeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 89,
+                        "name": "namespaceChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "universalnode_p.h",
+        "outputRevision": 69
+    }
+]

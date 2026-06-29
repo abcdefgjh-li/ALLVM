@@ -1,0 +1,428 @@
+[
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::int32"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "int32_t"
+                    }
+                ],
+                "className": "QQmlProtobufInt32Foreign",
+                "gadget": true,
+                "lineNumber": 26,
+                "qualifiedClassName": "QQmlProtobufInt32Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::int64"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "int64_t"
+                    }
+                ],
+                "className": "QQmlProtobufInt64Foreign",
+                "gadget": true,
+                "lineNumber": 33,
+                "qualifiedClassName": "QQmlProtobufInt64Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::fixed32"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "uint32_t"
+                    }
+                ],
+                "className": "QQmlProtobufFixed32Foreign",
+                "gadget": true,
+                "lineNumber": 40,
+                "qualifiedClassName": "QQmlProtobufFixed32Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::fixed64"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "uint64_t"
+                    }
+                ],
+                "className": "QQmlProtobufFixed64Foreign",
+                "gadget": true,
+                "lineNumber": 47,
+                "qualifiedClassName": "QQmlProtobufFixed64Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sfixed32"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "int32_t"
+                    }
+                ],
+                "className": "QQmlProtobufSFixed32Foreign",
+                "gadget": true,
+                "lineNumber": 54,
+                "qualifiedClassName": "QQmlProtobufSFixed32Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sfixed64"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "int64_t"
+                    }
+                ],
+                "className": "QQmlProtobufSFixed64Foreign",
+                "gadget": true,
+                "lineNumber": 61,
+                "qualifiedClassName": "QQmlProtobufSFixed64Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::uint32"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "uint32_t"
+                    }
+                ],
+                "className": "QQmlProtobufUInt32Foreign",
+                "gadget": true,
+                "lineNumber": 68,
+                "qualifiedClassName": "QQmlProtobufUInt32Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::uint64"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "uint64_t"
+                    }
+                ],
+                "className": "QQmlProtobufUInt64Foreign",
+                "gadget": true,
+                "lineNumber": 75,
+                "qualifiedClassName": "QQmlProtobufUInt64Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sint32"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "int32_t"
+                    }
+                ],
+                "className": "QQmlProtobufSInt32Foreign",
+                "gadget": true,
+                "lineNumber": 82,
+                "qualifiedClassName": "QQmlProtobufSInt32Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sint64"
+                    },
+                    {
+                        "name": "QML.Using",
+                        "value": "int64_t"
+                    }
+                ],
+                "className": "QQmlProtobufSInt64Foreign",
+                "gadget": true,
+                "lineNumber": 89,
+                "qualifiedClassName": "QQmlProtobufSInt64Foreign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::boolList"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "bool"
+                    }
+                ],
+                "className": "QQmlProtobufBoolListForeign",
+                "gadget": true,
+                "lineNumber": 96,
+                "qualifiedClassName": "QQmlProtobufBoolListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::floatList"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "float"
+                    }
+                ],
+                "className": "QQmlProtobufFloatListForeign",
+                "gadget": true,
+                "lineNumber": 104,
+                "qualifiedClassName": "QQmlProtobufFloatListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::doubleList"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "double"
+                    }
+                ],
+                "className": "QQmlProtobufDoubleListForeign",
+                "gadget": true,
+                "lineNumber": 112,
+                "qualifiedClassName": "QQmlProtobufDoubleListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::int32List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::int32"
+                    }
+                ],
+                "className": "QQmlProtobufInt32ListForeign",
+                "gadget": true,
+                "lineNumber": 120,
+                "qualifiedClassName": "QQmlProtobufInt32ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::int64List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::int64"
+                    }
+                ],
+                "className": "QQmlProtobufInt64ListForeign",
+                "gadget": true,
+                "lineNumber": 128,
+                "qualifiedClassName": "QQmlProtobufInt64ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::uint32List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::uint32"
+                    }
+                ],
+                "className": "QQmlProtobufUInt32ListForeign",
+                "gadget": true,
+                "lineNumber": 136,
+                "qualifiedClassName": "QQmlProtobufUInt32ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::uint64List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::uint64"
+                    }
+                ],
+                "className": "QQmlProtobufUInt64ListForeign",
+                "gadget": true,
+                "lineNumber": 144,
+                "qualifiedClassName": "QQmlProtobufUInt64ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sint32List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::sint32"
+                    }
+                ],
+                "className": "QQmlProtobufSInt32ListForeign",
+                "gadget": true,
+                "lineNumber": 152,
+                "qualifiedClassName": "QQmlProtobufSInt32ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sint64List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::sint64"
+                    }
+                ],
+                "className": "QQmlProtobufSInt64ListForeign",
+                "gadget": true,
+                "lineNumber": 160,
+                "qualifiedClassName": "QQmlProtobufSInt64ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::fixed32List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::fixed32"
+                    }
+                ],
+                "className": "QQmlProtobufFixed32ListForeign",
+                "gadget": true,
+                "lineNumber": 168,
+                "qualifiedClassName": "QQmlProtobufFixed32ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::fixed64List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::fixed64"
+                    }
+                ],
+                "className": "QQmlProtobufFixed64ListForeign",
+                "gadget": true,
+                "lineNumber": 176,
+                "qualifiedClassName": "QQmlProtobufFixed64ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sfixed32List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::sfixed32"
+                    }
+                ],
+                "className": "QQmlProtobufSFixed32ListForeign",
+                "gadget": true,
+                "lineNumber": 184,
+                "qualifiedClassName": "QQmlProtobufSFixed32ListForeign"
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    },
+                    {
+                        "name": "QML.Foreign",
+                        "value": "QtProtobuf::sfixed64List"
+                    },
+                    {
+                        "name": "QML.Sequence",
+                        "value": "QtProtobuf::sfixed64"
+                    }
+                ],
+                "className": "QQmlProtobufSFixed64ListForeign",
+                "gadget": true,
+                "lineNumber": 192,
+                "qualifiedClassName": "QQmlProtobufSFixed64ListForeign"
+            }
+        ],
+        "inputFile": "qqmlprotobuftypes_p.h",
+        "outputRevision": 69
+    }
+]

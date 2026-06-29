@@ -1,0 +1,55 @@
+[
+    {
+        "classes": [
+            {
+                "className": "QProtobufMessage",
+                "gadget": true,
+                "lineNumber": 36,
+                "qualifiedClassName": "QProtobufMessage"
+            },
+            {
+                "className": "QProtobufMapEntryBase",
+                "gadget": true,
+                "lineNumber": 86,
+                "qualifiedClassName": "QProtobufMapEntryBase",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QProtobufMessage"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qprotobufmessage.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QtProtobuf",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 26,
+                        "name": "WireTypes",
+                        "values": [
+                            "Unknown",
+                            "Varint",
+                            "Fixed64",
+                            "LengthDelimited",
+                            "StartGroup",
+                            "EndGroup",
+                            "Fixed32"
+                        ]
+                    }
+                ],
+                "lineNumber": 21,
+                "namespace": true,
+                "qualifiedClassName": "QtProtobuf"
+            }
+        ],
+        "inputFile": "qtprotobuftypes.h",
+        "outputRevision": 69
+    }
+]

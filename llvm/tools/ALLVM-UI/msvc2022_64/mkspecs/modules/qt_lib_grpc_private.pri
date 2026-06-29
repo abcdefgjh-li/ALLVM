@@ -1,0 +1,11 @@
+QT.grpc_private.VERSION = 6.10.2
+QT.grpc_private.name = QtGrpc
+QT.grpc_private.module =
+QT.grpc_private.libs = $$QT_MODULE_LIB_BASE
+QT.grpc_private.includes = $$QT_MODULE_INCLUDE_BASE/QtGrpc/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtGrpc/6.10.2/QtGrpc
+QT.grpc_private.frameworks = 
+QT.grpc_private.depends = grpc
+QT.grpc_private.uses = 
+QT.grpc_private.module_config = v2 staticlib internal_module
+QT.grpc_private.enabled_features = 
+QT.grpc_private.disabled_features = qtgrpcgen

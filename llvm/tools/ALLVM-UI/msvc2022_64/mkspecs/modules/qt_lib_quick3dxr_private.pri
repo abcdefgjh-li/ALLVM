@@ -1,0 +1,11 @@
+QT.quick3dxr_private.VERSION = 6.10.2
+QT.quick3dxr_private.name = QtQuick3DXr
+QT.quick3dxr_private.module =
+QT.quick3dxr_private.libs = $$QT_MODULE_LIB_BASE
+QT.quick3dxr_private.includes = $$QT_MODULE_INCLUDE_BASE/QtQuick3DXr/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtQuick3DXr/6.10.2/QtQuick3DXr
+QT.quick3dxr_private.frameworks = 
+QT.quick3dxr_private.depends = core_private gui_private qml_private quick3d quick_private quick3dxr
+QT.quick3dxr_private.uses = 
+QT.quick3dxr_private.module_config = v2 staticlib internal_module
+QT.quick3dxr_private.enabled_features = 
+QT.quick3dxr_private.disabled_features = 

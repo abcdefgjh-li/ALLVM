@@ -1,0 +1,19 @@
+QT.axserver.VERSION = 6.10.2
+QT.axserver.name = QtAxServer
+QT.axserver.module = Qt6AxServer
+QT.axserver.libs = $$QT_MODULE_LIB_BASE
+QT.axserver.ldflags = 
+QT.axserver.includes = $$QT_MODULE_INCLUDE_BASE $$QT_MODULE_INCLUDE_BASE/QtAxServer
+QT.axserver.frameworks = 
+QT.axserver.bins = $$QT_MODULE_BIN_BASE
+QT.axserver.depends =  core gui widgets
+QT.axserver.run_depends = axbase_private
+QT.axserver.uses = 
+QT.axserver.module_config = v2 staticlib
+QT.axserver.CONFIG = idcidl force_import_plugins
+QT.axserver.DEFINES = QAXSERVER QT_AXSERVER_LIB
+QT.axserver.enabled_features = 
+QT.axserver.disabled_features = 
+QT_CONFIG += 
+QT_MODULES += axserver
+

@@ -1,0 +1,11 @@
+QT.quick3dassetutils_private.VERSION = 6.10.2
+QT.quick3dassetutils_private.name = QtQuick3DAssetUtils
+QT.quick3dassetutils_private.module =
+QT.quick3dassetutils_private.libs = $$QT_MODULE_LIB_BASE
+QT.quick3dassetutils_private.includes = $$QT_MODULE_INCLUDE_BASE/QtQuick3DAssetUtils/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtQuick3DAssetUtils/6.10.2/QtQuick3DAssetUtils
+QT.quick3dassetutils_private.frameworks = 
+QT.quick3dassetutils_private.depends = core_private gui_private quick3druntimerender_private quick3d_private quick3dassetimport_private quick3dassetutils quicktimeline_private
+QT.quick3dassetutils_private.uses = 
+QT.quick3dassetutils_private.module_config = v2 staticlib internal_module
+QT.quick3dassetutils_private.enabled_features = 
+QT.quick3dassetutils_private.disabled_features = 

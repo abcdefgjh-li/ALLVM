@@ -1,0 +1,11 @@
+QT.location_private.VERSION = 6.10.2
+QT.location_private.name = QtLocation
+QT.location_private.module =
+QT.location_private.libs = $$QT_MODULE_LIB_BASE
+QT.location_private.includes = $$QT_MODULE_INCLUDE_BASE/QtLocation/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtLocation/6.10.2/QtLocation
+QT.location_private.frameworks = 
+QT.location_private.depends = core_private quick_private quickshapes_private positioning_private positioningquick_private location
+QT.location_private.uses = 
+QT.location_private.module_config = v2 staticlib internal_module
+QT.location_private.enabled_features = 
+QT.location_private.disabled_features = 

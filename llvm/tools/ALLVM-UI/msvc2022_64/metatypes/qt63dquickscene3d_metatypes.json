@@ -1,0 +1,350 @@
+[
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "Scene3D"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "512"
+                    },
+                    {
+                        "name": "DefaultProperty",
+                        "value": "entity"
+                    }
+                ],
+                "className": "Scene3DItem",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 64,
+                        "name": "CameraAspectRatioMode",
+                        "values": [
+                            "AutomaticAspectRatio",
+                            "UserAspectRatio"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 71,
+                        "name": "CompositingMode",
+                        "values": [
+                            "FBO",
+                            "Underlay"
+                        ]
+                    }
+                ],
+                "lineNumber": 40,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "area",
+                                "type": "QSize"
+                            },
+                            {
+                                "name": "devicePixelRatio",
+                                "type": "qreal"
+                            }
+                        ],
+                        "index": 13,
+                        "lineNumber": 61,
+                        "name": "setItemAreaAndDevicePixelRatio",
+                        "returnType": "void"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 45,
+                        "name": "entity",
+                        "notify": "entityChanged",
+                        "read": "entity",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Qt3DCore::QEntity*",
+                        "user": false,
+                        "write": "setEntity"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 46,
+                        "name": "aspects",
+                        "notify": "aspectsChanged",
+                        "read": "aspects",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QStringList",
+                        "user": false,
+                        "write": "setAspects"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 47,
+                        "name": "multisample",
+                        "notify": "multisampleChanged",
+                        "read": "multisample",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setMultisample"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 48,
+                        "name": "cameraAspectRatioMode",
+                        "notify": "cameraAspectRatioModeChanged",
+                        "read": "cameraAspectRatioMode",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "CameraAspectRatioMode",
+                        "user": false,
+                        "write": "setCameraAspectRatioMode"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 49,
+                        "name": "hoverEnabled",
+                        "notify": "hoverEnabledChanged",
+                        "read": "isHoverEnabled",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setHoverEnabled"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 50,
+                        "name": "compositingMode",
+                        "notify": "compositingModeChanged",
+                        "read": "compositingMode",
+                        "required": false,
+                        "revision": 526,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "CompositingMode",
+                        "user": false,
+                        "write": "setCompositingMode"
+                    }
+                ],
+                "qualifiedClassName": "Qt3DRender::Scene3DItem",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 86,
+                        "name": "aspectsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 87,
+                        "name": "entityChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 88,
+                        "name": "multisampleChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "mode",
+                                "type": "CameraAspectRatioMode"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 89,
+                        "name": "cameraAspectRatioModeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 90,
+                        "name": "hoverEnabledChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 91,
+                        "name": "compositingModeChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "aspects",
+                                "type": "QStringList"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 79,
+                        "name": "setAspects",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "entity",
+                                "type": "Qt3DCore::QEntity*"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 80,
+                        "name": "setEntity",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "mode",
+                                "type": "CameraAspectRatioMode"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 81,
+                        "name": "setCameraAspectRatioMode",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "enabled",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 82,
+                        "name": "setHoverEnabled",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "mode",
+                                "type": "CompositingMode"
+                            }
+                        ],
+                        "index": 10,
+                        "lineNumber": 83,
+                        "name": "setCompositingMode",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 11,
+                        "lineNumber": 94,
+                        "name": "applyRootEntityChange",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 12,
+                        "lineNumber": 95,
+                        "name": "requestUpdate",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QQuickItem"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "scene3ditem_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "Scene3DRenderer",
+                "lineNumber": 49,
+                "object": true,
+                "qualifiedClassName": "Qt3DRender::Scene3DRenderer",
+                "slots": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 79,
+                        "name": "shutdown",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "scene3drenderer_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "AspectEngineDestroyer",
+                "lineNumber": 49,
+                "object": true,
+                "qualifiedClassName": "Qt3DRender::AspectEngineDestroyer",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "scene3ditem.cpp",
+        "outputRevision": 69
+    }
+]

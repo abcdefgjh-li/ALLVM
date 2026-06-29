@@ -1,0 +1,11 @@
+QT.3dquicklogic_private.VERSION = 6.10.2
+QT.3dquicklogic_private.name = Qt3DQuickLogic
+QT.3dquicklogic_private.module =
+QT.3dquicklogic_private.libs = $$QT_MODULE_LIB_BASE
+QT.3dquicklogic_private.includes = $$QT_MODULE_INCLUDE_BASE/Qt3DQuickLogic/6.10.2 $$QT_MODULE_INCLUDE_BASE/Qt3DQuickLogic/6.10.2/Qt3DQuickLogic
+QT.3dquicklogic_private.frameworks = 
+QT.3dquicklogic_private.depends = 3dquicklogic
+QT.3dquicklogic_private.uses = 
+QT.3dquicklogic_private.module_config = v2 staticlib internal_module
+QT.3dquicklogic_private.enabled_features = 
+QT.3dquicklogic_private.disabled_features = 

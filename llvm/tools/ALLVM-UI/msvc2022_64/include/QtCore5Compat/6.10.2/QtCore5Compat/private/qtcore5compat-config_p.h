@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_Core5Compat_qt5compat_src_core5_qtcore5compat_config_p_h_H
+#define QT_FEATURES_Core5Compat_qt5compat_src_core5_qtcore5compat_config_p_h_H
+
+#define QT_FEATURE_iconv -1
+
+
+#endif // QT_FEATURES_Core5Compat_qt5compat_src_core5_qtcore5compat_config_p_h_H

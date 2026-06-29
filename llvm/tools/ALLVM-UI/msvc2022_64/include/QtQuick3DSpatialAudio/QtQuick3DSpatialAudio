@@ -1,0 +1,5 @@
+#ifndef QT_QTQUICK3DSPATIALAUDIO_MODULE_H
+#define QT_QTQUICK3DSPATIALAUDIO_MODULE_H
+#include <QtQuick3DSpatialAudio/QtQuick3DSpatialAudioDepends>
+#include "qtquick3dspatialaudioversion.h"
+#endif

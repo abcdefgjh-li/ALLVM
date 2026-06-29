@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_Bluetooth_qtconnectivity_src_bluetooth_qtbluetooth_config_h_H
+#define QT_FEATURES_Bluetooth_qtconnectivity_src_bluetooth_qtbluetooth_config_h_H
+
+#define QT_FEATURE_bluez -1
+
+
+#endif // QT_FEATURES_Bluetooth_qtconnectivity_src_bluetooth_qtbluetooth_config_h_H

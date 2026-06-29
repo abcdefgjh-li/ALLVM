@@ -1,0 +1,9 @@
+#ifndef DEPRECATED_HEADER_QtSerialBus_QModbusRtuSerialMaster
+#define DEPRECATED_HEADER_QtSerialBus_QModbusRtuSerialMaster
+#if defined(__GNUC__)
+#  warning Header <QtSerialBus/QModbusRtuSerialMaster> is deprecated and will be removed in Qt  7.0. Please include <QtSerialBus/qmodbusrtuserialclient.h> instead.
+#elif defined(_MSC_VER)
+#  pragma message ("Header <QtSerialBus/QModbusRtuSerialMaster> is deprecated and will be removed in Qt  7.0. Please include <QtSerialBus/qmodbusrtuserialclient.h> instead.")
+#endif
+#include <QtSerialBus/qmodbusrtuserialclient.h>
+#endif

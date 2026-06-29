@@ -1,0 +1,9 @@
+module Qt.labs.lottieqt
+linktarget Qt6::Lottieplugin
+optional plugin lottieplugin
+classname Qt_labs_lottieqtPlugin
+typeinfo Lottie.qmltypes
+depends QtQuick
+prefer :/qt-project.org/imports/Qt/labs/lottieqt/
+depends QtQuick
+

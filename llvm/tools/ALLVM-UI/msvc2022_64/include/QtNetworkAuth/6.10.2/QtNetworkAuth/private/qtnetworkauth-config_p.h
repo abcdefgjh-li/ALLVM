@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_NetworkAuth_qtnetworkauth_src_oauth_qtnetworkauth_config_p_h_H
+#define QT_FEATURES_NetworkAuth_qtnetworkauth_src_oauth_qtnetworkauth_config_p_h_H
+
+#define QT_FEATURE_urischeme_replyhandler 1
+
+
+#endif // QT_FEATURES_NetworkAuth_qtnetworkauth_src_oauth_qtnetworkauth_config_p_h_H

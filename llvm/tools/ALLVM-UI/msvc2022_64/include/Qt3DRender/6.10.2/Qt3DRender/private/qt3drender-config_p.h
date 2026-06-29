@@ -1,0 +1,5 @@
+#ifndef QT_FEATURES__3DRender_qt3d_src_render_qt3drender_config_p_h_H
+#define QT_FEATURES__3DRender_qt3d_src_render_qt3drender_config_p_h_H
+
+
+#endif // QT_FEATURES__3DRender_qt3d_src_render_qt3drender_config_p_h_H

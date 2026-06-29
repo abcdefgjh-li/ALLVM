@@ -830,12 +830,12 @@ static bool replace_ndk_clang() {
         printf("  -> ld.lld.exe OK\n");
     }
 
-    // Copy ollvm-ui.exe to NDK root directory
-    std::string ui_src = build_bin + "\\ollvm-ui.exe";
-    std::string ui_dst = g_ndk_dir + "\\ollvm-ui.exe";
+    // Copy allvm-ui.exe to NDK root directory
+    std::string ui_src = build_bin + "\\allvm-ui.exe";
+    std::string ui_dst = g_ndk_dir + "\\allvm-ui.exe";
     if (file_exists(ui_src) && !g_ndk_dir.empty()) {
         copy_file(ui_src, ui_dst);
-        printf("  -> ollvm-ui.exe OK\n");
+        printf("  -> allvm-ui.exe OK\n");
     }
 
     printf("[Done] NDK toolchain replaced\n");
@@ -947,7 +947,7 @@ int main(int argc, char* argv[]) {
     bool step_build       = true;
     bool step_test        = true;
 
-    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis ollvm-ui";
+    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis allvm-ui";
 
     for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);
