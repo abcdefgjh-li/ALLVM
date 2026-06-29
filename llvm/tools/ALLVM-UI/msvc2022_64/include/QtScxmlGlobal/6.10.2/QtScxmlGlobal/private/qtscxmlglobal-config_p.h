@@ -1,0 +1,17 @@
+#ifndef QT_FEATURES_ScxmlGlobalPrivate_qtscxml_src_global_qtscxmlglobal_config_p_h_H
+#define QT_FEATURES_ScxmlGlobalPrivate_qtscxml_src_global_qtscxmlglobal_config_p_h_H
+
+#define QT_FEATURE_scxml 1
+
+#define QT_FEATURE_scxml_qml 1
+
+#define QT_FEATURE_scxml_ecmascriptdatamodel 1
+
+#define QT_FEATURE_statemachine 1
+
+#define QT_FEATURE_statemachine_qml 1
+
+#define QT_FEATURE_qeventtransition 1
+
+
+#endif // QT_FEATURES_ScxmlGlobalPrivate_qtscxml_src_global_qtscxmlglobal_config_p_h_H

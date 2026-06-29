@@ -1,0 +1,9 @@
+#ifndef DEPRECATED_HEADER_QtSerialBus_QModbusRtuSerialSlave
+#define DEPRECATED_HEADER_QtSerialBus_QModbusRtuSerialSlave
+#if defined(__GNUC__)
+#  warning Header <QtSerialBus/QModbusRtuSerialSlave> is deprecated and will be removed in Qt  7.0. Please include <QtSerialBus/qmodbusrtuserialserver.h> instead.
+#elif defined(_MSC_VER)
+#  pragma message ("Header <QtSerialBus/QModbusRtuSerialSlave> is deprecated and will be removed in Qt  7.0. Please include <QtSerialBus/qmodbusrtuserialserver.h> instead.")
+#endif
+#include <QtSerialBus/qmodbusrtuserialserver.h>
+#endif

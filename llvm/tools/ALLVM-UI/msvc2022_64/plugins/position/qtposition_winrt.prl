@@ -1,0 +1,5 @@
+QMAKE_PRL_TARGET = qtposition_winrt.lib
+QMAKE_PRL_CONFIG = static
+QMAKE_PRL_VERSION = 6.10.2
+QMAKE_PRL_LIBS = $$[QT_INSTALL_LIBS]/Qt6Positioning.lib $$[QT_INSTALL_LIBS]/Qt6Core.lib $$[QT_INSTALL_LIBS]/Qt6BundledZLIB.lib -lsynchronization -lmpr -luserenv -ladvapi32 -lauthz -lkernel32 -lnetapi32 -lntdll -lole32 -lshell32 -luser32 -luuid -lversion -lwinmm -lws2_32 -licuuc -licuin $$[QT_INSTALL_LIBS]/Qt6BundledPcre2.lib $$[QT_INSTALL_LIBS]/Qt6Bundled_Clip2Tri.lib $$[QT_INSTALL_LIBS]/Qt6Bundled_Clipper.lib $$[QT_INSTALL_LIBS]/Qt6Bundled_Poly2Tri.lib -lruntimeobject
+QMAKE_PRL_LIBS_FOR_CMAKE = $$[QT_INSTALL_LIBS]/Qt6Positioning.lib;$$[QT_INSTALL_LIBS]/Qt6Core.lib;$$[QT_INSTALL_LIBS]/Qt6BundledZLIB.lib;-lsynchronization;-lmpr;-luserenv;-ladvapi32;-lauthz;-lkernel32;-lnetapi32;-lntdll;-lole32;-lshell32;-luser32;-luuid;-lversion;-lwinmm;-lws2_32;-licuuc;-licuin;$$[QT_INSTALL_LIBS]/Qt6BundledPcre2.lib;$$[QT_INSTALL_LIBS]/Qt6Bundled_Clip2Tri.lib;$$[QT_INSTALL_LIBS]/Qt6Bundled_Clipper.lib;$$[QT_INSTALL_LIBS]/Qt6Bundled_Poly2Tri.lib;-lruntimeobject

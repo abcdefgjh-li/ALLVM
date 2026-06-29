@@ -1,0 +1,11 @@
+QT.3drender_private.VERSION = 6.10.2
+QT.3drender_private.name = Qt3DRender
+QT.3drender_private.module =
+QT.3drender_private.libs = $$QT_MODULE_LIB_BASE
+QT.3drender_private.includes = $$QT_MODULE_INCLUDE_BASE/Qt3DRender/6.10.2 $$QT_MODULE_INCLUDE_BASE/Qt3DRender/6.10.2/Qt3DRender
+QT.3drender_private.frameworks = 
+QT.3drender_private.depends = concurrent core_private 3dcore_private 3drender
+QT.3drender_private.uses = 
+QT.3drender_private.module_config = v2 staticlib internal_module
+QT.3drender_private.enabled_features = 
+QT.3drender_private.disabled_features = 

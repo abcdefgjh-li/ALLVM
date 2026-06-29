@@ -1,0 +1,6 @@
+#ifndef QT_QTQUICK3DPHYSICS_MODULE_H
+#define QT_QTQUICK3DPHYSICS_MODULE_H
+#include <QtQuick3DPhysics/QtQuick3DPhysicsDepends>
+#include "qtquick3dphysicsglobal.h"
+#include "qtquick3dphysicsversion.h"
+#endif

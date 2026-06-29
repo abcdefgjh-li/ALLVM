@@ -1,0 +1,1013 @@
+[
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "AmbientSound"
+                    }
+                ],
+                "className": "QQuick3DAmbientSound",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 44,
+                        "name": "Loops",
+                        "values": [
+                            "Infinite",
+                            "Once"
+                        ]
+                    }
+                ],
+                "lineNumber": 25,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 28,
+                        "name": "source",
+                        "notify": "sourceChanged",
+                        "read": "source",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QUrl",
+                        "user": false,
+                        "write": "setSource"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 29,
+                        "name": "volume",
+                        "notify": "volumeChanged",
+                        "read": "volume",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setVolume"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 30,
+                        "name": "loops",
+                        "notify": "loopsChanged",
+                        "read": "loops",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false,
+                        "write": "setLoops"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 31,
+                        "name": "autoPlay",
+                        "notify": "autoPlayChanged",
+                        "read": "autoPlay",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setAutoPlay"
+                    }
+                ],
+                "qualifiedClassName": "QQuick3DAmbientSound",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 63,
+                        "name": "sourceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 64,
+                        "name": "volumeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 65,
+                        "name": "loopsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 66,
+                        "name": "autoPlayChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 58,
+                        "name": "play",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 59,
+                        "name": "pause",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 6,
+                        "lineNumber": 60,
+                        "name": "stop",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qquick3dambientsound_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "AudioListener"
+                    }
+                ],
+                "className": "QQuick3DAudioListener",
+                "lineNumber": 24,
+                "object": true,
+                "qualifiedClassName": "QQuick3DAudioListener",
+                "slots": [
+                    {
+                        "access": "protected",
+                        "index": 0,
+                        "lineNumber": 38,
+                        "name": "updatePosition",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "protected",
+                        "index": 1,
+                        "lineNumber": 39,
+                        "name": "updateRotation",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QQuick3DNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qquick3daudiolistener_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "AudioRoom"
+                    }
+                ],
+                "className": "QQuick3DAudioRoom",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 48,
+                        "name": "Material",
+                        "values": [
+                            "Transparent",
+                            "AcousticCeilingTiles",
+                            "BrickBare",
+                            "BrickPainted",
+                            "ConcreteBlockCoarse",
+                            "ConcreteBlockPainted",
+                            "CurtainHeavy",
+                            "FiberGlassInsulation",
+                            "GlassThin",
+                            "GlassThick",
+                            "Grass",
+                            "LinoleumOnConcrete",
+                            "Marble",
+                            "Metal",
+                            "ParquetOnConcrete",
+                            "PlasterRough",
+                            "PlasterSmooth",
+                            "PlywoodPanel",
+                            "PolishedConcreteOrTile",
+                            "Sheetrock",
+                            "WaterOrIceSurface",
+                            "WoodCeiling",
+                            "WoodPanel",
+                            "Uniform"
+                        ]
+                    }
+                ],
+                "lineNumber": 27,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 30,
+                        "name": "position",
+                        "notify": "positionChanged",
+                        "read": "position",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVector3D",
+                        "user": false,
+                        "write": "setPosition"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 31,
+                        "name": "dimensions",
+                        "notify": "dimensionsChanged",
+                        "read": "dimensions",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QVector3D",
+                        "user": false,
+                        "write": "setDimensions"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 32,
+                        "name": "rotation",
+                        "notify": "rotationChanged",
+                        "read": "rotation",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QQuaternion",
+                        "user": false,
+                        "write": "setRotation"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 33,
+                        "name": "leftMaterial",
+                        "notify": "wallsChanged",
+                        "read": "leftMaterial",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Material",
+                        "user": false,
+                        "write": "setLeftMaterial"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 34,
+                        "name": "rightMaterial",
+                        "notify": "wallsChanged",
+                        "read": "rightMaterial",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Material",
+                        "user": false,
+                        "write": "setRightMaterial"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 35,
+                        "name": "frontMaterial",
+                        "notify": "wallsChanged",
+                        "read": "frontMaterial",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Material",
+                        "user": false,
+                        "write": "setFrontMaterial"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 36,
+                        "name": "backMaterial",
+                        "notify": "wallsChanged",
+                        "read": "backMaterial",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Material",
+                        "user": false,
+                        "write": "setBackMaterial"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 37,
+                        "name": "floorMaterial",
+                        "notify": "wallsChanged",
+                        "read": "floorMaterial",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Material",
+                        "user": false,
+                        "write": "setFloorMaterial"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 8,
+                        "lineNumber": 38,
+                        "name": "ceilingMaterial",
+                        "notify": "wallsChanged",
+                        "read": "ceilingMaterial",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Material",
+                        "user": false,
+                        "write": "setCeilingMaterial"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 9,
+                        "lineNumber": 39,
+                        "name": "reflectionGain",
+                        "notify": "reflectionGainChanged",
+                        "read": "reflectionGain",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setReflectionGain"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 10,
+                        "lineNumber": 40,
+                        "name": "reverbGain",
+                        "notify": "reverbGainChanged",
+                        "read": "reverbGain",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setReverbGain"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 11,
+                        "lineNumber": 41,
+                        "name": "reverbTime",
+                        "notify": "reverbTimeChanged",
+                        "read": "reverbTime",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setReverbTime"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 12,
+                        "lineNumber": 42,
+                        "name": "reverbBrightness",
+                        "notify": "reverbBrightnessChanged",
+                        "read": "reverbBrightness",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setReverbBrightness"
+                    }
+                ],
+                "qualifiedClassName": "QQuick3DAudioRoom",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 110,
+                        "name": "positionChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 111,
+                        "name": "dimensionsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 112,
+                        "name": "rotationChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 113,
+                        "name": "wallsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 114,
+                        "name": "reflectionGainChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 115,
+                        "name": "reverbGainChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 6,
+                        "lineNumber": 116,
+                        "name": "reverbTimeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 7,
+                        "lineNumber": 117,
+                        "name": "reverbBrightnessChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "protected",
+                        "index": 8,
+                        "lineNumber": 120,
+                        "name": "updatePosition",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "protected",
+                        "index": 9,
+                        "lineNumber": 121,
+                        "name": "updateRotation",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QQuick3DNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qquick3daudioroom_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "SpatialSound"
+                    }
+                ],
+                "className": "QQuick3DSpatialSound",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 51,
+                        "name": "DistanceModel",
+                        "values": [
+                            "Logarithmic",
+                            "Linear",
+                            "ManualAttenuation"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 82,
+                        "name": "Loops",
+                        "values": [
+                            "Infinite",
+                            "Once"
+                        ]
+                    }
+                ],
+                "lineNumber": 24,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 27,
+                        "name": "source",
+                        "notify": "sourceChanged",
+                        "read": "source",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QUrl",
+                        "user": false,
+                        "write": "setSource"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 28,
+                        "name": "volume",
+                        "notify": "volumeChanged",
+                        "read": "volume",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setVolume"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 29,
+                        "name": "distanceModel",
+                        "notify": "distanceModelChanged",
+                        "read": "distanceModel",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "DistanceModel",
+                        "user": false,
+                        "write": "setDistanceModel"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 30,
+                        "name": "size",
+                        "notify": "sizeChanged",
+                        "read": "size",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setSize"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 31,
+                        "name": "distanceCutoff",
+                        "notify": "distanceCutoffChanged",
+                        "read": "distanceCutoff",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setDistanceCutoff"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 32,
+                        "name": "manualAttenuation",
+                        "notify": "manualAttenuationChanged",
+                        "read": "manualAttenuation",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setManualAttenuation"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 33,
+                        "name": "occlusionIntensity",
+                        "notify": "occlusionIntensityChanged",
+                        "read": "occlusionIntensity",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setOcclusionIntensity"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 34,
+                        "name": "directivity",
+                        "notify": "directivityChanged",
+                        "read": "directivity",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setDirectivity"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 8,
+                        "lineNumber": 35,
+                        "name": "directivityOrder",
+                        "notify": "directivityOrderChanged",
+                        "read": "directivityOrder",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setDirectivityOrder"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 9,
+                        "lineNumber": 36,
+                        "name": "nearFieldGain",
+                        "notify": "nearFieldGainChanged",
+                        "read": "nearFieldGain",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setNearFieldGain"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 10,
+                        "lineNumber": 37,
+                        "name": "loops",
+                        "notify": "loopsChanged",
+                        "read": "loops",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false,
+                        "write": "setLoops"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 11,
+                        "lineNumber": 38,
+                        "name": "autoPlay",
+                        "notify": "autoPlayChanged",
+                        "read": "autoPlay",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false,
+                        "write": "setAutoPlay"
+                    }
+                ],
+                "qualifiedClassName": "QQuick3DSpatialSound",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 101,
+                        "name": "sourceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 102,
+                        "name": "volumeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 103,
+                        "name": "distanceModelChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 104,
+                        "name": "sizeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 105,
+                        "name": "distanceCutoffChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 106,
+                        "name": "manualAttenuationChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 6,
+                        "lineNumber": 107,
+                        "name": "occlusionIntensityChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 7,
+                        "lineNumber": 108,
+                        "name": "directivityChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 8,
+                        "lineNumber": 109,
+                        "name": "directivityOrderChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 9,
+                        "lineNumber": 110,
+                        "name": "nearFieldGainChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 10,
+                        "lineNumber": 111,
+                        "name": "loopsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 11,
+                        "lineNumber": 112,
+                        "name": "autoPlayChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "index": 12,
+                        "lineNumber": 96,
+                        "name": "play",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 13,
+                        "lineNumber": 97,
+                        "name": "pause",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 14,
+                        "lineNumber": 98,
+                        "name": "stop",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 15,
+                        "lineNumber": 115,
+                        "name": "updatePosition",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 16,
+                        "lineNumber": 116,
+                        "name": "updateRotation",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QQuick3DNode"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qquick3dspatialsound_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "AudioEngine"
+                    }
+                ],
+                "className": "QQuick3DAudioEngine",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 35,
+                        "name": "OutputMode",
+                        "values": [
+                            "Surround",
+                            "Stereo",
+                            "Headphone"
+                        ]
+                    }
+                ],
+                "lineNumber": 25,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 29,
+                        "name": "outputMode",
+                        "notify": "outputModeChanged",
+                        "read": "outputMode",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "OutputMode",
+                        "user": false,
+                        "write": "setOutputMode"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 30,
+                        "name": "outputDevice",
+                        "notify": "outputDeviceChanged",
+                        "read": "outputDevice",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QAudioDevice",
+                        "user": false,
+                        "write": "setOutputDevice"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 31,
+                        "name": "masterVolume",
+                        "notify": "masterVolumeChanged",
+                        "read": "masterVolume",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "float",
+                        "user": false,
+                        "write": "setMasterVolume"
+                    }
+                ],
+                "qualifiedClassName": "QQuick3DAudioEngine",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 57,
+                        "name": "outputModeChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 58,
+                        "name": "outputDeviceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 59,
+                        "name": "masterVolumeChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qquick3daudioengine_p.h",
+        "outputRevision": 69
+    }
+]

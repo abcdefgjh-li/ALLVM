@@ -1,0 +1,17 @@
+#ifndef QT_QTPROTOBUF_MODULE_H
+#define QT_QTPROTOBUF_MODULE_H
+#include <QtProtobuf/QtProtobufDepends>
+#include "qtprotobufglobal.h"
+#include "qabstractprotobufserializer.h"
+#include "qprotobufjsonserializer.h"
+#include "qprotobuflazymessagepointer.h"
+#include "qprotobufmessage.h"
+#include "qprotobufobject.h"
+#include "qprotobufoneof.h"
+#include "qprotobufpropertyordering.h"
+#include "qprotobufregistration.h"
+#include "qprotobufrepeatediterator.h"
+#include "qprotobufserializer.h"
+#include "qtprotobuftypes.h"
+#include "qtprotobufversion.h"
+#endif

@@ -1,0 +1,8 @@
+module QtProtobuf
+linktarget Qt6::protobufquickplugin
+optional plugin protobufquickplugin
+classname ProtobufQuickPlugin
+typeinfo plugins.qmltypes
+prefer :/qt-project.org/imports/QtProtobuf/
+depends QtQuick
+

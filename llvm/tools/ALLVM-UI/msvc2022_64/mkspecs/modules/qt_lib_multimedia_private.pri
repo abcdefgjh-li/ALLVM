@@ -1,0 +1,11 @@
+QT.multimedia_private.VERSION = 6.10.2
+QT.multimedia_private.name = QtMultimedia
+QT.multimedia_private.module =
+QT.multimedia_private.libs = $$QT_MODULE_LIB_BASE
+QT.multimedia_private.includes = $$QT_MODULE_INCLUDE_BASE/QtMultimedia/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtMultimedia/6.10.2/QtMultimedia
+QT.multimedia_private.frameworks = 
+QT.multimedia_private.depends = core_private gui_private multimedia
+QT.multimedia_private.uses = 
+QT.multimedia_private.module_config = v2 staticlib internal_module
+QT.multimedia_private.enabled_features = native_windows_backend wasapi spatialaudio spatialaudio_quick3d
+QT.multimedia_private.disabled_features = pipewire pipewire_screencapture alsa avfoundation coreaudio videotoolbox gstreamer gstreamer_photography gstreamer_gl gstreamer_gl_wayland gstreamer_gl_egl gstreamer_gl_x11 gpu_vivante linux_v4l linux_dmabuf vaapi mmrenderer native_android_backend pulseaudio aaudio wasm ffmpeg ffmpeg_stubs

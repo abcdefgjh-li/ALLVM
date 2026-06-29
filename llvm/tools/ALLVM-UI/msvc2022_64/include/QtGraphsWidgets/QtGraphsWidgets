@@ -1,0 +1,10 @@
+#ifndef QT_QTGRAPHSWIDGETS_MODULE_H
+#define QT_QTGRAPHSWIDGETS_MODULE_H
+#include <QtGraphsWidgets/QtGraphsWidgetsDepends>
+#include "qgraphswidgetsglobal.h"
+#include "q3dbarswidgetitem.h"
+#include "q3dgraphswidgetitem.h"
+#include "q3dscatterwidgetitem.h"
+#include "q3dsurfacewidgetitem.h"
+#include "qtgraphswidgetsversion.h"
+#endif

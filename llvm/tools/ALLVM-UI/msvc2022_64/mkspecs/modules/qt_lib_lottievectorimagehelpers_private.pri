@@ -1,0 +1,11 @@
+QT.lottievectorimagehelpers_private.VERSION = 6.10.2
+QT.lottievectorimagehelpers_private.name = QtLottieVectorImageHelpers
+QT.lottievectorimagehelpers_private.module =
+QT.lottievectorimagehelpers_private.libs = $$QT_MODULE_LIB_BASE
+QT.lottievectorimagehelpers_private.includes = $$QT_MODULE_INCLUDE_BASE/QtLottieVectorImageHelpers/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtLottieVectorImageHelpers/6.10.2/QtLottieVectorImageHelpers
+QT.lottievectorimagehelpers_private.frameworks = 
+QT.lottievectorimagehelpers_private.depends = lottievectorimagehelpers
+QT.lottievectorimagehelpers_private.uses = 
+QT.lottievectorimagehelpers_private.module_config = v2 staticlib internal_module
+QT.lottievectorimagehelpers_private.enabled_features = 
+QT.lottievectorimagehelpers_private.disabled_features = 

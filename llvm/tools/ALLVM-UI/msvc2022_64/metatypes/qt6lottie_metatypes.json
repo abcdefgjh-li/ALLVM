@@ -1,0 +1,545 @@
+[
+    {
+        "classes": [
+            {
+                "className": "QBatchRenderer",
+                "lineNumber": 29,
+                "object": true,
+                "qualifiedClassName": "QBatchRenderer",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "animator",
+                                "type": "QLottieAnimation*"
+                            },
+                            {
+                                "name": "frameNumber",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 56,
+                        "name": "frameReady",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "animator",
+                                "type": "QLottieAnimation*"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 59,
+                        "name": "registerAnimator",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "animator",
+                                "type": "QLottieAnimation*"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 60,
+                        "name": "deregisterAnimator",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "animator",
+                                "type": "QLottieAnimation*"
+                            },
+                            {
+                                "name": "frame",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 62,
+                        "name": "gotoFrame",
+                        "returnType": "bool"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "animator",
+                                "type": "QLottieAnimation*"
+                            },
+                            {
+                                "name": "frameNumber",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 64,
+                        "name": "frameRendered",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QThread"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qbatchrenderer_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "LottieAnimation"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "256"
+                    }
+                ],
+                "className": "QLottieAnimation",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 50,
+                        "name": "Status",
+                        "values": [
+                            "Null",
+                            "Loading",
+                            "Ready",
+                            "Error"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 53,
+                        "name": "Quality",
+                        "values": [
+                            "LowQuality",
+                            "MediumQuality",
+                            "HighQuality"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 56,
+                        "name": "Direction",
+                        "values": [
+                            "Forward",
+                            "Reverse"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 59,
+                        "name": "LoopCount",
+                        "values": [
+                            "Infinite"
+                        ]
+                    }
+                ],
+                "lineNumber": 33,
+                "methods": [
+                    {
+                        "access": "public",
+                        "index": 12,
+                        "lineNumber": 88,
+                        "name": "start",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 13,
+                        "lineNumber": 90,
+                        "name": "play",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 14,
+                        "lineNumber": 91,
+                        "name": "pause",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 15,
+                        "lineNumber": 92,
+                        "name": "togglePause",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 16,
+                        "lineNumber": 93,
+                        "name": "stop",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "frame",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 17,
+                        "lineNumber": 94,
+                        "name": "gotoAndPlay",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "frameMarker",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 18,
+                        "lineNumber": 95,
+                        "name": "gotoAndPlay",
+                        "returnType": "bool"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "frame",
+                                "type": "int"
+                            }
+                        ],
+                        "index": 19,
+                        "lineNumber": 96,
+                        "name": "gotoAndStop",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "frameMarker",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 20,
+                        "lineNumber": 97,
+                        "name": "gotoAndStop",
+                        "returnType": "bool"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "inFrames",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 21,
+                        "lineNumber": 98,
+                        "name": "getDuration",
+                        "returnType": "double"
+                    },
+                    {
+                        "access": "public",
+                        "index": 22,
+                        "isCloned": true,
+                        "lineNumber": 98,
+                        "name": "getDuration",
+                        "returnType": "double"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 36,
+                        "name": "source",
+                        "notify": "sourceChanged",
+                        "read": "source",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QUrl",
+                        "user": false,
+                        "write": "setSource"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 37,
+                        "name": "frameRate",
+                        "notify": "frameRateChanged",
+                        "read": "frameRate",
+                        "required": false,
+                        "reset": "resetFrameRate",
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false,
+                        "write": "setFrameRate"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 38,
+                        "name": "startFrame",
+                        "notify": "startFrameChanged",
+                        "read": "startFrame",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 39,
+                        "name": "endFrame",
+                        "notify": "endFrameChanged",
+                        "read": "endFrame",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 40,
+                        "name": "status",
+                        "notify": "statusChanged",
+                        "read": "status",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Status",
+                        "user": false,
+                        "write": "setStatus"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 41,
+                        "name": "quality",
+                        "notify": "qualityChanged",
+                        "read": "quality",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Quality",
+                        "user": false,
+                        "write": "setQuality"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 42,
+                        "member": "m_autoPlay",
+                        "name": "autoPlay",
+                        "notify": "autoPlayChanged",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "bool",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 7,
+                        "lineNumber": 43,
+                        "member": "m_loops",
+                        "name": "loops",
+                        "notify": "loopsChanged",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "int",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 8,
+                        "lineNumber": 44,
+                        "name": "direction",
+                        "notify": "directionChanged",
+                        "read": "direction",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "Direction",
+                        "user": false,
+                        "write": "setDirection"
+                    }
+                ],
+                "qualifiedClassName": "QLottieAnimation",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 103,
+                        "name": "statusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 104,
+                        "name": "qualityChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 105,
+                        "name": "sourceChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 3,
+                        "lineNumber": 106,
+                        "name": "finished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 107,
+                        "name": "frameRateChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 108,
+                        "name": "autoPlayChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 6,
+                        "lineNumber": 109,
+                        "name": "loopsChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 7,
+                        "lineNumber": 110,
+                        "name": "directionChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 8,
+                        "lineNumber": 111,
+                        "name": "startFrameChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 9,
+                        "lineNumber": 112,
+                        "name": "endFrameChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "protected",
+                        "index": 10,
+                        "lineNumber": 115,
+                        "name": "loadFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "protected",
+                        "index": 11,
+                        "lineNumber": 117,
+                        "name": "renderNextFrame",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QQuickPaintedItem"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qlottieanimation_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QLottieLiteral",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 51,
+                        "name": "PropertyType",
+                        "values": [
+                            "RectPosition",
+                            "RectSize",
+                            "RectRoundness"
+                        ]
+                    }
+                ],
+                "lineNumber": 39,
+                "object": true,
+                "qualifiedClassName": "QLottieLiteral",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qlottieconstants_p.h",
+        "outputRevision": 69
+    }
+]

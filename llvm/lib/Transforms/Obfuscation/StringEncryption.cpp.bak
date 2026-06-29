@@ -1,0 +1,942 @@
+//===- StringEncryption.cpp - 字符串加密Pass----------------------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// 本文件实现字符串加密Pass，通过加密字符串常量来增加逆向分析的难度
+//
+//===----------------------------------------------------------------------===//
+
+#include "llvm/Transforms/Obfuscation/ObfuscationOptions.h"
+#include "llvm/Transforms/Obfuscation/StringEncryption.h"
+#include "llvm/Transforms/Obfuscation/Utils.h"
+#include "llvm/Transforms/Utils/GlobalStatus.h"
+#include "llvm/Transforms/IPO/Attributor.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstIterator.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/CryptoUtils.h"
+#include <map>
+#include <set>
+#include <iostream>
+#include <algorithm>
+
+#define DEBUG_TYPE "string-encryption"
+
+using namespace llvm;
+namespace {
+	struct StringEncryption : public ModulePass {
+		static char ID;  ///< Pass标识符
+
+		/**
+		 * @brief 常量字符串池条目结构体
+		 * 存储加密字符串的相关信息
+		 */
+		struct CSPEntry {
+			CSPEntry() : ID(0), Offset(0), DecGV(nullptr), DecStatus(nullptr), IsUTF16(false), DecFunc(nullptr) {}
+			unsigned ID;
+			unsigned Offset;
+			GlobalVariable *DecGV;
+			GlobalVariable *DecStatus;
+			std::vector<uint8_t> Data;
+			std::vector<uint8_t> EncKey;
+			bool IsUTF16;
+			std::vector<uint16_t> Data16;
+			std::vector<uint16_t> EncKey16;
+			Function *DecFunc;
+		};
+
+		/**
+		 * @brief 常量字符串用户结构体
+		 * 存储使用常量字符串的全局变量信息
+		 */
+		struct CSUser {
+			CSUser(Type* ETy, GlobalVariable *User, GlobalVariable *NewGV)
+				: Ty(ETy), GV(User), DecGV(NewGV), DecStatus(nullptr),
+				  InitFunc(nullptr) {}
+			Type *Ty;
+			GlobalVariable *GV;
+			GlobalVariable *DecGV;
+			GlobalVariable *DecStatus;
+			Function *InitFunc;
+		};
+
+		ObfuscationOptions *ArgsOptions;  ///< 混淆选项配置
+		CryptoUtils RandomEngine;  ///< 随机数生成引擎
+		std::vector<CSPEntry *> ConstantStringPool;  ///< 常量字符串池
+		std::map<GlobalVariable *, CSPEntry *> CSPEntryMap;  ///< 全局变量到条目的映射
+		std::map<GlobalVariable *, CSUser *> CSUserMap;  ///< 全局变量到用户的映射
+		GlobalVariable *EncryptedStringTable = nullptr;  ///< 加密字符串表全局变量
+		std::set<GlobalVariable *> MaybeDeadGlobalVars;  ///< 可能死亡的全局变量集合
+
+		/**
+		 * @brief 构造函数，初始化字符串加密Pass
+		 * @param argsOptions 混淆选项配置对象
+		 */
+		StringEncryption(ObfuscationOptions *argsOptions) : ModulePass(ID) {
+			this->ArgsOptions = argsOptions;
+			initializeStringEncryptionPass(*PassRegistry::getPassRegistry());
+		}
+
+		/**
+		 * @brief Pass结束时的清理工作
+		 * @param M LLVM模块
+		 * @return 始终返回false
+		 */
+		bool doFinalization(Module &) override {
+			for (CSPEntry *Entry : ConstantStringPool) {
+				delete (Entry);
+			}
+			for (auto &I : CSUserMap) {
+				CSUser *User = I.second;
+				delete (User);
+			}
+			ConstantStringPool.clear();
+			CSPEntryMap.clear();
+			CSUserMap.clear();
+			MaybeDeadGlobalVars.clear();
+			return false;
+		}
+
+		/**
+		 * @brief 获取Pass名称
+		 * @return Pass名称字符串
+		 */
+		StringRef getPassName() const override {
+			return {"StringEncryption"};
+		}
+
+		/**
+		 * @brief 对模块执行字符串加密
+		 * @param M 要处理的LLVM模块
+		 * @return 如果模块被修改返回true，否则返回false
+		 */
+		bool runOnModule(Module &M) override;
+		
+		/**
+		 * @brief 收集使用常量字符串的全局变量
+		 * @param CString 常量字符串全局变量
+		 * @param Users 输出的用户集合
+		 */
+		static void collectConstantStringUser(GlobalVariable *CString, std::set<GlobalVariable *> &Users);
+		
+		/**
+		 * @brief 检查全局变量是否适合加密
+		 * @param GV 要检查的全局变量
+		 * @return 如果适合加密返回true
+		 */
+		static bool isValidToEncrypt(GlobalVariable *GV);
+		
+		/**
+		 * @brief 处理函数中的常量字符串使用
+		 * @param F 要处理的函数
+		 * @return 如果函数被修改返回true
+		 */
+		bool processConstantStringUse(Function *F);
+		
+		/**
+		 * @brief 删除未使用的全局变量
+		 */
+		void deleteUnusedGlobalVariable();
+		
+		/**
+		 * @brief 构建解密函数
+		 * @param M LLVM模块
+		 * @param Entry 常量字符串池条目
+		 * @return 构建的解密函数
+		 */
+		static Function *buildDecryptFunction(Module *M, const CSPEntry *Entry);
+		
+		/**
+		 * @brief 构建初始化函数
+		 * @param M LLVM模块
+		 * @param User 常量字符串用户
+		 * @return 构建的初始化函数
+		 */
+		Function *buildInitFunction(Module *M, const CSUser *User);
+		
+		/**
+		 * @brief 生成随机字节
+		 * @param Bytes 输出的字节向量
+		 * @param MinSize 最小大小
+		 * @param MaxSize 最大大小
+		 */
+		template <typename T>
+		void getRandomBytes(std::vector<T> &Bytes, uint32_t MinSize, uint32_t MaxSize);
+		
+		/**
+		 * @brief 降低全局常量到运行时初始化
+		 * @param CV 常量值
+		 * @param IRB IR构建器
+		 * @param Ptr 目标指针
+		 * @param Ty 类型
+		 */
+		void lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
+		
+		/**
+		 * @brief 降低结构体常量
+		 * @param CS 结构体常量
+		 * @param IRB IR构建器
+		 * @param Ptr 目标指针
+		 * @param Ty 类型
+		 */
+		void lowerGlobalConstantStruct(ConstantStruct *CS, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
+		
+		/**
+		 * @brief 降低数组常量
+		 * @param CA 数组常量
+		 * @param IRB IR构建器
+		 * @param Ptr 目标指针
+		 * @param Ty 类型
+		 */
+		void lowerGlobalConstantArray(ConstantArray *CA, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
+	};
+} // namespace llvm
+
+char StringEncryption::ID = 0;
+
+/**
+ * @brief 对模块执行字符串加密的主函数
+ * @param M 要处理的LLVM模块
+ * @return 如果模块被修改返回true
+ */
+bool StringEncryption::runOnModule(Module &M) {
+	std::set<GlobalVariable *> ConstantStringUsers;
+
+	LLVMContext &Ctx = M.getContext();
+	ConstantInt *Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
+	
+	for (GlobalVariable &GV : M.globals()) {
+		if (!GV.isConstant() || !GV.hasInitializer() ||
+		    GV.hasDLLExportStorageClass() || GV.isDLLImportDependent()) {
+			continue;
+		}
+		Constant *Init = GV.getInitializer();
+		if (Init == nullptr)
+			continue;
+		
+		if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(Init)) {
+			if (CDS->isString()) {
+				CSPEntry *Entry = new CSPEntry();
+				Entry->IsUTF16 = false;
+				StringRef Data = CDS->getRawDataValues();
+				Entry->Data.reserve(Data.size());
+				for (unsigned i = 0; i < Data.size(); ++i) {
+					Entry->Data.push_back(static_cast<uint8_t>(Data[i]));
+				}
+				Entry->ID = static_cast<unsigned>(ConstantStringPool.size());
+				Constant *ZeroInit = Constant::getNullValue(CDS->getType());
+				GlobalVariable *DecGV = new GlobalVariable(M, CDS->getType(), false, GlobalValue::PrivateLinkage,
+				    ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
+				GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+				    Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+				DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
+				Entry->DecGV = DecGV;
+				Entry->DecStatus = DecStatus;
+				ConstantStringPool.push_back(Entry);
+				CSPEntryMap[&GV] = Entry;
+				collectConstantStringUser(&GV, ConstantStringUsers);
+			} else {
+				Type *EltTy = CDS->getElementType();
+				if (EltTy->isIntegerTy(16)) {
+					CSPEntry *Entry = new CSPEntry();
+					Entry->IsUTF16 = true;
+					unsigned NumElems = CDS->getNumElements();
+					Entry->Data16.reserve(NumElems);
+					for (unsigned i = 0; i < NumElems; ++i) {
+						uint64_t v = CDS->getElementAsInteger(i);
+						Entry->Data16.push_back(static_cast<uint16_t>(v));
+					}
+					Entry->ID = static_cast<unsigned>(ConstantStringPool.size());
+					Constant *ZeroInit = Constant::getNullValue(CDS->getType());
+					GlobalVariable *DecGV = new GlobalVariable(M, CDS->getType(), false, GlobalValue::PrivateLinkage,
+					    ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
+					GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+					    Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+					DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
+					Entry->DecGV = DecGV;
+					Entry->DecStatus = DecStatus;
+					ConstantStringPool.push_back(Entry);
+					CSPEntryMap[&GV] = Entry;
+					collectConstantStringUser(&GV, ConstantStringUsers);
+				}
+			}
+		}
+	}
+
+	for (CSPEntry *Entry : ConstantStringPool) {
+		if (!Entry->IsUTF16) {
+			getRandomBytes(Entry->EncKey, 16, 32);
+			uint8_t LastPlainChar = 0;
+			for (unsigned i = 0; i < Entry->Data.size(); ++i) {
+				const uint32_t KeyIndex = i % Entry->EncKey.size();
+				const uint8_t CurrentKey = Entry->EncKey[KeyIndex];
+				const uint8_t CurrentPlainChar = Entry->Data[i];
+				uint8_t val = CurrentPlainChar;
+				val ^= CurrentKey;
+				if ((KeyIndex * CurrentKey) % 2 == 0) {
+					val = ~val;
+					val ^= CurrentKey;
+					val = val - LastPlainChar;
+				} else {
+					val = -val;
+					val ^= CurrentKey;
+					val = val + LastPlainChar;
+				}
+				Entry->Data[i] = val;
+				LastPlainChar = CurrentPlainChar;
+			}
+		} else {
+			getRandomBytes(Entry->EncKey16, 8, 16);
+			uint16_t LastPlainChar = 0;
+			for (unsigned i = 0; i < Entry->Data16.size(); ++i) {
+				const uint32_t KeyIndex = i % Entry->EncKey16.size();
+				const uint16_t CurrentKey = Entry->EncKey16[KeyIndex];
+				const uint16_t CurrentPlainChar = Entry->Data16[i];
+				uint16_t val = CurrentPlainChar;
+				val ^= CurrentKey;
+				if (((KeyIndex * CurrentKey) % 2) == 0) {
+					val = ~val;
+					val ^= CurrentKey;
+					val = static_cast<uint16_t>(val - LastPlainChar);
+				} else {
+					val = static_cast<uint16_t>(-static_cast<int16_t>(val));
+					val ^= CurrentKey;
+					val = static_cast<uint16_t>(val + LastPlainChar);
+				}
+				Entry->Data16[i] = val;
+				LastPlainChar = CurrentPlainChar;
+			}
+		}
+		Entry->DecFunc = buildDecryptFunction(&M, Entry);
+	}
+
+	for (GlobalVariable *GV : ConstantStringUsers) {
+		if (isValidToEncrypt(GV)) {
+			Type *EltType = GV->getValueType();
+			Constant *ZeroInit = Constant::getNullValue(EltType);
+			GlobalVariable *DecGV = new GlobalVariable(M, EltType, false, GlobalValue::PrivateLinkage,
+			    ZeroInit, "dec_" + GV->getName());
+			DecGV->setAlignment(MaybeAlign(GV->getAlignment()));
+			GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+			    Zero, "dec_status_" + GV->getName());
+			CSUser *User = new CSUser(EltType, GV, DecGV);
+			User->DecStatus = DecStatus;
+			User->InitFunc = buildInitFunction(&M, User);
+			CSUserMap[GV] = User;
+		}
+	}
+
+	std::vector<uint8_t> Data;
+	std::vector<uint8_t> JunkBytes;
+
+	JunkBytes.reserve(32);
+	for (CSPEntry *Entry : ConstantStringPool) {
+		JunkBytes.clear();
+		getRandomBytes(JunkBytes, 16, 32);
+		Data.insert(Data.end(), JunkBytes.begin(), JunkBytes.end());
+
+		if (Entry->IsUTF16 && (Data.size() % 2) != 0) {
+			Data.push_back(0);
+		}
+
+		Entry->Offset = static_cast<unsigned>(Data.size());
+		if (!Entry->IsUTF16) {
+			Data.insert(Data.end(), Entry->EncKey.begin(), Entry->EncKey.end());
+			Data.insert(Data.end(), Entry->Data.begin(), Entry->Data.end());
+		} else {
+			for (uint16_t w : Entry->EncKey16) {
+				Data.push_back(static_cast<uint8_t>(w & 0xff));
+				Data.push_back(static_cast<uint8_t>((w >> 8) & 0xff));
+			}
+			for (uint16_t w : Entry->Data16) {
+				Data.push_back(static_cast<uint8_t>(w & 0xff));
+				Data.push_back(static_cast<uint8_t>((w >> 8) & 0xff));
+			}
+		}
+	}
+
+	Constant *CDA = ConstantDataArray::get(M.getContext(), ArrayRef<uint8_t>(Data));
+	EncryptedStringTable = new GlobalVariable(M, CDA->getType(), false, GlobalValue::PrivateLinkage,
+	    CDA, "EncryptedStringTable");
+
+	bool Changed = false;
+	for (Function &F : M) {
+		if (F.isDeclaration())
+			continue;
+		Changed |= processConstantStringUse(&F);
+	}
+
+	for (auto &I : CSUserMap) {
+		CSUser *User = I.second;
+		Changed |= processConstantStringUse(User->InitFunc);
+	}
+
+	deleteUnusedGlobalVariable();
+	for (CSPEntry *Entry : ConstantStringPool) {
+		if (Entry->DecFunc->use_empty()) {
+			Entry->DecFunc->eraseFromParent();
+		}
+	}
+	return Changed;
+}
+
+/**
+ * @brief 生成随机字节
+ * @tparam T 字节类型（uint8_t或uint16_t）
+ * @param Bytes 输出的字节向量
+ * @param MinSize 最小大小
+ * @param MaxSize 最大大小
+ */
+template <typename T>
+void StringEncryption::getRandomBytes(std::vector<T> &Bytes, uint32_t MinSize, uint32_t MaxSize) {
+	uint32_t N = RandomEngine.get_uint32_t();
+	uint32_t Len;
+
+	assert(MaxSize >= MinSize);
+
+	if (MinSize == MaxSize) {
+		Len = MinSize;
+	} else {
+		Len = MinSize + (N % (MaxSize - MinSize));
+	}
+
+	char *Buffer = new char[Len * sizeof(T)];
+	RandomEngine.get_bytes(Buffer, Len * sizeof(T));
+	for (uint32_t i = 0; i < Len; ++i) {
+		if constexpr (std::is_same_v<T, uint8_t>) {
+			Bytes.push_back(static_cast<uint8_t>(Buffer[i]));
+		} else {
+			uint8_t b0 = static_cast<uint8_t>(Buffer[i * 2]);
+			uint8_t b1 = static_cast<uint8_t>(Buffer[i * 2 + 1]);
+			// little-endian combine
+			uint16_t w = static_cast<uint16_t>(b0 | (b1 << 8));
+			Bytes.push_back(w);
+		}
+	}
+
+	delete[] Buffer;
+}
+
+/**
+ * @brief 构建字符串解密函数
+ * @param M LLVM模块
+ * @param Entry 常量字符串池条目
+ * @return 构建的解密函数
+ */
+Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncryption::CSPEntry *Entry) {
+	LLVMContext &Ctx = M->getContext();
+	IRBuilder<> IRB(Ctx);
+
+	Type *PlainEltTy = Entry->IsUTF16 ? Type::getInt16Ty(Ctx) : Type::getInt8Ty(Ctx);
+	PointerType *PlainPtrTy = PointerType::getUnqual(PlainEltTy);
+	PointerType *DataPtrTy = PointerType::getUnqual(Type::getInt8Ty(Ctx));
+
+	FunctionType *FuncTy = FunctionType::get(
+	                           Type::getVoidTy(Ctx),
+	{PlainPtrTy, DataPtrTy},
+	false);
+	Function *DecFunc =
+	    Function::Create(FuncTy, GlobalValue::PrivateLinkage, "goron_decrypt_string_" + Twine::utohexstr(Entry->ID), M);
+
+	auto ArgIt = DecFunc->arg_begin();
+	Argument *PlainString = ArgIt;
+	++ArgIt;
+	Argument *Data = ArgIt;
+
+	AttrBuilder NoCaptureAttrBuilder{Ctx};
+	NoCaptureAttrBuilder.addCapturesAttr(llvm::CaptureInfo(llvm::CaptureComponents::None));
+
+	PlainString->setName("plain_string");
+	PlainString->addAttrs(NoCaptureAttrBuilder);
+	Data->setName("data");
+	Data->addAttrs(NoCaptureAttrBuilder);
+
+	BasicBlock *Enter = BasicBlock::Create(Ctx, "Enter", DecFunc);
+	BasicBlock *LoopBody = BasicBlock::Create(Ctx, "LoopBody", DecFunc);
+	BasicBlock *LoopBr0 = BasicBlock::Create(Ctx, "LoopBr0", DecFunc);
+	BasicBlock *LoopBr1 = BasicBlock::Create(Ctx, "LoopBr1", DecFunc);
+	BasicBlock *LoopEnd = BasicBlock::Create(Ctx, "LoopEnd", DecFunc);
+	BasicBlock *UpdateDecStatus = BasicBlock::Create(Ctx, "UpdateDecStatus", DecFunc);
+	BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", DecFunc);
+
+	IRB.SetInsertPoint(Enter);
+	ConstantInt *KeyElemSize = ConstantInt::get(Type::getInt32Ty(Ctx), Entry->IsUTF16 ? static_cast<uint32_t>(Entry->EncKey16.size()) : static_cast<uint32_t>(Entry->EncKey.size()));
+	uint32_t KeySizeInBytes = Entry->IsUTF16 ? static_cast<uint32_t>(Entry->EncKey16.size() * 2) : static_cast<uint32_t>(Entry->EncKey.size());
+	ConstantInt *KeySizeBytesConst = ConstantInt::get(Type::getInt32Ty(Ctx), KeySizeInBytes);
+
+	Value *EncPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeySizeBytesConst);
+	Value *DecStatus = IRB.CreateLoad(
+	                       Entry->DecStatus->getValueType(), Entry->DecStatus);
+	Value *IsDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1));
+	IRB.CreateCondBr(IsDecrypted, Exit, LoopBody);
+
+	IRB.SetInsertPoint(LoopBody);
+	PHINode *LoopCounter = IRB.CreatePHI(IRB.getInt32Ty(), 2);
+	LoopCounter->addIncoming(IRB.getInt32(0), Enter);
+
+	PHINode *LastDecrypted = IRB.CreatePHI(PlainEltTy, 2);
+	LastDecrypted->addIncoming(Constant::getNullValue(PlainEltTy), Enter);
+
+	Value *KeyIdx = IRB.CreateURem(LoopCounter, KeyElemSize);
+
+	Value *KeyChar = nullptr;
+	if (!Entry->IsUTF16) {
+		Value *KeyCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeyIdx);
+		KeyChar = IRB.CreateLoad(IRB.getInt8Ty(), KeyCharPtr);
+	} else {
+		Value *KeyBase = IRB.CreateBitCast(Data, PointerType::getUnqual(Type::getInt16Ty(Ctx)));
+		Value *KeyCharPtr = IRB.CreateInBoundsGEP(Type::getInt16Ty(Ctx), KeyBase, KeyIdx);
+		KeyChar = IRB.CreateLoad(Type::getInt16Ty(Ctx), KeyCharPtr);
+	}
+
+	Value *EncChar = nullptr;
+	if (!Entry->IsUTF16) {
+		Value *EncCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr, LoopCounter);
+		EncChar = IRB.CreateLoad(IRB.getInt8Ty(), EncCharPtr, true);
+	} else {
+		Value *Two = IRB.getInt32(2);
+		Value *IdxBytes = IRB.CreateMul(LoopCounter, Two);
+		Value *EncCharBytePtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr, IdxBytes);
+		Value *EncChar16Ptr = IRB.CreateBitCast(EncCharBytePtr, PointerType::getUnqual(Type::getInt16Ty(Ctx)));
+		EncChar = IRB.CreateLoad(Type::getInt16Ty(Ctx), EncChar16Ptr, true);
+	}
+
+	Value *KeyIdxZext = IRB.CreateZExt(KeyIdx, IRB.getInt32Ty());
+	Value *KeyCharZext = nullptr;
+	if (!Entry->IsUTF16) {
+		KeyCharZext = IRB.CreateZExt(KeyChar, IRB.getInt32Ty());
+	} else {
+		KeyCharZext = IRB.CreateZExt(KeyChar, IRB.getInt32Ty());
+	}
+	Value *Mul = IRB.CreateMul(KeyIdxZext, KeyCharZext);
+	Value *BrKey = IRB.CreateAnd(Mul, IRB.getInt32(1));
+	Value *BrCond = IRB.CreateICmpEQ(BrKey, IRB.getInt32(0));
+	IRB.CreateCondBr(BrCond, LoopBr0, LoopBr1);
+
+	IRB.SetInsertPoint(LoopBr0);
+	Value *DecChar0 = nullptr;
+	if (!Entry->IsUTF16) {
+		Value *Tmp0 = IRB.CreateAdd(EncChar, LastDecrypted);
+		Tmp0 = IRB.CreateXor(Tmp0, KeyChar);
+		Tmp0 = IRB.CreateNot(Tmp0);
+		DecChar0 = Tmp0;
+	} else {
+		Value *Tmp0 = IRB.CreateAdd(EncChar, LastDecrypted);
+		Tmp0 = IRB.CreateXor(Tmp0, KeyChar);
+		Tmp0 = IRB.CreateNot(Tmp0);
+		DecChar0 = Tmp0;
+	}
+	IRB.CreateBr(LoopEnd);
+
+	IRB.SetInsertPoint(LoopBr1);
+	Value *DecChar1 = nullptr;
+	if (!Entry->IsUTF16) {
+		Value *Tmp1 = IRB.CreateSub(EncChar, LastDecrypted);
+		Tmp1 = IRB.CreateXor(Tmp1, KeyChar);
+		Tmp1 = IRB.CreateNeg(Tmp1);
+		DecChar1 = Tmp1;
+	} else {
+		Value *Tmp1 = IRB.CreateSub(EncChar, LastDecrypted);
+		Tmp1 = IRB.CreateXor(Tmp1, KeyChar);
+		Tmp1 = IRB.CreateNeg(Tmp1);
+		DecChar1 = Tmp1;
+	}
+	IRB.CreateBr(LoopEnd);
+
+	IRB.SetInsertPoint(LoopEnd);
+	PHINode *BrDecChar = IRB.CreatePHI(PlainEltTy, 2);
+	BrDecChar->addIncoming(DecChar0, LoopBr0);
+	BrDecChar->addIncoming(DecChar1, LoopBr1);
+	Value *DecChar = IRB.CreateXor(BrDecChar, KeyChar);
+
+	LastDecrypted->addIncoming(DecChar, LoopEnd);
+	Value *DecCharPtr = IRB.CreateInBoundsGEP(PlainEltTy,
+	                    PlainString, LoopCounter);
+	IRB.CreateStore(DecChar, DecCharPtr);
+
+	Value *NewCounter = IRB.CreateAdd(LoopCounter, IRB.getInt32(1), "", true, true);
+	LoopCounter->addIncoming(NewCounter, LoopEnd);
+
+	uint32_t DataSize = Entry->IsUTF16 ? static_cast<uint32_t>(Entry->Data16.size()) : static_cast<uint32_t>(Entry->Data.size());
+	Value *Cond = IRB.CreateICmpEQ(NewCounter, IRB.getInt32(static_cast<uint32_t>(DataSize)));
+	IRB.CreateCondBr(Cond, UpdateDecStatus, LoopBody);
+
+	IRB.SetInsertPoint(UpdateDecStatus);
+	IRB.CreateStore(IRB.getInt32(1), Entry->DecStatus);
+	IRB.CreateBr(Exit);
+
+	IRB.SetInsertPoint(Exit);
+	IRB.CreateRetVoid();
+
+	return DecFunc;
+}
+
+/**
+ * @brief 构建全局变量初始化函数
+ * @param M LLVM模块
+ * @param User 常量字符串用户
+ * @return 构建的初始化函数
+ */
+Function *StringEncryption::buildInitFunction(Module *M, const StringEncryption::CSUser *User) {
+	LLVMContext &Ctx = M->getContext();
+	IRBuilder<> IRB(Ctx);
+	FunctionType *FuncTy = FunctionType::get(Type::getVoidTy(Ctx), {User->DecGV->getType()}, false);
+	Function *InitFunc =
+	    Function::Create(FuncTy, GlobalValue::PrivateLinkage, "__global_variable_initializer_" + User->GV->getName(), M);
+
+	auto ArgIt = InitFunc->arg_begin();
+	Argument *thiz = ArgIt;
+
+
+	AttrBuilder NoCaptureAttrBuilder{Ctx};
+	NoCaptureAttrBuilder.addCapturesAttr(llvm::CaptureInfo(llvm::CaptureComponents::None));
+	thiz->setName("this");
+	thiz->addAttrs(NoCaptureAttrBuilder);
+
+	BasicBlock *Enter = BasicBlock::Create(Ctx, "Enter", InitFunc);
+	BasicBlock *InitBlock = BasicBlock::Create(Ctx, "InitBlock", InitFunc);
+	BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", InitFunc);
+
+	IRB.SetInsertPoint(Enter);
+	Value *DecStatus = IRB.CreateLoad(
+	                       User->DecStatus->getValueType(), User->DecStatus);
+	Value *IsDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1));
+	IRB.CreateCondBr(IsDecrypted, Exit, InitBlock);
+
+	IRB.SetInsertPoint(InitBlock);
+	Constant *Init = User->GV->getInitializer();
+	lowerGlobalConstant(Init, IRB, User->DecGV, User->Ty);
+	IRB.CreateStore(IRB.getInt32(1), User->DecStatus);
+	IRB.CreateBr(Exit);
+
+	IRB.SetInsertPoint(Exit);
+	IRB.CreateRetVoid();
+	return InitFunc;
+}
+
+/**
+ * @brief 降低全局常量到运行时初始化
+ * @param CV 常量值
+ * @param IRB IR构建器
+ * @param Ptr 目标指针
+ * @param Ty 类型
+ */
+void StringEncryption::lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value *Ptr, Type *Ty) {
+	if (isa<ConstantAggregateZero>(CV)) {
+		IRB.CreateStore(CV, Ptr);
+		return;
+	}
+
+	if (ConstantArray *CA = dyn_cast<ConstantArray>(CV)) {
+		lowerGlobalConstantArray(CA, IRB, Ptr, Ty);
+	} else if (ConstantStruct *CS = dyn_cast<ConstantStruct>(CV)) {
+		lowerGlobalConstantStruct(CS, IRB, Ptr, Ty);
+	} else {
+		IRB.CreateStore(CV, Ptr);
+	}
+}
+
+/**
+ * @brief 降低数组常量
+ * @param CA 数组常量
+ * @param IRB IR构建器
+ * @param Ptr 目标指针
+ * @param Ty 类型
+ */
+void StringEncryption::lowerGlobalConstantArray(ConstantArray *CA, IRBuilder<> &IRB, Value *Ptr, Type *Ty) {
+	for (unsigned i = 0, e = CA->getNumOperands(); i != e; ++i) {
+		Constant *CV = CA->getOperand(i);
+		Value *GEP = IRB.CreateGEP(Ty,
+		                           Ptr, {IRB.getInt32(0), IRB.getInt32(i)});
+		lowerGlobalConstant(CV, IRB, GEP, CV->getType());
+	}
+}
+
+/**
+ * @brief 降低结构体常量
+ * @param CS 结构体常量
+ * @param IRB IR构建器
+ * @param Ptr 目标指针
+ * @param Ty 类型
+ */
+void StringEncryption::lowerGlobalConstantStruct(ConstantStruct *CS, IRBuilder<> &IRB, Value *Ptr, Type *Ty) {
+	for (unsigned i = 0, e = CS->getNumOperands(); i != e; ++i) {
+		Constant* CV = CS->getOperand(i);
+		Value *GEP = IRB.CreateGEP(Ty,
+		                           Ptr, {IRB.getInt32(0), IRB.getInt32(i)});
+		lowerGlobalConstant(CV, IRB, GEP, CV->getType());
+	}
+}
+
+/**
+ * @brief 处理函数中的常量字符串使用
+ * @param F 要处理的函数
+ * @return 如果函数被修改返回true
+ */
+bool StringEncryption::processConstantStringUse(Function *F) {
+	auto opt = ArgsOptions->toObfuscate(ArgsOptions->cseOpt(), F);
+	if (!opt.isEnabled()) {
+		return false;
+	}
+	LLVMContext &Ctx = F->getContext();
+	LowerConstantExpr(*F);
+	SmallPtrSet<GlobalVariable *, 16> DecryptedGV; // if GV has multiple use in a block, decrypt only at the first use
+	bool Changed = false;
+	for (BasicBlock &BB : *F) {
+		DecryptedGV.clear();
+		for (Instruction &Inst : BB) {
+			if (PHINode *PHI = dyn_cast<PHINode>(&Inst)) {
+			for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
+				if (GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i))) {
+					auto Iter1 = CSPEntryMap.find(GV);
+					auto Iter2 = CSUserMap.find(GV);
+					if (Iter2 != CSUserMap.end()) {
+						CSUser *User = Iter2->second;
+						if (DecryptedGV.count(GV) > 0) {
+							Inst.replaceUsesOfWith(GV, User->DecGV);
+						} else {
+							Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+							IRBuilder<> IRB(InsertPoint);
+							fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+							Inst.replaceUsesOfWith(GV, User->DecGV);
+							MaybeDeadGlobalVars.insert(GV);
+							DecryptedGV.insert(GV);
+						}
+						Changed = true;
+					} else if (Iter1 != CSPEntryMap.end()) {
+						CSPEntry *Entry = Iter1->second;
+						if (DecryptedGV.count(GV) > 0) {
+							Inst.replaceUsesOfWith(GV, Entry->DecGV);
+						} else {
+							Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+							IRBuilder<> IRB(InsertPoint);
+
+							Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+							                                  PointerType::getUnqual(Ctx));
+							Value *Data = IRB.CreateInBoundsGEP(
+							                  EncryptedStringTable->getValueType(),
+							                  EncryptedStringTable,
+							{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+							fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+							Inst.replaceUsesOfWith(GV, Entry->DecGV);
+							MaybeDeadGlobalVars.insert(GV);
+							DecryptedGV.insert(GV);
+						}
+						Changed = true;
+					}
+				} else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(PHI->getIncomingValue(i))) {
+					if (GlobalVariable *GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
+						auto Iter1 = CSPEntryMap.find(GV);
+						auto Iter2 = CSUserMap.find(GV);
+						if (Iter2 != CSUserMap.end()) {
+							CSUser *User = Iter2->second;
+							if (DecryptedGV.count(GV) > 0) {
+								GEP->replaceUsesOfWith(GV, User->DecGV);
+							} else {
+								Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+								IRBuilder<> IRB(InsertPoint);
+								fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+								GEP->replaceUsesOfWith(GV, User->DecGV);
+								MaybeDeadGlobalVars.insert(GV);
+								DecryptedGV.insert(GV);
+							}
+							Changed = true;
+						} else if (Iter1 != CSPEntryMap.end()) {
+							CSPEntry *Entry = Iter1->second;
+							if (DecryptedGV.count(GV) > 0) {
+								GEP->replaceUsesOfWith(GV, Entry->DecGV);
+							} else {
+								Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+								IRBuilder<> IRB(InsertPoint);
+
+								Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+								                                  PointerType::getUnqual(Ctx));
+								Value *Data = IRB.CreateInBoundsGEP(
+								                  EncryptedStringTable->getValueType(),
+								                  EncryptedStringTable,
+								{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+								fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+								GEP->replaceUsesOfWith(GV, Entry->DecGV);
+								MaybeDeadGlobalVars.insert(GV);
+								DecryptedGV.insert(GV);
+							}
+							Changed = true;
+						}
+					}
+				}
+			}
+		} else {
+				for (User::op_iterator op = Inst.op_begin(); op != Inst.op_end(); ++op) {
+					if (GlobalVariable *GV = dyn_cast<GlobalVariable>(*op)) {
+						auto Iter1 = CSPEntryMap.find(GV);
+						auto Iter2 = CSUserMap.find(GV);
+						if (Iter2 != CSUserMap.end()) {
+							CSUser *User = Iter2->second;
+							if (DecryptedGV.count(GV) > 0) {
+								Inst.replaceUsesOfWith(GV, User->DecGV);
+							} else {
+
+								IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
+								fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+								Inst.replaceUsesOfWith(GV, User->DecGV);
+								MaybeDeadGlobalVars.insert(GV);
+								DecryptedGV.insert(GV);
+							}
+							Changed = true;
+						} else if (Iter1 != CSPEntryMap.end()) {
+							CSPEntry *Entry = Iter1->second;
+							if (DecryptedGV.count(GV) > 0) {
+								Inst.replaceUsesOfWith(GV, Entry->DecGV);
+							} else {
+								IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
+
+								Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+								                                  PointerType::getUnqual(Ctx));
+								Value *Data = IRB.CreateInBoundsGEP(
+								                  EncryptedStringTable->getValueType(),
+								                  EncryptedStringTable,
+								{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+								fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+								Inst.replaceUsesOfWith(GV, Entry->DecGV);
+								MaybeDeadGlobalVars.insert(GV);
+								DecryptedGV.insert(GV);
+							}
+							Changed = true;
+						}
+					} else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(*op)) {
+						if (GlobalVariable *GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
+							auto Iter1 = CSPEntryMap.find(GV);
+							auto Iter2 = CSUserMap.find(GV);
+							if (Iter2 != CSUserMap.end()) {
+								CSUser *User = Iter2->second;
+								if (DecryptedGV.count(GV) > 0) {
+									GEP->replaceUsesOfWith(GV, User->DecGV);
+								} else {
+									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
+									fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+									GEP->replaceUsesOfWith(GV, User->DecGV);
+									MaybeDeadGlobalVars.insert(GV);
+									DecryptedGV.insert(GV);
+								}
+								Changed = true;
+							} else if (Iter1 != CSPEntryMap.end()) {
+								CSPEntry *Entry = Iter1->second;
+								if (DecryptedGV.count(GV) > 0) {
+									GEP->replaceUsesOfWith(GV, Entry->DecGV);
+								} else {
+									IRBuilder<> IRB(Inst.isEHPad() ? &*Inst.getParent()->getPrevNode()->getFirstInsertionPt() : &Inst);
+
+									Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+									                                  PointerType::getUnqual(Ctx));
+									Value *Data = IRB.CreateInBoundsGEP(
+									                  EncryptedStringTable->getValueType(),
+									                  EncryptedStringTable,
+									{IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+									fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+									GEP->replaceUsesOfWith(GV, Entry->DecGV);
+									MaybeDeadGlobalVars.insert(GV);
+									DecryptedGV.insert(GV);
+								}
+								Changed = true;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return Changed;
+}
+
+/**
+ * @brief 收集使用常量字符串的全局变量
+ * @param CString 常量字符串全局变量
+ * @param Users 输出的用户集合
+ */
+void StringEncryption::collectConstantStringUser(GlobalVariable *CString, std::set<GlobalVariable *> &Users) {
+	SmallPtrSet<Value *, 16> Visited;
+	SmallVector<Value *, 16> ToVisit;
+
+	ToVisit.push_back(CString);
+	while (!ToVisit.empty()) {
+		Value *V = ToVisit.pop_back_val();
+		if (Visited.count(V) > 0)
+			continue;
+		Visited.insert(V);
+		for (Value *User : V->users()) {
+			if (auto *GV = dyn_cast<GlobalVariable>(User)) {
+				Users.insert(GV);
+			} else {
+				ToVisit.push_back(User);
+			}
+		}
+	}
+}
+
+/**
+ * @brief 检查全局变量是否适合加密
+ * @param GV 要检查的全局变量
+ * @return 如果适合加密返回true
+ */
+bool StringEncryption::isValidToEncrypt(GlobalVariable *GV) {
+	if (GV->isConstant() && GV->hasInitializer()) {
+		return GV->getInitializer() != nullptr;
+	} else {
+		return false;
+	}
+}
+
+/**
+ * @brief 删除未使用的全局变量
+ */
+void StringEncryption::deleteUnusedGlobalVariable() {
+	bool Changed = true;
+	while (Changed) {
+		Changed = false;
+		for (auto Iter = MaybeDeadGlobalVars.begin(); Iter != MaybeDeadGlobalVars.end();) {
+			GlobalVariable *GV = *Iter;
+			if (!GV->hasLocalLinkage()) {
+				++Iter;
+				continue;
+			}
+
+			GV->removeDeadConstantUsers();
+			if (GV->use_empty()) {
+				if (GV->hasInitializer()) {
+					Constant *Init = GV->getInitializer();
+					GV->setInitializer(nullptr);
+					if (isSafeToDestroyConstant(Init))
+						Init->destroyConstant();
+				}
+				Iter = MaybeDeadGlobalVars.erase(Iter);
+				GV->eraseFromParent();
+				Changed = true;
+			} else {
+				++Iter;
+			}
+		}
+	}
+}
+
+/**
+ * @brief 创建字符串加密Pass
+ * @param argsOptions 混淆选项配置对象
+ * @return 字符串加密Pass实例
+ */
+ModulePass *llvm::createStringEncryptionPass(ObfuscationOptions *argsOptions) {
+	return new StringEncryption(argsOptions);
+}
+
+INITIALIZE_PASS(StringEncryption, "string-encryption", "Enable IR String Encryption", false, false)

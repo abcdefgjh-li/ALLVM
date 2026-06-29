@@ -1,0 +1,5 @@
+#ifndef QT_FEATURES_Connectivity_qtconnectivity_src_global_qtconnectivity_config_p_h_H
+#define QT_FEATURES_Connectivity_qtconnectivity_src_global_qtconnectivity_config_p_h_H
+
+
+#endif // QT_FEATURES_Connectivity_qtconnectivity_src_global_qtconnectivity_config_p_h_H

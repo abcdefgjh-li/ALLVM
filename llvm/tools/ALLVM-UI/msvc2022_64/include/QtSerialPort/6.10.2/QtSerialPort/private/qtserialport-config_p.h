@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_SerialPort_qtserialport_src_serialport_qtserialport_config_p_h_H
+#define QT_FEATURES_SerialPort_qtserialport_src_serialport_qtserialport_config_p_h_H
+
+#define QT_FEATURE_ntddmodm -1
+
+
+#endif // QT_FEATURES_SerialPort_qtserialport_src_serialport_qtserialport_config_p_h_H

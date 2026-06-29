@@ -1,0 +1,9 @@
+#ifndef QT_FEATURES__3DCore_qt3d_src_core_qt3dcore_config_p_h_H
+#define QT_FEATURES__3DCore_qt3d_src_core_qt3dcore_config_p_h_H
+
+#define QT_FEATURE_qt3d_assimp 1
+
+#define QT_FEATURE_qt3d_system_assimp -1
+
+
+#endif // QT_FEATURES__3DCore_qt3d_src_core_qt3dcore_config_p_h_H

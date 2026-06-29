@@ -1,0 +1,177 @@
+SPDXVersion: SPDX-2.3
+DataLicense: CC0-1.0
+SPDXID: SPDXRef-DOCUMENT
+DocumentName: qtlanguageserver-6.10.2
+DocumentNamespace: https://qt.io/spdxdocs/qtlanguageserver-6.10.2-host-windows-amd64-target-windows-msvc-amd64-f6f906e4-34ba-5c4d-9bb8-f5e57e4a3405
+Creator: Organization: TheQtCompany
+Creator: Tool: Qt Build System
+CreatorComment: <text>This SPDX document was created from CMake 3.31.6, using the qt
+build system from https://code.qt.io/cgit/qt/qtbase.git/tree/cmake/QtPublicSbomHelpers.cmake</text>
+Created: 2026-01-31T11:39:03Z
+ExternalDocumentRef: DocumentRef-qtbase https://qt.io/spdxdocs/qtbase-6.10.2-host-windows-amd64-target-windows-msvc-amd64-e80dad7e-1544-56c0-be15-d6e130dc2e09 SHA1: 32101aa9bd5710bac9208f8b181601a08c8f6407
+
+PackageName: MSVC
+SPDXID: SPDXRef-compiler
+PackageVersion: 19.44.35222.0
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: NOASSERTION
+PackageLicenseDeclared: NOASSERTION
+PackageCopyrightText: NOASSERTION
+PackageSupplier: Organization: Anonymous
+FilesAnalyzed: false
+PackageSummary: <text>The compiler as identified by CMake, running on Windows (AMD64)</text>
+PrimaryPackagePurpose: APPLICATION
+Relationship: SPDXRef-compiler BUILD_DEPENDENCY_OF SPDXRef-Package-qtlanguageserver
+RelationshipComment: <text>SPDXRef-Package-qtlanguageserver is built by compiler MSVC version 19.44.35222.0</text>
+
+PackageName: qtlanguageserver
+SPDXID: SPDXRef-Package-qtlanguageserver
+ExternalRef: SECURITY cpe23Type cpe:2.3:a:qt:qtlanguageserver:6.10.2:*:*:*:*:*:*:*
+ExternalRef: PACKAGE-MANAGER purl pkg:generic/TheQtCompany/qtlanguageserver@6.10.2
+PackageVersion: 6.10.2
+ExternalRef: PACKAGE-MANAGER purl pkg:generic/TheQtCompany/qtlanguageserver@6.10.2
+PackageSupplier: Organization: TheQtCompany
+PackageDownloadLocation: git://code.qt.io/qt/qtlanguageserver.git
+PackageLicenseConcluded: NOASSERTION
+PackageLicenseDeclared: NOASSERTION
+PackageCopyrightText: Copyright (C) The Qt Company Ltd. and other contributors.
+PackageHomePage: https://qt.io
+PackageComment: <text>Built by CMake 3.31.6 with Release configuration for Windows (AMD64)
+qtlanguageserver was configured with:
+    qt6/configure -static -static-runtime -release -prefix D:\a\buildQt\Qt\6.10.2-static\msvc2022_64 -nomake examples -nomake tests -skip qtwebengine -opensource -confirm-license -qt-libpng -qt-libjpeg -qt-zlib -qt-pcre -qt-freetype -schannel -platform win32-msvc
+</text>
+FilesAnalyzed: false
+BuiltDate: 2026-01-31T11:39:03Z
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-qtlanguageserver
+
+PackageName: JsonRpcPrivate
+SPDXID: SPDXRef-Package-qtlanguageserver-qt-module-JsonRpcPrivate
+PackageDownloadLocation: git://code.qt.io/qt/qtlanguageserver.git
+PackageVersion: 6.10.2
+PackageSupplier: Organization: TheQtCompany
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+PackageLicenseDeclared: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+ExternalRef: PACKAGE-MANAGER purl pkg:github/qt/qtlanguageserver?library_name=JsonRpcPrivate#src/jsonrpc
+ExternalRef: PACKAGE-MANAGER purl pkg:generic/TheQtCompany/qtlanguageserver-JsonRpcPrivate?vcs_url=https://code.qt.io/qt/qtlanguageserver.git&library_name=JsonRpcPrivate#src/jsonrpc
+PackageCopyrightText: <text>Copyright (C) The Qt Company Ltd. and other contributors.</text>
+PrimaryPackagePurpose: LIBRARY
+PackageComment: <text>
+CMake target name: JsonRpcPrivate
+CMake exported target name: Qt6::JsonRpc
+Contained in CMake package: Qt6JsonRpcPrivate
+</text>
+ExternalRef: SECURITY cpe23Type cpe:2.3:a:qt:qt:6.10.2:*:*:*:*:*:*:*
+ExternalRef: SECURITY cpe23Type cpe:2.3:a:qt:qtlanguageserver:6.10.2:*:*:*:*:*:*:*
+PackageVerificationCode: 524880a894296fb7752fec65273908fd0c0a5fbf
+FilesAnalyzed: true
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-JsonRpcPrivate DEPENDS_ON DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-PlatformModuleInternal
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-JsonRpcPrivate DEPENDS_ON DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-Core
+Relationship: SPDXRef-Package-qtlanguageserver CONTAINS SPDXRef-Package-qtlanguageserver-qt-module-JsonRpcPrivate
+
+FileName: ./lib/Qt6JsonRpc.lib
+SPDXID: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate
+FileType: BINARY
+FileChecksum: SHA1: 3d38edcd798d8bb62086aded43a745d15ae8c3bc
+LicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+FileCopyrightText: <text>Copyright (C) The Qt Company Ltd. and other contributors.</text>
+LicenseInfoInFile: NOASSERTION
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-JsonRpcPrivate CONTAINS SPDXRef-PackagedFile-qt-module-JsonRpcPrivate
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qhttpmessagestreamparser_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qhttpmessagestreamparser.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qjsonrpcprotocol.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qjsonrpcprotocol_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qjsonrpcprotocol_p_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qjsonrpctransport_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qtjsonrpcglobal.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qjsontypedrpc_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qjsontypedrpc.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qtypedjson_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-JsonRpcPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/jsonrpc/qtypedjson.cpp
+
+PackageName: LanguageServerPrivate
+SPDXID: SPDXRef-Package-qtlanguageserver-qt-module-LanguageServerPrivate
+PackageDownloadLocation: git://code.qt.io/qt/qtlanguageserver.git
+PackageVersion: 6.10.2
+PackageSupplier: Organization: TheQtCompany
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+PackageLicenseDeclared: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+ExternalRef: PACKAGE-MANAGER purl pkg:github/qt/qtlanguageserver?library_name=LanguageServerPrivate#src/languageserver
+ExternalRef: PACKAGE-MANAGER purl pkg:generic/TheQtCompany/qtlanguageserver-LanguageServerPrivate?vcs_url=https://code.qt.io/qt/qtlanguageserver.git&library_name=LanguageServerPrivate#src/languageserver
+PackageCopyrightText: <text>Copyright (C) The Qt Company Ltd. and other contributors.</text>
+PrimaryPackagePurpose: LIBRARY
+PackageComment: <text>
+CMake target name: LanguageServerPrivate
+CMake exported target name: Qt6::LanguageServer
+Contained in CMake package: Qt6LanguageServerPrivate
+</text>
+ExternalRef: SECURITY cpe23Type cpe:2.3:a:qt:qt:6.10.2:*:*:*:*:*:*:*
+ExternalRef: SECURITY cpe23Type cpe:2.3:a:qt:qtlanguageserver:6.10.2:*:*:*:*:*:*:*
+PackageVerificationCode: 86a1a1abdff6e726a9a76a1c641cd4ebe35b759c
+FilesAnalyzed: true
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-LanguageServerPrivate DEPENDS_ON DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-PlatformModuleInternal
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-LanguageServerPrivate DEPENDS_ON DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-Core
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-LanguageServerPrivate DEPENDS_ON SPDXRef-Package-qtlanguageserver-qt-module-JsonRpcPrivate
+Relationship: SPDXRef-Package-qtlanguageserver CONTAINS SPDXRef-Package-qtlanguageserver-qt-module-LanguageServerPrivate
+
+FileName: ./lib/Qt6LanguageServer.lib
+SPDXID: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate
+FileType: BINARY
+FileChecksum: SHA1: 900605f8ae7a02976c656b832856bdf366135fad
+LicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+FileCopyrightText: <text>Copyright (C) The Qt Company Ltd. and other contributors.</text>
+LicenseInfoInFile: NOASSERTION
+Relationship: SPDXRef-Package-qtlanguageserver-qt-module-LanguageServerPrivate CONTAINS SPDXRef-PackagedFile-qt-module-LanguageServerPrivate
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverprespectypes_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverspec_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverspectypes_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverjsonrpctransport_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverjsonrpctransport.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qtlanguageserverglobal.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverbase_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverbase_p_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverbase.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageservergen_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageservergen_p_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageservergen.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverprotocol_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlanguageserverprotocol.cpp
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlspnotifysignals_p.h
+Relationship: SPDXRef-PackagedFile-qt-module-LanguageServerPrivate GENERATED_FROM NOASSERTION
+RelationshipComment: /src_dir/qtlanguageserver/src/languageserver/qlspnotifysignals.cpp
+
+LicenseID: LicenseRef-Qt-Commercial
+ExtractedText: <text>Licensees holding valid commercial Qt licenses may use this software in
+accordance with the the terms contained in a written agreement between
+you and The Qt Company. Alternatively, the terms and conditions that were
+accepted by the licensee when buying and/or downloading the
+software do apply.
+
+For the latest licensing terms and conditions, see https://www.qt.io/terms-conditions.
+For further information use the contact form at https://www.qt.io/contact-us.
+</text>

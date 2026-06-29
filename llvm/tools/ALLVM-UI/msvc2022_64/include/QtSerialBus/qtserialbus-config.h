@@ -1,0 +1,7 @@
+#ifndef QT_FEATURES_SerialBus_qtserialbus_src_serialbus_qtserialbus_config_h_H
+#define QT_FEATURES_SerialBus_qtserialbus_src_serialbus_qtserialbus_config_h_H
+
+#define QT_FEATURE_modbus_serialport 1
+
+
+#endif // QT_FEATURES_SerialBus_qtserialbus_src_serialbus_qtserialbus_config_h_H

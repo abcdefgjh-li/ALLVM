@@ -1,0 +1,5 @@
+#ifndef QT_QTPROTOBUFQUICK_MODULE_H
+#define QT_QTPROTOBUFQUICK_MODULE_H
+#include <QtProtobufQuick/QtProtobufQuickDepends>
+#include "qtprotobufquickversion.h"
+#endif

@@ -1,0 +1,58 @@
+# === NDK ===
+android-ndk-*/
+
+# === 编译成品 ===
+build-windows/
+build_new.exe
+*.obj
+*.ilk
+*.pdb
+
+# === CodeGraph ===
+.codegraph/
+
+# === Trae 临时文件 ===
+.trae/
+
+# === OLLVM-UI 二进制 ===
+llvm/tools/OLLVM-UI/build-*/
+
+# === Qt MSVC 预编译库 (体积大) ===
+llvm/tools/OLLVM-UI/msvc2022_64/
+
+# === UPX 二进制成品目录 ===
+llvm/tools/upx/
+
+# === elfPacker 临时文件 ===
+llvm/tools/elfPacker/packer_pc/embedded_loader.h
+llvm/tools/elfPacker/packer_pc/embedded_stubgen.h
+
+# === Visual Studio ===
+.vs/
+*.suo
+*.user
+*.sln.docstates
+
+# === CMake 生成 ===
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+
+# === Ninja ===
+.ninja_*
+*.ninja
+
+# === 编译中间产物 ===
+*.o
+*.lo
+*.la
+
+# === 临时文件 ===
+*.tmp
+*.temp
+*.log
+*.swp
+*~
+.*.swp
+.*.swo

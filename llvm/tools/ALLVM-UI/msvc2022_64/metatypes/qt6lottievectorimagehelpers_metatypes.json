@@ -1,0 +1,56 @@
+[
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "LayerItem"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "1546"
+                    }
+                ],
+                "className": "QQuickLayerItem",
+                "lineNumber": 24,
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 27,
+                        "name": "transformMatrix",
+                        "notify": "transformMatrixChanged",
+                        "read": "transformMatrix",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QMatrix4x4",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "QQuickLayerItem",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 44,
+                        "name": "transformMatrixChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QQuickItem"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qquicklayeritem_p.h",
+        "outputRevision": 69
+    }
+]

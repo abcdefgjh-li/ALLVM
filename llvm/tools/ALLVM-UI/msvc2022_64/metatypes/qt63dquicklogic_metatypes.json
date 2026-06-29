@@ -1,0 +1,28 @@
+[
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Foreign",
+                        "value": "Qt3DLogic::QFrameAction"
+                    },
+                    {
+                        "name": "QML.Element",
+                        "value": "FrameAction"
+                    },
+                    {
+                        "name": "QML.AddedInVersion",
+                        "value": "512"
+                    }
+                ],
+                "className": "QFrameActionForeign",
+                "gadget": true,
+                "lineNumber": 22,
+                "qualifiedClassName": "QFrameActionForeign"
+            }
+        ],
+        "inputFile": "qt3dquick3dlogicforeign_p.h",
+        "outputRevision": 69
+    }
+]

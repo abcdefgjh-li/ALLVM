@@ -1,0 +1,8 @@
+module QtGrpc
+linktarget Qt6::grpcquickplugin
+optional plugin grpcquickplugin
+classname GrpcQuickPlugin
+typeinfo plugins.qmltypes
+prefer :/qt-project.org/imports/QtGrpc/
+depends QtQuick
+

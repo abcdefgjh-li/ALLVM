@@ -1,0 +1,5 @@
+#ifndef QT_QTLOTTIEVECTORIMAGEHELPERS_MODULE_H
+#define QT_QTLOTTIEVECTORIMAGEHELPERS_MODULE_H
+#include <QtLottieVectorImageHelpers/QtLottieVectorImageHelpersDepends>
+#include "qtlottievectorimagehelpersversion.h"
+#endif

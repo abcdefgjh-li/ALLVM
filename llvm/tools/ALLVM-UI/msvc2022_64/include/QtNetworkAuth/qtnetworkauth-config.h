@@ -1,0 +1,5 @@
+#ifndef QT_FEATURES_NetworkAuth_qtnetworkauth_src_oauth_qtnetworkauth_config_h_H
+#define QT_FEATURES_NetworkAuth_qtnetworkauth_src_oauth_qtnetworkauth_config_h_H
+
+
+#endif // QT_FEATURES_NetworkAuth_qtnetworkauth_src_oauth_qtnetworkauth_config_h_H

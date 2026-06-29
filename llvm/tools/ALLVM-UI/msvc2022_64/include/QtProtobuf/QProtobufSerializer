@@ -1,0 +1,1 @@
+#include "qprotobufserializer.h" // IWYU pragma: export

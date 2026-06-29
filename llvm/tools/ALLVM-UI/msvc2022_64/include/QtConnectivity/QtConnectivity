@@ -1,0 +1,5 @@
+#ifndef QT_QTCONNECTIVITY_MODULE_H
+#define QT_QTCONNECTIVITY_MODULE_H
+#include <QtConnectivity/QtConnectivityDepends>
+#include "qtconnectivityversion.h"
+#endif

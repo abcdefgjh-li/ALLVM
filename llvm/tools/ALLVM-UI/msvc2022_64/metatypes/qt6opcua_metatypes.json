@@ -1,0 +1,3537 @@
+[
+    {
+        "classes": [
+            {
+                "className": "QOpcUaApplicationDescription",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 33,
+                        "name": "ApplicationType",
+                        "values": [
+                            "Server",
+                            "Client",
+                            "ClientAndServer",
+                            "DiscoveryServer"
+                        ]
+                    }
+                ],
+                "gadget": true,
+                "lineNumber": 15,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 18,
+                        "name": "applicationUri",
+                        "read": "applicationUri",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 19,
+                        "name": "productUri",
+                        "read": "productUri",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 20,
+                        "name": "applicationName",
+                        "read": "applicationName",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaLocalizedText",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 21,
+                        "name": "applicationType",
+                        "read": "applicationType",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaApplicationDescription::ApplicationType",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 22,
+                        "name": "gatewayServerUri",
+                        "read": "gatewayServerUri",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 5,
+                        "lineNumber": 23,
+                        "name": "discoveryProfileUri",
+                        "read": "discoveryProfileUri",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 6,
+                        "lineNumber": 24,
+                        "name": "discoveryUrls",
+                        "read": "discoveryUrls",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QList<QString>",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "QOpcUaApplicationDescription"
+            }
+        ],
+        "inputFile": "qopcuaapplicationdescription.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaAuthenticationInformation",
+                "gadget": true,
+                "lineNumber": 16,
+                "methods": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 27,
+                        "name": "setAnonymousAuthentication",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "username",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "password",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 28,
+                        "name": "setUsernameAuthentication",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 29,
+                        "name": "setCertificateAuthentication",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "certificatePath",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "privateKeyPath",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 30,
+                        "name": "setCertificateAuthentication",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "isConst": true,
+                        "lineNumber": 33,
+                        "name": "authenticationType",
+                        "returnType": "QOpcUaUserTokenPolicy::TokenType"
+                    }
+                ],
+                "qualifiedClassName": "QOpcUaAuthenticationInformation"
+            }
+        ],
+        "inputFile": "qopcuaauthenticationinformation.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaBackend",
+                "lineNumber": 31,
+                "object": true,
+                "qualifiedClassName": "QOpcUaBackend",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "QOpcUaClient::ClientState"
+                            },
+                            {
+                                "name": "error",
+                                "type": "QOpcUaClient::ClientError"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 50,
+                        "name": "stateAndOrErrorChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attributes",
+                                "type": "QList<QOpcUaReadResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 52,
+                        "name": "attributesRead",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attribute",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 53,
+                        "name": "attributeWritten",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "methodNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "result",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 54,
+                        "name": "methodCallFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "res",
+                                "type": "QOpcUaReadResult"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 56,
+                        "name": "dataChangeOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "fields",
+                                "type": "QVariantList"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 57,
+                        "name": "eventOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "subscribe",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "status",
+                                "type": "QOpcUaMonitoringParameters"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 58,
+                        "name": "monitoringEnableDisable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "items",
+                                "type": "QOpcUaMonitoringParameters::Parameters"
+                            },
+                            {
+                                "name": "param",
+                                "type": "QOpcUaMonitoringParameters"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 59,
+                        "name": "monitoringStatusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "children",
+                                "type": "QList<QOpcUaReferenceDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 61,
+                        "name": "browseFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "targets",
+                                "type": "QList<QOpcUaBrowsePathTarget>"
+                            },
+                            {
+                                "name": "path",
+                                "type": "QList<QOpcUaRelativePathElement>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 63,
+                        "name": "resolveBrowsePathFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "endpoints",
+                                "type": "QList<QOpcUaEndpointDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 10,
+                        "lineNumber": 65,
+                        "name": "endpointsRequestFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "servers",
+                                "type": "QList<QOpcUaApplicationDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 11,
+                        "lineNumber": 66,
+                        "name": "findServersFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaReadResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 12,
+                        "lineNumber": 67,
+                        "name": "readNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaWriteResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 13,
+                        "lineNumber": 68,
+                        "name": "writeNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "isHandleValid",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "request",
+                                "type": "QOpcUaHistoryReadRawRequest"
+                            },
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaHistoryData>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 14,
+                        "lineNumber": 69,
+                        "name": "readHistoryDataFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "requestedNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "assignedNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 15,
+                        "lineNumber": 71,
+                        "name": "addNodeFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 16,
+                        "lineNumber": 72,
+                        "name": "deleteNodeFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "sourceNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "referenceTypeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "targetNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "isForwardReference",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 17,
+                        "lineNumber": 73,
+                        "name": "addReferenceFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "sourceNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "referenceTypeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "targetNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "isForwardReference",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 18,
+                        "lineNumber": 75,
+                        "name": "deleteReferenceFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "errorState",
+                                "type": "QOpcUaErrorState*"
+                            }
+                        ],
+                        "index": 19,
+                        "lineNumber": 77,
+                        "name": "connectError",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "keyFilePath",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "password",
+                                "type": "QString*"
+                            },
+                            {
+                                "name": "previousTryWasInvalid",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 20,
+                        "lineNumber": 78,
+                        "name": "passwordForPrivateKeyRequired",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "data",
+                                "type": "QList<QOpcUaHistoryData>"
+                            },
+                            {
+                                "name": "continuationPoints",
+                                "type": "QList<QByteArray>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "handle",
+                                "type": "uintptr_t"
+                            }
+                        ],
+                        "index": 21,
+                        "lineNumber": 80,
+                        "name": "historyDataAvailable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "data",
+                                "type": "QList<QOpcUaHistoryEvent>"
+                            },
+                            {
+                                "name": "continuationPoints",
+                                "type": "QList<QByteArray>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "handle",
+                                "type": "uintptr_t"
+                            }
+                        ],
+                        "index": 22,
+                        "lineNumber": 81,
+                        "name": "historyEventsAvailable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodesToRegister",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "registeredNodeIds",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 23,
+                        "lineNumber": 83,
+                        "name": "registerNodesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodesToUnregister",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 24,
+                        "lineNumber": 84,
+                        "name": "unregisterNodesFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuabackend_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaClient",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 45,
+                        "name": "ClientState",
+                        "values": [
+                            "Disconnected",
+                            "Connecting",
+                            "Connected",
+                            "Closing"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 53,
+                        "name": "ClientError",
+                        "values": [
+                            "NoError",
+                            "InvalidUrl",
+                            "AccessDenied",
+                            "ConnectionError",
+                            "UnknownError",
+                            "UnsupportedAuthenticationInformation",
+                            "InvalidAuthenticationInformation",
+                            "InvalidEndpointDescription",
+                            "NoMatchingUserIdentityTokenFound",
+                            "UnsupportedSecurityPolicy",
+                            "InvalidPki",
+                            "CertificateUntrusted"
+                        ]
+                    }
+                ],
+                "lineNumber": 37,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "endpoint",
+                                "type": "QOpcUaEndpointDescription"
+                            }
+                        ],
+                        "index": 18,
+                        "lineNumber": 78,
+                        "name": "connectToEndpoint",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 19,
+                        "lineNumber": 79,
+                        "name": "disconnectFromEndpoint",
+                        "returnType": "void"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 40,
+                        "name": "state",
+                        "notify": "stateChanged",
+                        "read": "state",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "ClientState",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 41,
+                        "name": "error",
+                        "notify": "errorChanged",
+                        "read": "error",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "ClientError",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "QOpcUaClient",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 130,
+                        "name": "connected",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 131,
+                        "name": "disconnected",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "QOpcUaClient::ClientState"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 132,
+                        "name": "stateChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "error",
+                                "type": "QOpcUaClient::ClientError"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 133,
+                        "name": "errorChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "errorState",
+                                "type": "QOpcUaErrorState*"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 134,
+                        "name": "connectError",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "namespaces",
+                                "type": "QStringList"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 135,
+                        "name": "namespaceArrayUpdated",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "namespaces",
+                                "type": "QStringList"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 136,
+                        "name": "namespaceArrayChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "endpoints",
+                                "type": "QList<QOpcUaEndpointDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 137,
+                        "name": "endpointsRequestFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "servers",
+                                "type": "QList<QOpcUaApplicationDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 138,
+                        "name": "findServersFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaReadResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 139,
+                        "name": "readNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaWriteResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 10,
+                        "lineNumber": 140,
+                        "name": "writeNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "requestedNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "assignedNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 11,
+                        "lineNumber": 141,
+                        "name": "addNodeFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 12,
+                        "lineNumber": 142,
+                        "name": "deleteNodeFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "sourceNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "referenceTypeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "targetNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "isForwardReference",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 13,
+                        "lineNumber": 143,
+                        "name": "addReferenceFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "sourceNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "referenceTypeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "targetNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "isForwardReference",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 14,
+                        "lineNumber": 145,
+                        "name": "deleteReferenceFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "keyFilePath",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "password",
+                                "type": "QString*"
+                            },
+                            {
+                                "name": "previousTryWasInvalid",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 15,
+                        "lineNumber": 147,
+                        "name": "passwordForPrivateKeyRequired",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodesToRegister",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "registeredNodeIds",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 16,
+                        "lineNumber": 148,
+                        "name": "registerNodesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodesToUnregister",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 17,
+                        "lineNumber": 149,
+                        "name": "unregisterNodesFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuaclient.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaClientImpl",
+                "lineNumber": 35,
+                "object": true,
+                "qualifiedClassName": "QOpcUaClientImpl",
+                "signals": [
+                    {
+                        "access": "public",
+                        "index": 0,
+                        "lineNumber": 90,
+                        "name": "connected",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 1,
+                        "lineNumber": 91,
+                        "name": "disconnected",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "QOpcUaClient::ClientState"
+                            },
+                            {
+                                "name": "error",
+                                "type": "QOpcUaClient::ClientError"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 92,
+                        "name": "stateAndOrErrorChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "endpoints",
+                                "type": "QList<QOpcUaEndpointDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 94,
+                        "name": "endpointsRequestFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "servers",
+                                "type": "QList<QOpcUaApplicationDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "requestUrl",
+                                "type": "QUrl"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 95,
+                        "name": "findServersFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaReadResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 96,
+                        "name": "readNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaWriteResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 97,
+                        "name": "writeNodeAttributesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "requestedNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "assignedNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 98,
+                        "name": "addNodeFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 99,
+                        "name": "deleteNodeFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "sourceNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "referenceTypeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "targetNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "isForwardReference",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 100,
+                        "name": "addReferenceFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "sourceNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "referenceTypeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "targetNodeId",
+                                "type": "QOpcUaExpandedNodeId"
+                            },
+                            {
+                                "name": "isForwardReference",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 10,
+                        "lineNumber": 102,
+                        "name": "deleteReferenceFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "errorState",
+                                "type": "QOpcUaErrorState*"
+                            }
+                        ],
+                        "index": 11,
+                        "lineNumber": 104,
+                        "name": "connectError",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "keyFilePath",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "password",
+                                "type": "QString*"
+                            },
+                            {
+                                "name": "previousTryWasInvalid",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 12,
+                        "lineNumber": 105,
+                        "name": "passwordForPrivateKeyRequired",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodesToRegister",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "registeredNodeIds",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 13,
+                        "lineNumber": 106,
+                        "name": "registerNodesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "nodesToUnregister",
+                                "type": "QStringList"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 14,
+                        "lineNumber": 107,
+                        "name": "unregisterNodesFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "settings",
+                                "type": "QOpcUaConnectionSettings"
+                            }
+                        ],
+                        "index": 15,
+                        "lineNumber": 109,
+                        "name": "connectionSettingsChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attr",
+                                "type": "QList<QOpcUaReadResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 16,
+                        "lineNumber": 75,
+                        "name": "handleAttributesRead",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 17,
+                        "lineNumber": 76,
+                        "name": "handleAttributeWritten",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QOpcUaReadResult"
+                            }
+                        ],
+                        "index": 18,
+                        "lineNumber": 77,
+                        "name": "handleDataChangeOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "subscribe",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "status",
+                                "type": "QOpcUaMonitoringParameters"
+                            }
+                        ],
+                        "index": 19,
+                        "lineNumber": 78,
+                        "name": "handleMonitoringEnableDisable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "items",
+                                "type": "QOpcUaMonitoringParameters::Parameters"
+                            },
+                            {
+                                "name": "param",
+                                "type": "QOpcUaMonitoringParameters"
+                            }
+                        ],
+                        "index": 20,
+                        "lineNumber": 79,
+                        "name": "handleMonitoringStatusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "methodNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "result",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 21,
+                        "lineNumber": 81,
+                        "name": "handleMethodCallFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "children",
+                                "type": "QList<QOpcUaReferenceDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 22,
+                        "lineNumber": 82,
+                        "name": "handleBrowseFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "targets",
+                                "type": "QList<QOpcUaBrowsePathTarget>"
+                            },
+                            {
+                                "name": "path",
+                                "type": "QList<QOpcUaRelativePathElement>"
+                            },
+                            {
+                                "name": "status",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 23,
+                        "lineNumber": 84,
+                        "name": "handleResolveBrowsePathFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "arguments": [
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            },
+                            {
+                                "name": "eventFields",
+                                "type": "QVariantList"
+                            }
+                        ],
+                        "index": 24,
+                        "lineNumber": 87,
+                        "name": "handleNewEvent",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuaclientimpl_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaEndpointDescription",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 32,
+                        "name": "MessageSecurityMode",
+                        "values": [
+                            "Invalid",
+                            "None",
+                            "Sign",
+                            "SignAndEncrypt"
+                        ]
+                    }
+                ],
+                "gadget": true,
+                "lineNumber": 16,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 19,
+                        "name": "endpointUrl",
+                        "read": "endpointUrl",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 20,
+                        "name": "server",
+                        "read": "server",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaApplicationDescription",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 2,
+                        "lineNumber": 21,
+                        "name": "securityMode",
+                        "read": "securityMode",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QOpcUaEndpointDescription::MessageSecurityMode",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 3,
+                        "lineNumber": 22,
+                        "name": "securityPolicy",
+                        "read": "securityPolicy",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 4,
+                        "lineNumber": 23,
+                        "name": "userIdentityTokens",
+                        "read": "userIdentityTokens",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QList<QOpcUaUserTokenPolicy>",
+                        "user": false
+                    }
+                ],
+                "qualifiedClassName": "QOpcUaEndpointDescription"
+            }
+        ],
+        "inputFile": "qopcuaendpointdescription.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaGenericStructHandler",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 54,
+                        "name": "DataTypeKind",
+                        "values": [
+                            "Unknown",
+                            "Struct",
+                            "Enum",
+                            "Other"
+                        ]
+                    }
+                ],
+                "lineNumber": 25,
+                "object": true,
+                "qualifiedClassName": "QOpcUaGenericStructHandler",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "initialized",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 67,
+                        "name": "initializedChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuagenericstructhandler.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaHistoryReadResponse",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 28,
+                        "name": "State",
+                        "type": "quint32",
+                        "values": [
+                            "Unknown",
+                            "Reading",
+                            "Finished",
+                            "MoreDataAvailable",
+                            "Error"
+                        ]
+                    }
+                ],
+                "lineNumber": 21,
+                "object": true,
+                "qualifiedClassName": "QOpcUaHistoryReadResponse",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaHistoryData>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 48,
+                        "name": "readHistoryDataFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaHistoryEvent>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 49,
+                        "name": "readHistoryEventsFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "State"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 50,
+                        "name": "stateChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuahistoryreadresponse.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaHistoryReadResponseImpl",
+                "lineNumber": 28,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "data",
+                                "type": "QList<QOpcUaHistoryData>"
+                            },
+                            {
+                                "name": "continuationPoints",
+                                "type": "QList<QByteArray>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "responseHandle",
+                                "type": "quint64"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 46,
+                        "name": "handleDataAvailable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "data",
+                                "type": "QList<QOpcUaHistoryEvent>"
+                            },
+                            {
+                                "name": "continuationPoints",
+                                "type": "QList<QByteArray>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            },
+                            {
+                                "name": "responseHandle",
+                                "type": "quint64"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 48,
+                        "name": "handleEventsAvailable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "requestHandle",
+                                "type": "quint64"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 50,
+                        "name": "handleRequestError",
+                        "returnType": "void"
+                    }
+                ],
+                "object": true,
+                "qualifiedClassName": "QOpcUaHistoryReadResponseImpl",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "request",
+                                "type": "QOpcUaHistoryReadRawRequest"
+                            },
+                            {
+                                "name": "continuationPoints",
+                                "type": "QList<QByteArray>"
+                            },
+                            {
+                                "name": "releaseContinuationPoints",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 55,
+                        "name": "historyReadRawRequested",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "request",
+                                "type": "QOpcUaHistoryReadEventRequest"
+                            },
+                            {
+                                "name": "continuationPoints",
+                                "type": "QList<QByteArray>"
+                            },
+                            {
+                                "name": "releaseContinuationPoints",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "handle",
+                                "type": "quint64"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 56,
+                        "name": "historyReadEventsRequested",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaHistoryData>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 57,
+                        "name": "readHistoryDataFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaHistoryEvent>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 58,
+                        "name": "readHistoryEventsFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "QOpcUaHistoryReadResponse::State"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 59,
+                        "name": "stateChanged",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuahistoryreadresponseimpl_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaInternalDataTypeNode",
+                "lineNumber": 24,
+                "object": true,
+                "qualifiedClassName": "QOpcUaInternalDataTypeNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "success",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 43,
+                        "name": "initializeFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuainternaldatatypenode_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaLocalizedText",
+                "gadget": true,
+                "lineNumber": 15,
+                "properties": [
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 0,
+                        "lineNumber": 18,
+                        "name": "locale",
+                        "read": "locale",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setLocale"
+                    },
+                    {
+                        "constant": false,
+                        "designable": true,
+                        "final": false,
+                        "index": 1,
+                        "lineNumber": 19,
+                        "name": "text",
+                        "read": "text",
+                        "required": false,
+                        "scriptable": true,
+                        "stored": true,
+                        "type": "QString",
+                        "user": false,
+                        "write": "setText"
+                    }
+                ],
+                "qualifiedClassName": "QOpcUaLocalizedText"
+            }
+        ],
+        "inputFile": "qopcualocalizedtext.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaMonitoringParameters",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 36,
+                        "name": "Parameter",
+                        "values": [
+                            "PublishingEnabled",
+                            "PublishingInterval",
+                            "LifetimeCount",
+                            "MaxKeepAliveCount",
+                            "MaxNotificationsPerPublish",
+                            "Priority",
+                            "SamplingInterval",
+                            "Filter",
+                            "QueueSize",
+                            "DiscardOldest",
+                            "MonitoringMode",
+                            "TriggeredItemIds"
+                        ]
+                    }
+                ],
+                "gadget": true,
+                "lineNumber": 19,
+                "qualifiedClassName": "QOpcUaMonitoringParameters"
+            }
+        ],
+        "inputFile": "qopcuamonitoringparameters.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaNode",
+                "lineNumber": 29,
+                "object": true,
+                "qualifiedClassName": "QOpcUaNode",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attributes",
+                                "type": "QOpcUa::NodeAttributes"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 84,
+                        "name": "attributeRead",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attribute",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 85,
+                        "name": "attributeWritten",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 86,
+                        "name": "dataChangeOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 87,
+                        "name": "attributeUpdated",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 88,
+                        "name": "valueAttributeUpdated",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "eventFields",
+                                "type": "QVariantList"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 89,
+                        "name": "eventOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "items",
+                                "type": "QOpcUaMonitoringParameters::Parameters"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 91,
+                        "name": "monitoringStatusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 93,
+                        "name": "enableMonitoringFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 94,
+                        "name": "disableMonitoringFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "methodNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "result",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 95,
+                        "name": "methodCallFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "children",
+                                "type": "QList<QOpcUaReferenceDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 10,
+                        "lineNumber": 96,
+                        "name": "browseFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "targets",
+                                "type": "QList<QOpcUaBrowsePathTarget>"
+                            },
+                            {
+                                "name": "path",
+                                "type": "QList<QOpcUaRelativePathElement>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 11,
+                        "lineNumber": 97,
+                        "name": "resolveBrowsePathFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuanode.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaNodeImpl",
+                "lineNumber": 33,
+                "object": true,
+                "qualifiedClassName": "QOpcUaNodeImpl",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QList<QOpcUaReadResult>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 66,
+                        "name": "attributesRead",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 67,
+                        "name": "attributeWritten",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "children",
+                                "type": "QList<QOpcUaReferenceDescription>"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 2,
+                        "lineNumber": 68,
+                        "name": "browseFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "value",
+                                "type": "QOpcUaReadResult"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 70,
+                        "name": "dataChangeOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "eventFields",
+                                "type": "QVariantList"
+                            }
+                        ],
+                        "index": 4,
+                        "lineNumber": 71,
+                        "name": "eventOccurred",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "subscribe",
+                                "type": "bool"
+                            },
+                            {
+                                "name": "status",
+                                "type": "QOpcUaMonitoringParameters"
+                            }
+                        ],
+                        "index": 5,
+                        "lineNumber": 72,
+                        "name": "monitoringEnableDisable",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "attr",
+                                "type": "QOpcUa::NodeAttribute"
+                            },
+                            {
+                                "name": "items",
+                                "type": "QOpcUaMonitoringParameters::Parameters"
+                            },
+                            {
+                                "name": "param",
+                                "type": "QOpcUaMonitoringParameters"
+                            }
+                        ],
+                        "index": 6,
+                        "lineNumber": 73,
+                        "name": "monitoringStatusChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "methodNodeId",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "result",
+                                "type": "QVariant"
+                            },
+                            {
+                                "name": "statusCode",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 7,
+                        "lineNumber": 75,
+                        "name": "methodCallFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "targets",
+                                "type": "QList<QOpcUaBrowsePathTarget>"
+                            },
+                            {
+                                "name": "path",
+                                "type": "QList<QOpcUaRelativePathElement>"
+                            },
+                            {
+                                "name": "status",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 76,
+                        "name": "resolveBrowsePathFinished",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "results",
+                                "type": "QList<QOpcUaHistoryData>"
+                            },
+                            {
+                                "name": "serviceResult",
+                                "type": "QOpcUa::UaStatusCode"
+                            }
+                        ],
+                        "index": 9,
+                        "lineNumber": 78,
+                        "name": "readHistoryRawFinished",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuanodeimpl_p.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "classInfos": [
+                    {
+                        "name": "RegisterEnumClassesUnscoped",
+                        "value": "false"
+                    }
+                ],
+                "className": "QOpcUa",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 21,
+                        "name": "NodeClass",
+                        "values": [
+                            "Undefined",
+                            "Object",
+                            "Variable",
+                            "Method",
+                            "ObjectType",
+                            "VariableType",
+                            "ReferenceType",
+                            "DataType",
+                            "View"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 35,
+                        "name": "NodeAttribute",
+                        "values": [
+                            "None",
+                            "NodeId",
+                            "NodeClass",
+                            "BrowseName",
+                            "DisplayName",
+                            "Description",
+                            "WriteMask",
+                            "UserWriteMask",
+                            "IsAbstract",
+                            "Symmetric",
+                            "InverseName",
+                            "ContainsNoLoops",
+                            "EventNotifier",
+                            "Value",
+                            "DataType",
+                            "ValueRank",
+                            "ArrayDimensions",
+                            "AccessLevel",
+                            "UserAccessLevel",
+                            "MinimumSamplingInterval",
+                            "Historizing",
+                            "Executable",
+                            "UserExecutable",
+                            "DataTypeDefinition",
+                            "RolePermissions",
+                            "UserRolePermissions",
+                            "AccessRestrictions",
+                            "AccessLevelEx"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 74,
+                        "name": "WriteMaskBit",
+                        "type": "quint32",
+                        "values": [
+                            "None",
+                            "AccessLevel",
+                            "ArrayDimensions",
+                            "BrowseName",
+                            "ContainsNoLoops",
+                            "DataType",
+                            "Description",
+                            "DisplayName",
+                            "EventNotifier",
+                            "Executable",
+                            "Historizing",
+                            "InverseName",
+                            "IsAbstract",
+                            "MinimumSamplingInterval",
+                            "NodeClass",
+                            "NodeId",
+                            "Symmetric",
+                            "UserAccessLevel",
+                            "UserExecutable",
+                            "UserWriteMask",
+                            "ValueRank",
+                            "WriteMask",
+                            "ValueForVariableType",
+                            "DataTypeDefinition",
+                            "RolePermissions",
+                            "AccessRestrictions",
+                            "AccessLevelEx"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 107,
+                        "name": "AccessLevelBit",
+                        "type": "quint8",
+                        "values": [
+                            "None",
+                            "CurrentRead",
+                            "CurrentWrite",
+                            "HistoryRead",
+                            "HistoryWrite",
+                            "SemanticChange",
+                            "StatusWrite",
+                            "TimestampWrite"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 121,
+                        "name": "AccessLevelExBit",
+                        "type": "quint32",
+                        "values": [
+                            "None",
+                            "CurrentRead",
+                            "CurrentWrite",
+                            "HistoryRead",
+                            "HistoryWrite",
+                            "SemanticChange",
+                            "StatusWrite",
+                            "TimestampWrite",
+                            "NonatomicRead",
+                            "NonatomicWrite",
+                            "WriteFullArrayOnly",
+                            "NoSubDataTypes",
+                            "NonVolatile",
+                            "Constant"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 142,
+                        "name": "EventNotifierBit",
+                        "type": "quint8",
+                        "values": [
+                            "None",
+                            "SubscribeToEvents",
+                            "HistoryRead",
+                            "HistoryWrite"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 151,
+                        "name": "TimestampsToReturn",
+                        "values": [
+                            "Source",
+                            "Server",
+                            "Both",
+                            "Neither",
+                            "Invalid"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 171,
+                        "name": "ReferenceTypeId",
+                        "type": "quint32",
+                        "values": [
+                            "Unspecified",
+                            "References",
+                            "NonHierarchicalReferences",
+                            "HierarchicalReferences",
+                            "HasChild",
+                            "Organizes",
+                            "HasEventSource",
+                            "HasModellingRule",
+                            "HasEncoding",
+                            "HasDescription",
+                            "HasTypeDefinition",
+                            "GeneratesEvent",
+                            "Aggregates",
+                            "HasSubtype",
+                            "HasProperty",
+                            "HasComponent",
+                            "HasNotifier",
+                            "HasOrderedComponent",
+                            "FromState",
+                            "ToState",
+                            "HasCause",
+                            "HasEffect",
+                            "HasHistoricalConfiguration",
+                            "HasSubStateMachine",
+                            "HasArgumentDescription",
+                            "HasOptionalInputArgumentDescription",
+                            "AlwaysGeneratesEvent",
+                            "HasTrueSubState",
+                            "HasFalseSubState",
+                            "HasCondition",
+                            "HasPubSubConnection",
+                            "DataSetToWriter",
+                            "HasGuard",
+                            "HasDataSetWriter",
+                            "HasDataSetReader",
+                            "HasAlarmSuppressionGroup",
+                            "AlarmGroupMember",
+                            "HasEffectDisable",
+                            "HasDictionaryEntry",
+                            "HasInterface",
+                            "HasAddIn",
+                            "HasEffectEnable",
+                            "HasEffectSuppressed",
+                            "HasEffectUnsuppressed",
+                            "HasWriterGroup",
+                            "HasReaderGroup",
+                            "AliasFor",
+                            "IsDeprecated",
+                            "HasStructuredComponent",
+                            "AssociatedWith",
+                            "UsesPriorityMappingTable",
+                            "HasLowerLayerInterface",
+                            "IsExecutableOn",
+                            "Controls",
+                            "Utilizes",
+                            "Requires",
+                            "IsPhysicallyConnectedTo",
+                            "RepresentsSameEntityAs",
+                            "RepresentsSameHardwareAs",
+                            "RepresentsSameFunctionalityAs",
+                            "IsHostedBy",
+                            "HasPhysicalComponent",
+                            "HasContainedComponent",
+                            "HasAttachedComponent",
+                            "IsExecutingOn",
+                            "HasPushedSecurityGroup",
+                            "AlarmSuppressionGroupMember",
+                            "HasReferenceDescription"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 243,
+                        "name": "Types",
+                        "values": [
+                            "Boolean",
+                            "Int32",
+                            "UInt32",
+                            "Double",
+                            "Float",
+                            "String",
+                            "LocalizedText",
+                            "DateTime",
+                            "UInt16",
+                            "Int16",
+                            "UInt64",
+                            "Int64",
+                            "Byte",
+                            "SByte",
+                            "ByteString",
+                            "XmlElement",
+                            "NodeId",
+                            "Guid",
+                            "QualifiedName",
+                            "StatusCode",
+                            "ExtensionObject",
+                            "Range",
+                            "EUInformation",
+                            "ComplexNumber",
+                            "DoubleComplexNumber",
+                            "AxisInformation",
+                            "XV",
+                            "ExpandedNodeId",
+                            "Argument",
+                            "StructureDefinition",
+                            "StructureField",
+                            "EnumDefinition",
+                            "EnumField",
+                            "DiagnosticInfo",
+                            "SimpleAttributeOperand",
+                            "AttributeOperand",
+                            "LiteralOperand",
+                            "ElementOperand",
+                            "RelativePathElement",
+                            "ContentFilterElement",
+                            "EventFilter",
+                            "Undefined"
+                        ]
+                    },
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 292,
+                        "name": "UaStatusCode",
+                        "type": "quint32",
+                        "values": [
+                            "Good",
+                            "Uncertain",
+                            "Bad",
+                            "BadUnexpectedError",
+                            "BadInternalError",
+                            "BadOutOfMemory",
+                            "BadResourceUnavailable",
+                            "BadCommunicationError",
+                            "BadEncodingError",
+                            "BadDecodingError",
+                            "BadEncodingLimitsExceeded",
+                            "BadRequestTooLarge",
+                            "BadResponseTooLarge",
+                            "BadUnknownResponse",
+                            "BadTimeout",
+                            "BadServiceUnsupported",
+                            "BadShutdown",
+                            "BadServerNotConnected",
+                            "BadServerHalted",
+                            "BadNothingToDo",
+                            "BadTooManyOperations",
+                            "BadTooManyMonitoredItems",
+                            "BadDataTypeIdUnknown",
+                            "BadCertificateInvalid",
+                            "BadSecurityChecksFailed",
+                            "BadCertificatePolicyCheckFailed",
+                            "BadCertificateTimeInvalid",
+                            "BadCertificateIssuerTimeInvalid",
+                            "BadCertificateHostNameInvalid",
+                            "BadCertificateUriInvalid",
+                            "BadCertificateUseNotAllowed",
+                            "BadCertificateIssuerUseNotAllowed",
+                            "BadCertificateUntrusted",
+                            "BadCertificateRevocationUnknown",
+                            "BadCertificateIssuerRevocationUnknown",
+                            "BadCertificateRevoked",
+                            "BadCertificateIssuerRevoked",
+                            "BadCertificateChainIncomplete",
+                            "BadUserAccessDenied",
+                            "BadIdentityTokenInvalid",
+                            "BadIdentityTokenRejected",
+                            "BadSecureChannelIdInvalid",
+                            "BadInvalidTimestamp",
+                            "BadNonceInvalid",
+                            "BadSessionIdInvalid",
+                            "BadSessionClosed",
+                            "BadSessionNotActivated",
+                            "BadSubscriptionIdInvalid",
+                            "BadRequestHeaderInvalid",
+                            "BadTimestampsToReturnInvalid",
+                            "BadRequestCancelledByClient",
+                            "BadTooManyArguments",
+                            "BadLicenseExpired",
+                            "BadLicenseLimitsExceeded",
+                            "BadLicenseNotAvailable",
+                            "GoodSubscriptionTransferred",
+                            "GoodCompletesAsynchronously",
+                            "GoodOverload",
+                            "GoodClamped",
+                            "BadNoCommunication",
+                            "BadWaitingForInitialData",
+                            "BadNodeIdInvalid",
+                            "BadNodeIdUnknown",
+                            "BadAttributeIdInvalid",
+                            "BadIndexRangeInvalid",
+                            "BadIndexRangeNoData",
+                            "BadDataEncodingInvalid",
+                            "BadDataEncodingUnsupported",
+                            "BadNotReadable",
+                            "BadNotWritable",
+                            "BadOutOfRange",
+                            "BadNotSupported",
+                            "BadNotFound",
+                            "BadObjectDeleted",
+                            "BadNotImplemented",
+                            "BadMonitoringModeInvalid",
+                            "BadMonitoredItemIdInvalid",
+                            "BadMonitoredItemFilterInvalid",
+                            "BadMonitoredItemFilterUnsupported",
+                            "BadFilterNotAllowed",
+                            "BadStructureMissing",
+                            "BadEventFilterInvalid",
+                            "BadContentFilterInvalid",
+                            "BadFilterOperatorInvalid",
+                            "BadFilterOperatorUnsupported",
+                            "BadFilterOperandCountMismatch",
+                            "BadFilterOperandInvalid",
+                            "BadFilterElementInvalid",
+                            "BadFilterLiteralInvalid",
+                            "BadContinuationPointInvalid",
+                            "BadNoContinuationPoints",
+                            "BadReferenceTypeIdInvalid",
+                            "BadBrowseDirectionInvalid",
+                            "BadNodeNotInView",
+                            "BadNumericOverflow",
+                            "BadServerUriInvalid",
+                            "BadServerNameMissing",
+                            "BadDiscoveryUrlMissing",
+                            "BadSempahoreFileMissing",
+                            "BadRequestTypeInvalid",
+                            "BadSecurityModeRejected",
+                            "BadSecurityPolicyRejected",
+                            "BadTooManySessions",
+                            "BadUserSignatureInvalid",
+                            "BadApplicationSignatureInvalid",
+                            "BadNoValidCertificates",
+                            "BadIdentityChangeNotSupported",
+                            "BadRequestCancelledByRequest",
+                            "BadParentNodeIdInvalid",
+                            "BadReferenceNotAllowed",
+                            "BadNodeIdRejected",
+                            "BadNodeIdExists",
+                            "BadNodeClassInvalid",
+                            "BadBrowseNameInvalid",
+                            "BadBrowseNameDuplicated",
+                            "BadNodeAttributesInvalid",
+                            "BadTypeDefinitionInvalid",
+                            "BadSourceNodeIdInvalid",
+                            "BadTargetNodeIdInvalid",
+                            "BadDuplicateReferenceNotAllowed",
+                            "BadInvalidSelfReference",
+                            "BadReferenceLocalOnly",
+                            "BadNoDeleteRights",
+                            "UncertainReferenceNotDeleted",
+                            "BadServerIndexInvalid",
+                            "BadViewIdUnknown",
+                            "BadViewTimestampInvalid",
+                            "BadViewParameterMismatch",
+                            "BadViewVersionInvalid",
+                            "UncertainNotAllNodesAvailable",
+                            "GoodResultsMayBeIncomplete",
+                            "BadNotTypeDefinition",
+                            "UncertainReferenceOutOfServer",
+                            "BadTooManyMatches",
+                            "BadQueryTooComplex",
+                            "BadNoMatch",
+                            "BadMaxAgeInvalid",
+                            "BadSecurityModeInsufficient",
+                            "BadHistoryOperationInvalid",
+                            "BadHistoryOperationUnsupported",
+                            "BadInvalidTimestampArgument",
+                            "BadWriteNotSupported",
+                            "BadTypeMismatch",
+                            "BadMethodInvalid",
+                            "BadArgumentsMissing",
+                            "BadNotExecutable",
+                            "BadTooManySubscriptions",
+                            "BadTooManyPublishRequests",
+                            "BadNoSubscription",
+                            "BadSequenceNumberUnknown",
+                            "GoodRetransmissionQueueNotSupported",
+                            "BadMessageNotAvailable",
+                            "BadInsufficientClientProfile",
+                            "BadStateNotActive",
+                            "BadAlreadyExists",
+                            "BadTcpServerTooBusy",
+                            "BadTcpMessageTypeInvalid",
+                            "BadTcpSecureChannelUnknown",
+                            "BadTcpMessageTooLarge",
+                            "BadTcpNotEnoughResources",
+                            "BadTcpInternalError",
+                            "BadTcpEndpointUrlInvalid",
+                            "BadRequestInterrupted",
+                            "BadRequestTimeout",
+                            "BadSecureChannelClosed",
+                            "BadSecureChannelTokenUnknown",
+                            "BadSequenceNumberInvalid",
+                            "BadProtocolVersionUnsupported",
+                            "BadConfigurationError",
+                            "BadNotConnected",
+                            "BadDeviceFailure",
+                            "BadSensorFailure",
+                            "BadOutOfService",
+                            "BadDeadbandFilterInvalid",
+                            "UncertainNoCommunicationLastUsableValue",
+                            "UncertainLastUsableValue",
+                            "UncertainSubstituteValue",
+                            "UncertainInitialValue",
+                            "UncertainSensorNotAccurate",
+                            "UncertainEngineeringUnitsExceeded",
+                            "UncertainSubNormal",
+                            "GoodLocalOverride",
+                            "BadRefreshInProgress",
+                            "BadConditionAlreadyDisabled",
+                            "BadConditionAlreadyEnabled",
+                            "BadConditionDisabled",
+                            "BadEventIdUnknown",
+                            "BadEventNotAcknowledgeable",
+                            "BadDialogNotActive",
+                            "BadDialogResponseInvalid",
+                            "BadConditionBranchAlreadyAcked",
+                            "BadConditionBranchAlreadyConfirmed",
+                            "BadConditionAlreadyShelved",
+                            "BadConditionNotShelved",
+                            "BadShelvingTimeOutOfRange",
+                            "BadNoData",
+                            "BadBoundNotFound",
+                            "BadBoundNotSupported",
+                            "BadDataLost",
+                            "BadDataUnavailable",
+                            "BadEntryExists",
+                            "BadNoEntryExists",
+                            "BadTimestampNotSupported",
+                            "GoodEntryInserted",
+                            "GoodEntryReplaced",
+                            "UncertainDataSubNormal",
+                            "GoodNoData",
+                            "GoodMoreData",
+                            "BadAggregateListMismatch",
+                            "BadAggregateNotSupported",
+                            "BadAggregateInvalidInputs",
+                            "BadAggregateConfigurationRejected",
+                            "GoodDataIgnored",
+                            "BadRequestNotAllowed",
+                            "BadRequestNotComplete",
+                            "BadTransactionPending",
+                            "BadTicketRequired",
+                            "BadTicketInvalid",
+                            "BadLocked",
+                            "GoodEdited",
+                            "GoodPostActionFailed",
+                            "UncertainDominantValueChanged",
+                            "GoodDependentValueChanged",
+                            "BadDominantValueChanged",
+                            "UncertainDependentValueChanged",
+                            "BadDependentValueChanged",
+                            "GoodEdited_DependentValueChanged",
+                            "GoodEdited_DominantValueChanged",
+                            "GoodEdited_DominantValueChanged_DependentValueChanged",
+                            "BadEdited_OutOfRange",
+                            "BadInitialValue_OutOfRange",
+                            "BadOutOfRange_DominantValueChanged",
+                            "BadEdited_OutOfRange_DominantValueChanged",
+                            "BadOutOfRange_DominantValueChanged_DependentValueChanged",
+                            "BadEdited_OutOfRange_DominantValueChanged_DependentValueChanged",
+                            "GoodCommunicationEvent",
+                            "GoodShutdownEvent",
+                            "GoodCallAgain",
+                            "GoodNonCriticalTimeout",
+                            "BadInvalidArgument",
+                            "BadConnectionRejected",
+                            "BadDisconnect",
+                            "BadConnectionClosed",
+                            "BadInvalidState",
+                            "BadEndOfStream",
+                            "BadNoDataAvailable",
+                            "BadWaitingForResponse",
+                            "BadOperationAbandoned",
+                            "BadExpectedStreamToBlock",
+                            "BadWouldBlock",
+                            "BadSyntaxError",
+                            "BadMaxConnectionsReached",
+                            "UncertainTransducerInManual",
+                            "UncertainSimulatedValue",
+                            "UncertainSensorCalibration",
+                            "UncertainConfigurationError",
+                            "GoodCascadeInitializationAcknowledged",
+                            "GoodCascadeInitializationRequest",
+                            "GoodCascadeNotInvited",
+                            "GoodCascadeNotSelected",
+                            "GoodFaultStateActive",
+                            "GoodInitiateFaultState",
+                            "GoodCascade",
+                            "BadDataSetIdInvalid"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 561,
+                        "name": "ErrorCategory",
+                        "values": [
+                            "NoError",
+                            "NodeError",
+                            "AttributeError",
+                            "PermissionError",
+                            "ArgumentError",
+                            "TypeError",
+                            "ConnectionError",
+                            "UnspecifiedError"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 599,
+                        "name": "IsAbstract",
+                        "values": [
+                            "NotAbstract",
+                            "Abstract"
+                        ]
+                    }
+                ],
+                "lineNumber": 16,
+                "namespace": true,
+                "qualifiedClassName": "QOpcUa"
+            }
+        ],
+        "inputFile": "qopcuatype.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaUserTokenPolicy",
+                "enums": [
+                    {
+                        "isClass": false,
+                        "isFlag": false,
+                        "lineNumber": 25,
+                        "name": "TokenType",
+                        "values": [
+                            "Anonymous",
+                            "Username",
+                            "Certificate",
+                            "IssuedToken"
+                        ]
+                    }
+                ],
+                "gadget": true,
+                "lineNumber": 15,
+                "qualifiedClassName": "QOpcUaUserTokenPolicy"
+            }
+        ],
+        "inputFile": "qopcuausertokenpolicy.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaKeyPair",
+                "lineNumber": 16,
+                "object": true,
+                "qualifiedClassName": "QOpcUaKeyPair",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "passphrase",
+                                "type": "QString&"
+                            },
+                            {
+                                "name": "maximumLength",
+                                "type": "int"
+                            },
+                            {
+                                "name": "writeOperation",
+                                "type": "bool"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 50,
+                        "name": "passphraseNeeded",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuakeypair.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaPlugin",
+                "lineNumber": 17,
+                "object": true,
+                "qualifiedClassName": "QOpcUaPlugin",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuaplugin.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaProvider",
+                "lineNumber": 19,
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "backend",
+                                "type": "QString"
+                            },
+                            {
+                                "name": "backendProperties",
+                                "type": "QVariantMap"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 29,
+                        "name": "createClient",
+                        "returnType": "QOpcUaClient*"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "backend",
+                                "type": "QString"
+                            }
+                        ],
+                        "index": 1,
+                        "isCloned": true,
+                        "lineNumber": 29,
+                        "name": "createClient",
+                        "returnType": "QOpcUaClient*"
+                    }
+                ],
+                "object": true,
+                "qualifiedClassName": "QOpcUaProvider",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuaprovider.h",
+        "outputRevision": 69
+    },
+    {
+        "classes": [
+            {
+                "className": "QOpcUaGdsClient",
+                "enums": [
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 26,
+                        "name": "Error",
+                        "values": [
+                            "NoError",
+                            "InvalidBackend",
+                            "InvalidEndpoint",
+                            "ConnectionError",
+                            "DirectoryNodeNotFound",
+                            "FailedToRegisterApplication",
+                            "FailedToUnregisterApplication",
+                            "FailedToGetCertificateStatus",
+                            "FailedToGetCertificate"
+                        ]
+                    },
+                    {
+                        "isClass": true,
+                        "isFlag": false,
+                        "lineNumber": 39,
+                        "name": "State",
+                        "values": [
+                            "Idle",
+                            "BackendInstantiated",
+                            "Connecting",
+                            "Connected",
+                            "RegisteringApplication",
+                            "ApplicationRegistered",
+                            "Error"
+                        ]
+                    }
+                ],
+                "lineNumber": 20,
+                "object": true,
+                "qualifiedClassName": "QOpcUaGdsClient",
+                "signals": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "State"
+                            }
+                        ],
+                        "index": 0,
+                        "lineNumber": 88,
+                        "name": "stateChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "error",
+                                "type": "Error"
+                            }
+                        ],
+                        "index": 1,
+                        "lineNumber": 89,
+                        "name": "errorChanged",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 2,
+                        "lineNumber": 90,
+                        "name": "applicationRegistered",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "certificateGroups",
+                                "type": "QStringList"
+                            }
+                        ],
+                        "index": 3,
+                        "lineNumber": 91,
+                        "name": "certificateGroupsReceived",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 4,
+                        "lineNumber": 92,
+                        "name": "certificateUpdateRequired",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 5,
+                        "lineNumber": 93,
+                        "name": "certificateUpdated",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 6,
+                        "lineNumber": 94,
+                        "name": "unregistered",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "index": 7,
+                        "lineNumber": 95,
+                        "name": "trustListUpdated",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                                "name": "authInfo",
+                                "type": "QOpcUaAuthenticationInformation&"
+                            }
+                        ],
+                        "index": 8,
+                        "lineNumber": 96,
+                        "name": "authenticationRequired",
+                        "returnType": "void"
+                    }
+                ],
+                "slots": [
+                    {
+                        "access": "private",
+                        "index": 9,
+                        "lineNumber": 99,
+                        "name": "_q_certificateCheckTimeout",
+                        "returnType": "void"
+                    },
+                    {
+                        "access": "private",
+                        "index": 10,
+                        "lineNumber": 100,
+                        "name": "_q_updateTrustList",
+                        "returnType": "void"
+                    }
+                ],
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "QObject"
+                    }
+                ]
+            }
+        ],
+        "inputFile": "qopcuagdsclient.h",
+        "outputRevision": 69
+    },
+    {
+        "inputFile": "qopcuanodeids.h",
+        "outputRevision": 69
+    }
+]

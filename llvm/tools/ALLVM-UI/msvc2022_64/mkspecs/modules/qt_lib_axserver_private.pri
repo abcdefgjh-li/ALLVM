@@ -1,0 +1,11 @@
+QT.axserver_private.VERSION = 6.10.2
+QT.axserver_private.name = QtAxServer
+QT.axserver_private.module =
+QT.axserver_private.libs = $$QT_MODULE_LIB_BASE
+QT.axserver_private.includes = $$QT_MODULE_INCLUDE_BASE/QtAxServer/6.10.2 $$QT_MODULE_INCLUDE_BASE/QtAxServer/6.10.2/QtAxServer
+QT.axserver_private.frameworks = 
+QT.axserver_private.depends = axserver
+QT.axserver_private.uses = 
+QT.axserver_private.module_config = v2 staticlib internal_module
+QT.axserver_private.enabled_features = 
+QT.axserver_private.disabled_features = 

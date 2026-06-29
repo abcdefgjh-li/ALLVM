@@ -1,0 +1,5 @@
+#ifndef QT_QTVIRTUALKEYBOARDQML_MODULE_H
+#define QT_QTVIRTUALKEYBOARDQML_MODULE_H
+#include <QtVirtualKeyboardQml/QtVirtualKeyboardQmlDepends>
+#include "qtvirtualkeyboardqmlversion.h"
+#endif

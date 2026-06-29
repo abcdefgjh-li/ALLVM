@@ -1,0 +1,1 @@
+#include "qregexp.h" // IWYU pragma: export
