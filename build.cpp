@@ -334,8 +334,8 @@ static std::string detect_device_abi(const std::string& adb_path, const std::str
 
 static std::string find_test_binary(const std::string& project_dir, const std::string& abi) {
     const std::string candidates[] = {
-        project_dir + "\\obj\\local\\" + abi + "\\allvm_test",
-        project_dir + "\\libs\\" + abi + "\\allvm_test"
+        project_dir + "\\libs\\" + abi + "\\allvm_test",
+        project_dir + "\\obj\\local\\" + abi + "\\allvm_test"
     };
     for (const auto& candidate : candidates) {
         if (file_exists(candidate)) return candidate;
@@ -352,8 +352,8 @@ static std::string find_named_binary(const std::string& project_dir, const std::
     }
 
     const std::string candidates[] = {
-        project_dir + "\\obj\\local\\" + abi + "\\" + binary_name_or_path,
-        project_dir + "\\libs\\" + abi + "\\" + binary_name_or_path
+        project_dir + "\\libs\\" + abi + "\\" + binary_name_or_path,
+        project_dir + "\\obj\\local\\" + abi + "\\" + binary_name_or_path
     };
     for (const auto& candidate : candidates) {
         if (file_exists(candidate)) return get_full_path_copy(candidate);

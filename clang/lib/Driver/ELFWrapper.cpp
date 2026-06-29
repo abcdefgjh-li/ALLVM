@@ -183,7 +183,7 @@ static bool generatePayloadH(const std::string &output_path,
 // 生成 loader.cpp 壳源码
 // ============================================================================
 
-static bool generateLoaderCpp(const std::string &output_path, bool DebugMode) {
+static bool generateLoaderCpp(const std::string &output_path) {
   std::error_code EC;
   raw_fd_ostream OS(output_path, EC, sys::fs::OF_None);
   if (EC) {
@@ -216,26 +216,6 @@ static bool generateLoaderCpp(const std::string &output_path, bool DebugMode) {
 #include "payload.h"
 
 #define LOG_TAG "ELFLoader"
-
-static void aprotect_report_and_kill(pid_t child, const char* debug_msg) {
-    write(2, "A-Protect\n", 10);
-    write(2, "Protection v1.1.0\n", 18);
-)";
-  if (DebugMode) {
-    OS << R"(
-    if (debug_msg) {
-        write(2, debug_msg, strlen(debug_msg));
-    }
-)";
-  } else {
-    OS << R"(
-    (void)debug_msg;
-)";
-  }
-  OS << R"(
-    if (child > 0) kill(child, SIGKILL);
-    _exit(9);
-}
 
 static inline uint32_t rotl32(uint32_t v, int n) {
     return (v << n) | (v >> (32 - n));
@@ -326,9 +306,9 @@ static void* anti_debug_thread(void* arg) {
         // 异常情况：TracerPid == 0（trace 关系被断开，被反调试绕过）
         pid_t tracer = get_tracerpid_of(child);
         if (tracer == 0) {
-            aprotect_report_and_kill(
-                child,
-                "[AProtect] LinkerAntiDebug detected, exiting.\n");
+            // TracerPid 为 0：trace 关系被断开，杀掉子进程
+            kill(child, SIGKILL);
+            _exit(9);
         }
         usleep(200000);
     }
@@ -493,8 +473,12 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
 #endif
   if (sys::fs::exists(llvmStripPath)) {
     // 创建临时文件用于存储剥离符号后的 ELF
-    SmallString<256> strippedPath;
-    sys::path::append(strippedPath, clangDir, ".linker_stripped");
+    SmallString<256> strippedPath(clangDir);
+    std::string strippedName = (Twine(".linker_stripped_") +
+                                Twine(sys::Process::getProcessId()) + "_" +
+                                Twine(sys::path::filename(OutputPath)))
+                                   .str();
+    sys::path::append(strippedPath, strippedName);
     
     SmallVector<StringRef, 8> stripArgs;
     stripArgs.push_back(llvmStripPath);
@@ -527,9 +511,12 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   uint8_t key[32], nonce[12];
   generate_random_key(key, nonce);
 
-  // 从 clang 同目录的 .linker_env_key 文件读取密钥（由 EnvCheck Pass 生成）
+  // 从 clang 同目录的 .linker_env_key[.<tag>] 文件读取密钥（由 EnvCheck Pass 生成）
   SmallString<256> linkerKeyPath;
-  sys::path::append(linkerKeyPath, clangDir, ".linker_env_key");
+  std::string linkerKeyFileName = ".linker_env_key";
+  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+    linkerKeyFileName += "." + *keyTag;
+  sys::path::append(linkerKeyPath, clangDir, linkerKeyFileName);
   std::string linkerKeyPathStr = std::string(linkerKeyPath.str());
   std::string env_key(32, '\0');
   {
@@ -571,7 +558,7 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
     return false;
   }
 
-  if (!generateLoaderCpp(loader_cpp_path, DebugMode)) {
+  if (!generateLoaderCpp(loader_cpp_path)) {
     sys::fs::remove_directories(tmp_dir);
     return false;
   }
@@ -596,23 +583,22 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
       + " -target " + TargetTriple;
   if (!normalized_sysroot.empty())
     compile_cmd += " --sysroot=\"" + normalized_sysroot + "\"";
-  compile_cmd +=
-      std::string(" -O2 -std=c++17 -fno-exceptions -frtti")
-      // 最高强度混淆
-      + " -mllvm -irobf"
-      + " -mllvm -irobf-indbr -mllvm -level-indbr=3"
-      + " -mllvm -irobf-icall -mllvm -level-icall=3"
-      + " -mllvm -irobf-fla"
-      + " -mllvm -irobf-indgv -mllvm -level-indgv=3"
-      + " -mllvm -irobf-cse"
-      + " -mllvm -irobf-cie -mllvm -level-cie=3"
-      + " -mllvm -irobf-cfe -mllvm -level-cfe=3"
-      + " -mllvm -irobf-rtti"
-      + " -mllvm -irobf-syscall"
-      + " -lm -ldl -llog"
-      + " -o \"" + wrapped_elf_path + "\""
-      + " \"" + loader_cpp_path + "\""
-      + " -I\"" + std::string(tmp_dir.str()) + "\"";
+  compile_cmd += std::string(" -O2 -std=c++17 -fno-exceptions -frtti -fPIE -pie");
+  // 混淆编译参数已注释关闭（保持仅基础编译参数）
+  // compile_cmd += " -mllvm -irobf";
+  // compile_cmd += " -mllvm -irobf-indbr -mllvm -level-indbr=3";
+  // compile_cmd += " -mllvm -irobf-icall -mllvm -level-icall=3";
+  // compile_cmd += " -mllvm -irobf-fla";
+  // compile_cmd += " -mllvm -irobf-indgv -mllvm -level-indgv=3";
+  // compile_cmd += " -mllvm -irobf-cse";
+  // compile_cmd += " -mllvm -irobf-cie -mllvm -level-cie=3";
+  // compile_cmd += " -mllvm -irobf-cfe -mllvm -level-cfe=3";
+  // compile_cmd += " -mllvm -irobf-rtti";
+  // compile_cmd += " -mllvm -irobf-syscall";
+  compile_cmd += " -lm -ldl -llog";
+  compile_cmd += " -o \"" + wrapped_elf_path + "\"";
+  compile_cmd += " \"" + loader_cpp_path + "\"";
+  compile_cmd += " -I\"" + std::string(tmp_dir.str()) + "\"";
 
   if (DebugMode) outs() << "[irobf-linker] Compiling wrapper with max obfuscation...\n";
 
@@ -629,22 +615,24 @@ bool clang::driver::performELFWrapping(const std::string &InputELF,
   argv.push_back("-std=c++17");
   argv.push_back("-fno-exceptions");
   argv.push_back("-frtti");
-  // 最高强度混淆
-  argv.push_back("-mllvm"); argv.push_back("-irobf");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-indbr");
-  argv.push_back("-mllvm"); argv.push_back("-level-indbr=3");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-icall");
-  argv.push_back("-mllvm"); argv.push_back("-level-icall=3");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-fla");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-indgv");
-  argv.push_back("-mllvm"); argv.push_back("-level-indgv=3");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-cse");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-cie");
-  argv.push_back("-mllvm"); argv.push_back("-level-cie=3");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-cfe");
-  argv.push_back("-mllvm"); argv.push_back("-level-cfe=3");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-rtti");
-  argv.push_back("-mllvm"); argv.push_back("-irobf-syscall");
+  argv.push_back("-fPIE");
+  argv.push_back("-pie");
+  // 混淆编译参数已注释关闭（保持仅基础编译参数）
+  // argv.push_back("-mllvm"); argv.push_back("-irobf");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-indbr");
+  // argv.push_back("-mllvm"); argv.push_back("-level-indbr=3");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-icall");
+  // argv.push_back("-mllvm"); argv.push_back("-level-icall=3");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-fla");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-indgv");
+  // argv.push_back("-mllvm"); argv.push_back("-level-indgv=3");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-cse");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-cie");
+  // argv.push_back("-mllvm"); argv.push_back("-level-cie=3");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-cfe");
+  // argv.push_back("-mllvm"); argv.push_back("-level-cfe=3");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-rtti");
+  // argv.push_back("-mllvm"); argv.push_back("-irobf-syscall");
   argv.push_back("-lm");
   argv.push_back("-ldl");
   argv.push_back("-llog");
@@ -814,9 +802,12 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
     }
   }
 
-  // 从 clang 同目录的 .gz_env_key 文件读取密钥（由 GzEnvCheck Pass 生成）
+  // 从 clang 同目录的 .gz_env_key[.<tag>] 文件读取密钥（由 GzEnvCheck Pass 生成）
   SmallString<256> gzKeyPath;
-  sys::path::append(gzKeyPath, clangDir, ".gz_env_key");
+  std::string gzKeyFileName = ".gz_env_key";
+  if (auto keyTag = sys::Process::GetEnv("IROBF_KEY_TAG"))
+    gzKeyFileName += "." + *keyTag;
+  sys::path::append(gzKeyPath, clangDir, gzKeyFileName);
   std::string gzKeyPathStr = std::string(gzKeyPath.str());
   std::string gz_env_key(32, '\0');
   {
@@ -837,20 +828,13 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
     }
   }
 
-  // 生成随机 EOF 标志
-  std::string eof_marker;
-  {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dist(0, 61);
-    const char chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (int i = 0; i < 16; i++)
-      eof_marker += chars[dist(gen)];
-  }
-
   // 3. base64 编码（跳过 gzip 压缩，直接编码原始 ELF）
   std::string b64_data = base64_encode(elf_data.data(), file_size);
   if (DebugMode) outs() << "[irobf-gz] Base64 encoded: " << b64_data.size() << " bytes\n";
+
+  size_t hidden_pos = b64_data.size() / 2;
+  std::string b64_prefix = b64_data.substr(0, hidden_pos);
+  std::string b64_suffix = b64_data.substr(hidden_pos);
 
   // 4. 生成 shell 脚本
   std::error_code EC;
@@ -862,28 +846,20 @@ bool clang::driver::performGzWrapping(const std::string &InputELF,
 
   // Shell 脚本头部
   OS << "#!/system/bin/sh\n";
-  OS << "# By.abcdefgjh 给小辈一个面子，别破解了，相信大牛你的实力了\n\n";
+  OS << "# By.abcdefgjh 给小辈一个面子，别破解了，相信大牛你的实力了\n";
+  constexpr size_t kShellChunkSize = 512;
+  auto emitShellAppend = [&](const std::string &Data) {
+    for (size_t I = 0; I < Data.size(); I += kShellChunkSize) {
+      OS << "echo -n '" << Data.substr(I, kShellChunkSize) << "'>>\"$F\";";
+    }
+  };
 
-  // 解码并执行
-  OS << "TMPFILE=\"/data/local/tmp/.gz_$$\"\n";
-  OS << "base64 -d << '" << eof_marker << "' > \"$TMPFILE\" 2>/dev/null\n";
-
-  // 写入 base64 数据（每行 76 字符）
-  const size_t line_width = 76;
-  for (size_t i = 0; i < b64_data.size(); i += line_width) {
-    size_t end = std::min(i + line_width, b64_data.size());
-    OS << StringRef(b64_data.data() + i, end - i) << "\n";
-  }
-
-  OS << eof_marker << "\n\n";
-
-  // 设置环境变量（数据之后、启动之前）
-  OS << "export lc_gz=\"" << gz_env_key << "\"\n\n";
-
-  // 执行
-  OS << "chmod 777 \"$TMPFILE\"\n";
-  OS << "exec \"$TMPFILE\" \"$@\"\n";
-  OS << "rm -f \"$TMPFILE\"\n";
+  OS << "T=/data/local/tmp/.gz_$$;F=\"$T.b64\";trap 'rm -f \"$T\" \"$F\"' EXIT;:>\"$F\";";
+  emitShellAppend(b64_prefix);
+  OS << "K='" << gz_env_key << "';export lc_gz=\"$K\";unset K;";
+  emitShellAppend(b64_suffix);
+  OS << "base64 -d<\"$F\">\"$T\" 2>/dev/null;chmod 700 \"$T\";"
+        "\"$T\" \"$@\";R=$?;rm -f \"$T\" \"$F\";exit $R\n";
 
   OS.flush();
 

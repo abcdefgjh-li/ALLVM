@@ -113,9 +113,9 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     } else if (Triple.find("arm") != std::string::npos) {
         AsmInst = "bkpt #0";
     } else if (Triple.find("x86_64") != std::string::npos || Triple.find("amd64") != std::string::npos) {
-        AsmInst = "int $3";
+        AsmInst = "int3";
     } else if (Triple.find("i386") != std::string::npos || Triple.find("i686") != std::string::npos || Triple.find("x86") != std::string::npos) {
-        AsmInst = "int $3";
+        AsmInst = "int3";
     } else {
         // 默认使用空汇编，让 kill 函数处理终止
         Builder.CreateUnreachable();

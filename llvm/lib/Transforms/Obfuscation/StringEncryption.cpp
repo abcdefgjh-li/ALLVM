@@ -1090,6 +1090,9 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 			}
 		}
 		fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+		if (!shouldSkipBlockEndWipe(WipeBB, InsertBefore)) {
+			scheduleWipeAtBlockEnd(WipeBB, User->DecGV);
+		}
 		LiveBuffers.insert(User->DecGV);
 	};
 
