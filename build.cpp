@@ -731,9 +731,24 @@ static bool cmake_configure() {
     std::string zstd_include_dir = g_zstd_dir + "\\src\\lib";
     std::string zstd_lib = g_zstd_dir + "\\build\\lib\\zstd_static.lib";
     std::string zlib_include_dir = g_zlib_dir;
-    std::string zlib_lib = g_zlib_dir + "\\build\\libzs.a";
+    std::string zlib_lib;
+    const char* zlib_candidates[] = {
+        "\\\\build-msvc\\\\libzs.lib",
+        "\\\\build-msvc\\\\zlibstatic.lib",
+        "\\\\build-msvc\\\\zlib.lib",
+        "\\\\build\\\\zlibstatic.lib",
+        "\\\\build\\\\zlib.lib",
+        "\\\\build\\\\libzs.a"
+    };
+    for (auto cand : zlib_candidates) {
+        std::string p = g_zlib_dir + cand;
+        if (file_exists(p)) { zlib_lib = p; break; }
+    }
     std::replace(zlib_include_dir.begin(), zlib_include_dir.end(), '\\', '/');
-    std::replace(zlib_lib.begin(), zlib_lib.end(), '\\', '/');
+    std::replace(zstd_include_dir.begin(), zstd_include_dir.end(), '\\', '/');
+    std::replace(zstd_lib.begin(), zstd_lib.end(), '\\', '/');
+    if (!zlib_lib.empty()) std::replace(zlib_lib.begin(), zlib_lib.end(), '\\', '/');
+
     std::string cmake_cmd = "cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=/utf-8 "
                             "-DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_EH=ON "
                             "-DLLVM_ENABLE_PROJECTS=\"llvm;clang;lld\" "
@@ -742,12 +757,19 @@ static bool cmake_configure() {
                             "-DLLVM_USE_STATIC_ZSTD=ON "
                             "-Dzstd_INCLUDE_DIR=\"" + zstd_include_dir + "\" "
                             "-Dzstd_LIBRARY=\"" + zstd_lib + "\" "
-                            "-Dzstd_STATIC_LIBRARY=\"" + zstd_lib + "\" "
-                            "-DLLVM_ENABLE_ZLIB=FORCE_ON "
-                            "-DLLVM_USE_STATIC_ZLIB=ON "
-                            "-DZLIB_INCLUDE_DIR=\"" + zlib_include_dir + "\" "
-                            "-DZLIB_LIBRARY=\"" + zlib_lib + "\" "
-                            "../llvm";
+                            "-Dzstd_STATIC_LIBRARY=\"" + zstd_lib + "\" ";
+
+    if (!zlib_lib.empty() && zlib_lib.rfind(".a") == std::string::npos) {
+        cmake_cmd += "-DLLVM_ENABLE_ZLIB=FORCE_ON "
+                     "-DLLVM_USE_STATIC_ZLIB=ON "
+                     "-DZLIB_INCLUDE_DIR=\"" + zlib_include_dir + "\" "
+                     "-DZLIB_LIBRARY=\"" + zlib_lib + "\" ";
+    } else {
+        cmake_cmd += "-DLLVM_ENABLE_ZLIB=OFF "
+                     "-DZLIB_INCLUDE_DIR=NOTFOUND "
+                     "-DZLIB_LIBRARY=NOTFOUND ";
+    }
+    cmake_cmd += "../llvm";
 
     int ret = run_cmd_vcvars(vcvars, cmake_cmd, g_build_dir);
     if (ret != 0) {
@@ -947,7 +969,7 @@ int main(int argc, char* argv[]) {
     bool step_build       = true;
     bool step_test        = true;
 
-    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis allvm-ui";
+    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis";
 
     for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);

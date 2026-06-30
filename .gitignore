@@ -4,6 +4,10 @@ android-ndk-*/
 # === 编译成品 ===
 build-windows/
 build_new.exe
+build_zlib_msvc.bat
+build_ninja.bat
+zlib/build-msvc/
+zlib/build/
 *.obj
 *.ilk
 *.pdb
