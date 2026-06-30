@@ -1,5 +1,0 @@
-#ifndef QT_QTQUICK3DPHYSICSHELPERS_MODULE_H
-#define QT_QTQUICK3DPHYSICSHELPERS_MODULE_H
-#include <QtQuick3DPhysicsHelpers/QtQuick3DPhysicsHelpersDepends>
-#include "qtquick3dphysicshelpersversion.h"
-#endif

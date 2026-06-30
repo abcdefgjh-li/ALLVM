@@ -1,5 +1,0 @@
-#ifndef QT_FEATURES_WebView_qtwebview_src_webview_qtwebview_config_p_h_H
-#define QT_FEATURES_WebView_qtwebview_src_webview_qtwebview_config_p_h_H
-
-
-#endif // QT_FEATURES_WebView_qtwebview_src_webview_qtwebview_config_p_h_H

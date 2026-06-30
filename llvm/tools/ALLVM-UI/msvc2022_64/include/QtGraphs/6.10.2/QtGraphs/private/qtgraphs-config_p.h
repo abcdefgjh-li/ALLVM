@@ -1,5 +1,0 @@
-#ifndef QT_FEATURES_Graphs_qtgraphs_src_qtgraphs_config_p_h_H
-#define QT_FEATURES_Graphs_qtgraphs_src_qtgraphs_config_p_h_H
-
-
-#endif // QT_FEATURES_Graphs_qtgraphs_src_qtgraphs_config_p_h_H

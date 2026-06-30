@@ -1,5 +1,0 @@
-#ifndef QT_QTQMLXMLLISTMODEL_MODULE_H
-#define QT_QTQMLXMLLISTMODEL_MODULE_H
-#include <QtQmlXmlListModel/QtQmlXmlListModelDepends>
-#include "qtqmlxmllistmodelversion.h"
-#endif

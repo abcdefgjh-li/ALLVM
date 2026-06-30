@@ -1,5 +1,0 @@
-#ifndef QT_QTDECLARATIVEOPCUA_MODULE_H
-#define QT_QTDECLARATIVEOPCUA_MODULE_H
-#include <QtDeclarativeOpcua/QtDeclarativeOpcuaDepends>
-#include "qtdeclarativeopcuaversion.h"
-#endif

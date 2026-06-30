@@ -1,6 +1,0 @@
-#ifndef QT_QTQUICK3DXR_MODULE_H
-#define QT_QTQUICK3DXR_MODULE_H
-#include <QtQuick3DXr/QtQuick3DXrDepends>
-#include "qtquick3dxrglobal.h"
-#include "qtquick3dxrversion.h"
-#endif

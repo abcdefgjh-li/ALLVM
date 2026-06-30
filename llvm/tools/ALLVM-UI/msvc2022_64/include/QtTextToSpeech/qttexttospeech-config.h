@@ -1,7 +1,0 @@
-#ifndef QT_FEATURES_TextToSpeech_qtspeech_src_tts_qttexttospeech_config_h_H
-#define QT_FEATURES_TextToSpeech_qtspeech_src_tts_qttexttospeech_config_h_H
-
-#define QT_FEATURE_speechd -1
-
-
-#endif // QT_FEATURES_TextToSpeech_qtspeech_src_tts_qttexttospeech_config_h_H

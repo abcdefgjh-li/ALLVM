@@ -1,5 +1,0 @@
-#ifndef QT_QTREMOTEOBJECTSQML_MODULE_H
-#define QT_QTREMOTEOBJECTSQML_MODULE_H
-#include <QtRemoteObjectsQml/QtRemoteObjectsQmlDepends>
-#include "qtremoteobjectsqmlversion.h"
-#endif

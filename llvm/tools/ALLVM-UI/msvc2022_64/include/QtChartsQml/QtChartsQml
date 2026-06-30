@@ -1,5 +1,0 @@
-#ifndef QT_QTCHARTSQML_MODULE_H
-#define QT_QTCHARTSQML_MODULE_H
-#include <QtChartsQml/QtChartsQmlDepends>
-#include "qtchartsqmlversion.h"
-#endif

@@ -1,7 +1,0 @@
-#ifndef QT_FEATURES_Tools_qttools_src_global_qttools_config_h_H
-#define QT_FEATURES_Tools_qttools_src_global_qttools_config_h_H
-
-#define QT_FEATURE_fullqthelp 1
-
-
-#endif // QT_FEATURES_Tools_qttools_src_global_qttools_config_h_H

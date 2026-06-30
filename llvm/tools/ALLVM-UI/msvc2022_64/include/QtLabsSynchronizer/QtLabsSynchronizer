@@ -1,5 +1,0 @@
-#ifndef QT_QTLABSSYNCHRONIZER_MODULE_H
-#define QT_QTLABSSYNCHRONIZER_MODULE_H
-#include <QtLabsSynchronizer/QtLabsSynchronizerDepends>
-#include "qtlabssynchronizerversion.h"
-#endif

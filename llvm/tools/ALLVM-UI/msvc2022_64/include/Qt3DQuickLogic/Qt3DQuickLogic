@@ -1,5 +1,0 @@
-#ifndef QT_QT3DQUICKLOGIC_MODULE_H
-#define QT_QT3DQUICKLOGIC_MODULE_H
-#include <Qt3DQuickLogic/Qt3DQuickLogicDepends>
-#include "qt3dquicklogicversion.h"
-#endif

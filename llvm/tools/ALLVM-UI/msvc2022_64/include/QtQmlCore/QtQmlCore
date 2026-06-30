@@ -1,5 +1,0 @@
-#ifndef QT_QTQMLCORE_MODULE_H
-#define QT_QTQMLCORE_MODULE_H
-#include <QtQmlCore/QtQmlCoreDepends>
-#include "qtqmlcoreversion.h"
-#endif

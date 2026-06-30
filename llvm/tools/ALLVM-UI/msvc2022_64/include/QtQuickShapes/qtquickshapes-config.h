@@ -1,5 +1,0 @@
-#ifndef QT_FEATURES_QuickShapesPrivate_qtdeclarative_src_quickshapes_qtquickshapes_config_h_H
-#define QT_FEATURES_QuickShapesPrivate_qtdeclarative_src_quickshapes_qtquickshapes_config_h_H
-
-
-#endif // QT_FEATURES_QuickShapesPrivate_qtdeclarative_src_quickshapes_qtquickshapes_config_h_H

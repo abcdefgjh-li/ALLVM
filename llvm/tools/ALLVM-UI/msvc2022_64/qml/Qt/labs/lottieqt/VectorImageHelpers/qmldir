@@ -1,8 +1,0 @@
-module Qt.labs.lottieqt.VectorImageHelpers
-linktarget Qt6::LottieVectorImageHelpersplugin
-optional plugin lottievectorimagehelpersplugin
-classname QLottieVectorImageHelpersPlugin
-typeinfo plugins.qmltypes
-prefer :/qt-project.org/imports/Qt/labs/lottieqt/VectorImageHelpers/
-depends QtQuick
-

@@ -1,5 +1,0 @@
-#ifndef QT_FEATURES_SerialPort_qtserialport_src_serialport_qtserialport_config_h_H
-#define QT_FEATURES_SerialPort_qtserialport_src_serialport_qtserialport_config_h_H
-
-
-#endif // QT_FEATURES_SerialPort_qtserialport_src_serialport_qtserialport_config_h_H

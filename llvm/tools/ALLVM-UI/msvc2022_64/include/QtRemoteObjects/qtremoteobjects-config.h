@@ -1,8 +1,0 @@
-#ifndef QT_FEATURES_RemoteObjects_qtremoteobjects_src_remoteobjects_qtremoteobjects_config_h_H
-#define QT_FEATURES_RemoteObjects_qtremoteobjects_src_remoteobjects_qtremoteobjects_config_h_H
-
-#define QT_FEATURE_use_ham -1
-
-#define QT_NO_USE_HAM 1
-
-#endif // QT_FEATURES_RemoteObjects_qtremoteobjects_src_remoteobjects_qtremoteobjects_config_h_H

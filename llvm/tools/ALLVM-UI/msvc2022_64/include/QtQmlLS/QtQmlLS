@@ -1,5 +1,0 @@
-#ifndef QT_QTQMLLS_MODULE_H
-#define QT_QTQMLLS_MODULE_H
-#include <QtQmlLS/QtQmlLSDepends>
-#include "qtqmllsversion.h"
-#endif

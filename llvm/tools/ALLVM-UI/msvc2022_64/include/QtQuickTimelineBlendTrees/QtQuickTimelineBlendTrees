@@ -1,6 +1,0 @@
-#ifndef QT_QTQUICKTIMELINEBLENDTREES_MODULE_H
-#define QT_QTQUICKTIMELINEBLENDTREES_MODULE_H
-#include <QtQuickTimelineBlendTrees/QtQuickTimelineBlendTreesDepends>
-#include "qtquicktimelineblendtreesglobal.h"
-#include "qtquicktimelineblendtreesversion.h"
-#endif
