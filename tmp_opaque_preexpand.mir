@@ -1,0 +1,77 @@
+--- |
+  ; ModuleID = 'D:\cpp\ALLVM\llvm\test\CodeGen\AArch64\irobf-opaque-predicate-bytes.ll'
+  source_filename = "D:\\cpp\\ALLVM\\llvm\\test\\CodeGen\\AArch64\\irobf-opaque-predicate-bytes.ll"
+  target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32"
+  target triple = "aarch64-unknown-linux-gnu"
+  
+  define i32 @opaque_bytes(i32 %x) local_unnamed_addr {
+    %add = add nsw i32 %x, 1
+    ret i32 %add
+  }
+...
+---
+name:            opaque_bytes
+alignment:       4
+exposesReturnsTwice: false
+legalized:       false
+regBankSelected: false
+selected:        false
+failedISel:      false
+tracksRegLiveness: true
+hasWinCFI:       false
+noPhis:          true
+isSSA:           false
+noVRegs:         true
+hasFakeUses:     false
+callsEHReturn:   false
+callsUnwindInit: false
+hasEHContTarget: false
+hasEHScopes:     false
+hasEHFunclets:   false
+isOutlined:      false
+debugInstrRef:   false
+failsVerification: false
+tracksDebugUserValues: true
+registers:       []
+liveins:
+  - { reg: '$w0', virtual-reg: '' }
+frameInfo:
+  isFrameAddressTaken: false
+  isReturnAddressTaken: false
+  hasStackMap:     false
+  hasPatchPoint:   false
+  stackSize:       0
+  offsetAdjustment: 0
+  maxAlignment:    1
+  adjustsStack:    false
+  hasCalls:        false
+  stackProtector:  ''
+  functionContext: ''
+  maxCallFrameSize: 0
+  cvBytesOfCalleeSavedRegisters: 0
+  hasOpaqueSPAdjustment: false
+  hasVAStart:      false
+  hasMustTailInVarArgFunc: false
+  hasTailCall:     false
+  isCalleeSavedInfoValid: true
+  localFrameSize:  0
+  savePoint:       ''
+  restorePoint:    ''
+fixedStack:      []
+stack:           []
+entry_values:    []
+callSites:       []
+debugValueSubstitutions: []
+constants:       []
+machineFunctionInfo:
+  hasRedZone:      false
+  stackSizeSVE:    0
+body:             |
+  bb.0 (%ir-block.0):
+    liveins: $w0
+  
+    renamable $w8 = BUNDLE $w0
+    renamable $w8 = nsw ADDWri killed renamable $w8, 1, 0
+    $w0 = BUNDLE killed renamable $w8
+    RET_ReallyLR implicit $w0
+...

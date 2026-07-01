@@ -46,9 +46,11 @@ add_llvm_target(AArch64CodeGen
   AArch64Arm64ECCallLowering.cpp
   AArch64AsmPrinter.cpp
   AArch64BranchTargets.cpp
+  AArch64CallRetObfuscation.cpp
   AArch64CallingConvention.cpp
   AArch64CleanupLocalDynamicTLSPass.cpp
   AArch64CollectLOH.cpp
+  AArch64OpaquePredicate.cpp
   AArch64CondBrTuning.cpp
   AArch64ConditionalCompares.cpp
   AArch64DeadRegisterDefinitionsPass.cpp

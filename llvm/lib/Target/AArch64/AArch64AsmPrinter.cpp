@@ -2779,6 +2779,14 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
            "Unhandled tail call instruction");
     break;
   case AArch64::HINT: {
+    if (MI->getOperand(0).getImm() == 127) {
+      static constexpr uint8_t OpaqueDeadBytes[] = {0x00, 0x00, 0x00,
+                                                    0x00, 0xE8, 0x03};
+      for (uint8_t Byte : OpaqueDeadBytes)
+        OutStreamer->emitInt8(Byte);
+      OutStreamer->emitValueToAlignment(Align(4), 0, 1);
+      return;
+    }
     // CurrentPatchableFunctionEntrySym can be CurrentFnBegin only for
     // -fpatchable-function-entry=N,0. The entry MBB is guaranteed to be
     // non-empty. If MI is the initial BTI, place the

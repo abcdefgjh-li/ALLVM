@@ -251,6 +251,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
 #include <cassert>
 #include <cstdint>
 #include <iterator>
@@ -293,6 +294,11 @@ static cl::opt<bool> DisableMultiVectorSpillFill(
     cl::desc("Disable use of LD/ST pairs for SME2 or SVE2p1"), cl::init(false),
     cl::Hidden);
 
+static cl::opt<bool> EnableSplitFrameRecord(
+    "aarch64-obfuscate-frame-record",
+    cl::desc("Split simple frame-record save/restore into STR/LDR sequences"),
+    cl::init(false), cl::Hidden);
+
 STATISTIC(NumRedZoneFunctions, "Number of functions using red zone");
 
 /// Returns how much of the incoming argument stack area (in bytes) we should
@@ -334,6 +340,35 @@ static StackOffset getSVEStackSize(const MachineFunction &MF);
 static Register findScratchNonCalleeSaveRegister(MachineBasicBlock *MBB,
                                                  bool HasCall = false);
 static bool requiresSaveVG(const MachineFunction &MF);
+static bool useSimpleSplitFrameRecord(const AArch64FunctionInfo &AFI, bool HasFP,
+                                      bool IsFunclet, bool NeedsWinCFI,
+                                      bool CombineSPBump,
+                                      bool HomPrologEpilog,
+                                      bool FPAfterSVECalleeSaves,
+                                      int64_t NumBytes, unsigned FixedObject,
+                                      int64_t PrologueSaveSize);
+
+static void debugSplitFrameRecordDecision(const MachineFunction &MF,
+                                          StringRef Stage, bool Enabled,
+                                          bool Triggered, bool HasFP,
+                                          bool IsFunclet, bool NeedsWinCFI,
+                                          bool CombineSPBump,
+                                          bool HomPrologEpilog,
+                                          bool FPAfterSVECalleeSaves,
+                                          int64_t NumBytes,
+                                          unsigned FixedObject,
+                                          int64_t PrologueSaveSize) {
+  if (!Enabled || !isIRObfuscationDebugEnabled())
+    return;
+  errs() << "[split-frame-record] " << Stage << " fn=" << MF.getName()
+         << " triggered=" << Triggered << " HasFP=" << HasFP
+         << " IsFunclet=" << IsFunclet << " NeedsWinCFI=" << NeedsWinCFI
+         << " CombineSPBump=" << CombineSPBump
+         << " HomPrologEpilog=" << HomPrologEpilog
+         << " FPAfterSVE=" << FPAfterSVECalleeSaves
+         << " NumBytes=" << NumBytes << " FixedObject=" << FixedObject
+         << " PrologueSaveSize=" << PrologueSaveSize << '\n';
+}
 
 // Conservatively, returns true if the function is likely to have an SVE vectors
 // on the stack. This function is safe to be called before callee-saves or
@@ -2055,6 +2090,16 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
   AFI->setLocalStackSize(NumBytes - PrologueSaveSize);
   bool CombineSPBump = shouldCombineCSRLocalStackBump(MF, NumBytes);
   bool HomPrologEpilog = homogeneousPrologEpilog(MF);
+  bool UseSplitFrameRecord =
+      useSimpleSplitFrameRecord(*AFI, HasFP, IsFunclet, NeedsWinCFI,
+                                CombineSPBump, HomPrologEpilog,
+                                FPAfterSVECalleeSaves, NumBytes, FixedObject,
+                                PrologueSaveSize);
+  debugSplitFrameRecordDecision(MF, "prologue", EnableSplitFrameRecord,
+                                UseSplitFrameRecord, HasFP, IsFunclet,
+                                NeedsWinCFI, CombineSPBump, HomPrologEpilog,
+                                FPAfterSVECalleeSaves, NumBytes, FixedObject,
+                                PrologueSaveSize);
   if (FPAfterSVECalleeSaves) {
     // If we're doing SVE saves first, we need to immediately allocate space
     // for fixed objects, then space for the SVE callee saves.
@@ -2145,13 +2190,31 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
       assert(Prolog->getOpcode() == AArch64::HOM_Prolog);
       Prolog->addOperand(MachineOperand::CreateImm(FPOffset));
     } else {
-      // Issue    sub fp, sp, FPOffset or
-      //          mov fp,sp          when FPOffset is zero.
-      // Note: All stores of callee-saved registers are marked as "FrameSetup".
-      // This code marks the instruction(s) that set the FP also.
-      emitFrameOffset(MBB, MBBI, DL, AArch64::FP, AArch64::SP,
-                      StackOffset::getFixed(FPOffset), TII,
-                      MachineInstr::FrameSetup, false, NeedsWinCFI, &HasWinCFI);
+      // Keep the simple frame-record probe away from the canonical "mov fp, sp"
+      // alias while preserving the same final FP value.
+      if (UseSplitFrameRecord) {
+        assert(FPOffset == 0 && "split frame record expects zero FP offset");
+        BuildMI(MBB, MBBI, DL, TII->get(AArch64::ADDXri), AArch64::FP)
+            .addReg(AArch64::SP)
+            .addImm(16)
+            .addImm(0)
+            .setMIFlag(MachineInstr::FrameSetup);
+        BuildMI(MBB, MBBI, DL, TII->get(AArch64::SUBXri), AArch64::FP)
+            .addReg(AArch64::FP)
+            .addImm(16)
+            .addImm(0)
+            .setMIFlag(MachineInstr::FrameSetup);
+      } else {
+        // Issue    sub fp, sp, FPOffset or
+        //          mov fp,sp          when FPOffset is zero.
+        // Note: All stores of callee-saved registers are marked as
+        // "FrameSetup". This code marks the instruction(s) that set the FP
+        // also.
+        emitFrameOffset(MBB, MBBI, DL, AArch64::FP, AArch64::SP,
+                        StackOffset::getFixed(FPOffset), TII,
+                        MachineInstr::FrameSetup, false, NeedsWinCFI,
+                        &HasWinCFI);
+      }
       if (NeedsWinCFI && HasWinCFI) {
         BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_PrologEnd))
             .setMIFlag(MachineInstr::FrameSetup);
@@ -2551,30 +2614,46 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   bool CombineSPBump = shouldCombineCSRLocalStackBumpInEpilogue(MBB, NumBytes);
   // Assume we can't combine the last pop with the sp restore.
   bool CombineAfterCSRBump = false;
+  bool UseSplitFrameRecord =
+      useSimpleSplitFrameRecord(*AFI, hasFP(MF), IsFunclet, NeedsWinCFI,
+                                CombineSPBump, /*HomPrologEpilog=*/false,
+                                FPAfterSVECalleeSaves, NumBytes, FixedObject,
+                                PrologueSaveSize);
+  debugSplitFrameRecordDecision(MF, "epilogue", EnableSplitFrameRecord,
+                                UseSplitFrameRecord, hasFP(MF), IsFunclet,
+                                NeedsWinCFI, CombineSPBump,
+                                /*HomPrologEpilog=*/false,
+                                FPAfterSVECalleeSaves, NumBytes, FixedObject,
+                                PrologueSaveSize);
   if (FPAfterSVECalleeSaves) {
     AfterCSRPopSize += FixedObject;
   } else if (!CombineSPBump && PrologueSaveSize != 0) {
-    MachineBasicBlock::iterator Pop = std::prev(MBB.getFirstTerminator());
-    while (Pop->getOpcode() == TargetOpcode::CFI_INSTRUCTION ||
-           AArch64InstrInfo::isSEHInstruction(*Pop))
-      Pop = std::prev(Pop);
-    // Converting the last ldp to a post-index ldp is valid only if the last
-    // ldp's offset is 0.
-    const MachineOperand &OffsetOp = Pop->getOperand(Pop->getNumOperands() - 1);
-    // If the offset is 0 and the AfterCSR pop is not actually trying to
-    // allocate more stack for arguments (in space that an untimely interrupt
-    // may clobber), convert it to a post-index ldp.
-    if (OffsetOp.getImm() == 0 && AfterCSRPopSize >= 0) {
-      convertCalleeSaveRestoreToSPPrePostIncDec(
-          MBB, Pop, DL, TII, PrologueSaveSize, NeedsWinCFI, &HasWinCFI, EmitCFI,
-          MachineInstr::FrameDestroy, PrologueSaveSize);
-    } else {
-      // If not, make sure to emit an add after the last ldp.
-      // We're doing this by transferring the size to be restored from the
-      // adjustment *before* the CSR pops to the adjustment *after* the CSR
-      // pops.
+    if (UseSplitFrameRecord) {
       AfterCSRPopSize += PrologueSaveSize;
       CombineAfterCSRBump = true;
+    } else {
+      MachineBasicBlock::iterator Pop = std::prev(MBB.getFirstTerminator());
+      while (Pop->getOpcode() == TargetOpcode::CFI_INSTRUCTION ||
+             AArch64InstrInfo::isSEHInstruction(*Pop))
+        Pop = std::prev(Pop);
+      // Converting the last ldp to a post-index ldp is valid only if the last
+      // ldp's offset is 0.
+      const MachineOperand &OffsetOp = Pop->getOperand(Pop->getNumOperands() - 1);
+      // If the offset is 0 and the AfterCSR pop is not actually trying to
+      // allocate more stack for arguments (in space that an untimely interrupt
+      // may clobber), convert it to a post-index ldp.
+      if (OffsetOp.getImm() == 0 && AfterCSRPopSize >= 0) {
+        convertCalleeSaveRestoreToSPPrePostIncDec(
+            MBB, Pop, DL, TII, PrologueSaveSize, NeedsWinCFI, &HasWinCFI,
+            EmitCFI, MachineInstr::FrameDestroy, PrologueSaveSize);
+      } else {
+        // If not, make sure to emit an add after the last ldp.
+        // We're doing this by transferring the size to be restored from the
+        // adjustment *before* the CSR pops to the adjustment *after* the CSR
+        // pops.
+        AfterCSRPopSize += PrologueSaveSize;
+        CombineAfterCSRBump = true;
+      }
     }
   }
 
@@ -3195,6 +3274,28 @@ struct RegPairInfo {
 
 } // end anonymous namespace
 
+static bool isSplitFrameRecordPair(const RegPairInfo &RPI, bool NeedsWinCFI) {
+  return EnableSplitFrameRecord && !NeedsWinCFI &&
+         RPI.Type == RegPairInfo::GPR && RPI.isPaired() &&
+         RPI.Offset == 0 &&
+         ((RPI.Reg1 == AArch64::LR && RPI.Reg2 == AArch64::FP) ||
+          (RPI.Reg1 == AArch64::FP && RPI.Reg2 == AArch64::LR));
+}
+
+static bool useSimpleSplitFrameRecord(const AArch64FunctionInfo &AFI, bool HasFP,
+                                      bool IsFunclet, bool NeedsWinCFI,
+                                      bool CombineSPBump,
+                                      bool HomPrologEpilog,
+                                      bool FPAfterSVECalleeSaves,
+                                      int64_t NumBytes, unsigned FixedObject,
+                                      int64_t PrologueSaveSize) {
+  return EnableSplitFrameRecord && HasFP && !IsFunclet && !NeedsWinCFI &&
+         !AFI.hasSwiftAsyncContext() && !FPAfterSVECalleeSaves &&
+         !CombineSPBump && !HomPrologEpilog &&
+         AFI.getCalleeSavedStackSize() == 16 && FixedObject == 0 &&
+         PrologueSaveSize == 16 && NumBytes == 16;
+}
+
 unsigned findFreePredicateReg(BitVector &SavedRegs) {
   for (unsigned PReg = AArch64::P8; PReg <= AArch64::P15; ++PReg) {
     if (SavedRegs.test(PReg)) {
@@ -3480,6 +3581,11 @@ bool AArch64FrameLowering::spillCalleeSavedRegisters(
   // Refresh the reserved regs in case there are any potential changes since the
   // last freeze.
   MRI.freezeReservedRegs();
+  bool AllowSplitFrameRecordCSR =
+      EnableSplitFrameRecord && hasFP(MF) && !NeedsWinCFI &&
+      !AFI->hasSwiftAsyncContext() && !homogeneousPrologEpilog(MF) &&
+      !shouldCombineCSRLocalStackBump(MF, MF.getFrameInfo().getStackSize()) &&
+      AFI->getCalleeSavedStackSize() == 16;
 
   if (homogeneousPrologEpilog(MF)) {
     auto MIB = BuildMI(MBB, MI, DL, TII.get(AArch64::HOM_Prolog))
@@ -3612,6 +3718,37 @@ bool AArch64FrameLowering::spillCalleeSavedRegisters(
       std::swap(FrameIdxReg1, FrameIdxReg2);
     }
 
+    if (AllowSplitFrameRecordCSR &&
+        isSplitFrameRecordPair(RPI, NeedsWinCFI) &&
+        !AFI->hasSwiftAsyncContext()) {
+      if (isIRObfuscationDebugEnabled())
+        errs() << "[split-frame-record] spill fn=" << MF.getName()
+               << " reg1=" << printReg(Reg1, TRI)
+               << " reg2=" << printReg(Reg2, TRI)
+               << " frameidx=" << RPI.FrameIdx
+               << " offset=" << RPI.Offset << '\n';
+      if (!MRI.isReserved(AArch64::FP))
+        MBB.addLiveIn(AArch64::FP);
+      if (!MRI.isReserved(AArch64::LR))
+        MBB.addLiveIn(AArch64::LR);
+
+      auto BuildStore = [&](unsigned Opcode, unsigned Reg, int FrameIdx,
+                            int Offset) {
+        auto MIB = BuildMI(MBB, MI, DL, TII.get(Opcode));
+        MIB.addReg(Reg, getPrologueDeath(MF, Reg))
+            .addReg(AArch64::SP)
+            .addImm(Offset)
+            .setMIFlag(MachineInstr::FrameSetup);
+        MIB.addMemOperand(MF.getMachineMemOperand(
+            MachinePointerInfo::getFixedStack(MF, FrameIdx),
+            MachineMemOperand::MOStore, Size, Alignment));
+      };
+
+      BuildStore(AArch64::STURXi, AArch64::FP, FrameIdxReg2, RPI.Offset * 8);
+      BuildStore(AArch64::STRXui, AArch64::LR, FrameIdxReg1, RPI.Offset + 1);
+      continue;
+    }
+
     if (RPI.isPaired() && RPI.isScalable()) {
       [[maybe_unused]] const AArch64Subtarget &Subtarget =
                               MF.getSubtarget<AArch64Subtarget>();
@@ -3709,6 +3846,13 @@ bool AArch64FrameLowering::restoreCalleeSavedRegisters(
     DL = MBBI->getDebugLoc();
 
   computeCalleeSaveRegisterPairs(MF, CSI, TRI, RegPairs, hasFP(MF));
+  AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
+  bool AllowSplitFrameRecordCSR =
+      EnableSplitFrameRecord && hasFP(MF) && !NeedsWinCFI &&
+      !AFI->hasSwiftAsyncContext() && !homogeneousPrologEpilog(MF, &MBB) &&
+      !shouldCombineCSRLocalStackBumpInEpilogue(MBB,
+                                                MF.getFrameInfo().getStackSize()) &&
+      AFI->getCalleeSavedStackSize() == 16;
   if (homogeneousPrologEpilog(MF, &MBB)) {
     auto MIB = BuildMI(MBB, MBBI, DL, TII.get(AArch64::HOM_Epilog))
                    .setMIFlag(MachineInstr::FrameDestroy);
@@ -3781,7 +3925,32 @@ bool AArch64FrameLowering::restoreCalleeSavedRegisters(
       std::swap(FrameIdxReg1, FrameIdxReg2);
     }
 
-    AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
+    if (AllowSplitFrameRecordCSR &&
+        isSplitFrameRecordPair(RPI, NeedsWinCFI) &&
+        !AFI->hasSwiftAsyncContext()) {
+      if (isIRObfuscationDebugEnabled())
+        errs() << "[split-frame-record] restore fn=" << MF.getName()
+               << " reg1=" << printReg(Reg1, TRI)
+               << " reg2=" << printReg(Reg2, TRI)
+               << " frameidx=" << RPI.FrameIdx
+               << " offset=" << RPI.Offset << '\n';
+      auto BuildLoad = [&](unsigned Opcode, unsigned Reg, int FrameIdx,
+                           int Offset) {
+        auto MIB = BuildMI(MBB, MBBI, DL, TII.get(Opcode));
+        MIB.addReg(Reg, getDefRegState(true))
+            .addReg(AArch64::SP)
+            .addImm(Offset)
+            .setMIFlag(MachineInstr::FrameDestroy);
+        MIB.addMemOperand(MF.getMachineMemOperand(
+            MachinePointerInfo::getFixedStack(MF, FrameIdx),
+            MachineMemOperand::MOLoad, Size, Alignment));
+      };
+
+      BuildLoad(AArch64::LDURXi, AArch64::FP, FrameIdxReg2, RPI.Offset * 8);
+      BuildLoad(AArch64::LDRXui, AArch64::LR, FrameIdxReg1, RPI.Offset + 1);
+      continue;
+    }
+
     if (RPI.isPaired() && RPI.isScalable()) {
       [[maybe_unused]] const AArch64Subtarget &Subtarget =
                               MF.getSubtarget<AArch64Subtarget>();

@@ -1,0 +1,38 @@
+# ALLVM 后端对抗 IDA 函数识别 TODO 列表
+
+## 1. 破坏函数序言与跋 (Prologue/Epilogue Mutation)
+- [x] 定位 `llvm/lib/Target/AArch64/AArch64FrameLowering.cpp` 文件。
+- [x] 修改 `emitPrologue`：拦截标准的 `STP x29, x30, [sp, #-xxx]!` 和 `MOV x29, sp`，替换为等效但非标准的 `STR` + `ADD/SUB` 组合。
+- [x] 修改 `emitEpilogue`：拦截标准恢复栈帧的 `LDP`，替换为自定义的恢复序列。
+- [x] 测试修改后生成的机器码是否会导致程序崩溃，确保栈平衡（Stack Alignment）正确。
+
+## 2. 调用与返回指令混淆 (Call & Return Obfuscation)
+- [x] 编写一个新的后期 `MachineFunctionPass`（在寄存器分配之后执行）。
+- [x] 拦截并处理 `AArch64::BL` 指令：将其转换为 `ADRP/ADDXri` 取地址 + `BLR` 间接调用；并通过 `RegScavenger` 动态选择 scratch 寄存器，保留调用点的 `$x16` 活性。
+- [x] 拦截并处理 `AArch64::RET` 指令：将其替换为等效的寄存器跳转（如 `BR X30`），破坏 IDA 的函数结束边界判定；已通过代码生成探针校验。
+
+## 3. 插入花指令与常量岛陷阱 (Junk Code & Inline Data)
+- [ ] 在自定义的 `MachineFunctionPass` 或 `AsmPrinter::EmitInstruction` 中实现不透明谓词逻辑（Opaque Predicates）。
+- [ ] 在永远不执行的死分支（Dead Branch）后插入非 4 字节对齐的 `.byte` 垃圾数据（如 `0xE8, 0x03`）。
+- [ ] 验证插入垃圾数据后，IDA 的线性扫描是否会出现指令解析错位（出现 `UDF` 未定义指令）。
+
+## 4. 彻底剥离或伪造 Unwind Info (Exception Handling Tables)
+- [ ] 检查 Clang 编译流程，确保强制应用 `-fno-asynchronous-unwind-tables` 和 `-fno-unwind-tables` 参数。
+- [ ] （进阶）修改 `llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp` 中的 `emitCFIInstruction` 函数，直接屏蔽或乱序生成 CFI（Call Frame Information）数据，彻底破坏 `.eh_frame`。
+
+## 5. 基本块乱序与函数分块 (Basic Block Sections / Function Chunking)
+- [ ] 在 ALLVM 的 Clang 驱动中，默认或通过特定 Flag 注入 `-fbasic-block-sections=all`。
+- [ ] 配合 LLD 链接器，测试不同 Basic Block 是否在 `.text` 段中被打散。
+- [ ] 使用 IDA 验证打散后的函数是否被识别为多个碎片的“孤立代码块”。
+
+## 6. ALLVM 工程化接入
+- [ ] 在 `llvm/lib/Target/AArch64/` 目录下创建 `AArch64AntiDisasmPass.cpp`。
+- [ ] 在 `AArch64PassConfig.cpp` 中的 `addPreEmitPass2`（即将发射机器码前）挂载该 Pass。
+- [ ] 在 ALLVM 的控制中心（如 `ObfuscationPassManager` 或命令行解析部分）增加相应的开启开关，例如 `-mllvm -irobf-antidisasm`。
+- [ ] 将新选项整合到 `build.cpp` 和 `Android.mk` 样例中进行端到端（APK/可执行文件）验证。
+  - [x] 已接入 `-mllvm -aarch64-obfuscate-frame-record` 与 `-mllvm -aarch64-obfuscate-call-ret` 两项开关，分别挂载在 `FrameLowering` 与 `addPreEmitPass2` 阶段，并完成 APK 端到端验证与探针用例。
+
+## 7. 回归与稳定性
+- [ ] 修复 `llc` 在 `AArch64 pseudo instruction expansion pass` 的崩溃（无开关也可复现），最小复现：`frame_record_codegen.ll` → `llc -mtriple=aarch64-linux-android21`
+- [ ] 复核 `AArch64FrameLowering` 改动对默认路径的影响，确保在未开启混淆开关时与上游一致
+- [ ] 待 `llc/clang` 稳定后，再将必要工具有限替换进 NDK（仅限编译验证用：如 `llc`/`FileCheck`），避免干扰 NDK 正常编译

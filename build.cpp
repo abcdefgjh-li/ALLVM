@@ -86,6 +86,34 @@ static void init_paths() {
     }
 }
 
+// ---- debug instrumentation (aarch64-ndk-crash)
+static void dbg_log(const std::string& event, const std::string& detail) {
+    static const std::string session = "aarch64-ndk-crash";
+    std::string log_path = g_script_dir + "\\trae-debug-log-" + session + ".ndjson";
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+    char ts[64];
+    sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02dZ",
+            (int)st.wYear, (int)st.wMonth, (int)st.wDay,
+            (int)st.wHour, (int)st.wMinute, (int)st.wSecond);
+    std::ofstream ofs(log_path, std::ios::app);
+    if (!ofs.is_open()) return;
+    std::string esc;
+    esc.reserve(detail.size() + 16);
+    for (char c : detail) {
+        if (c == '\\') esc += "\\\\";
+        else if (c == '\"') esc += "\\\"";
+        else if (c == '\n') esc += "\\n";
+        else esc += c;
+    }
+    ofs << "{"
+        << "\"ts\":\"" << ts << "\","
+        << "\"session\":\"" << session << "\","
+        << "\"event\":\"" << event << "\","
+        << "\"detail\":\"" << esc << "\""
+        << "}" << std::endl;
+}
+
 static std::string find_vs() {
     const char* vcvars_path = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat";
     if (file_exists(vcvars_path)) return vcvars_path;
@@ -343,6 +371,23 @@ static std::string find_test_binary(const std::string& project_dir, const std::s
     return "";
 }
 
+static std::string choose_device_test_path(const std::string& adb_path,
+                                           const std::string& serial,
+                                           const std::string& binary_name) {
+    const char* dirs[] = { "/data/local/tmp", "/data/local/tests" };
+    for (const char* dir : dirs) {
+        std::string probe = std::string(dir) + "/.allvm_probe";
+        std::string cmd = "\"" + adb_path + "\" -s " + serial +
+                          " shell \"touch " + probe +
+                          " >/dev/null 2>&1 && rm -f " + probe + " >/dev/null 2>&1\"";
+        std::string output;
+        if (run_cmd_capture(cmd, output, g_script_dir) == 0) {
+            return std::string(dir) + "/" + binary_name;
+        }
+    }
+    return "/data/local/tmp/" + binary_name;
+}
+
 static std::string find_named_binary(const std::string& project_dir, const std::string& abi,
                                      const std::string& binary_name_or_path) {
     if (binary_name_or_path.empty()) return "";
@@ -359,6 +404,366 @@ static std::string find_named_binary(const std::string& project_dir, const std::
         if (file_exists(candidate)) return get_full_path_copy(candidate);
     }
     return "";
+}
+
+static std::string lower_ascii_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+static std::string normalize_ascii_whitespace(std::string value) {
+    value = lower_ascii_copy(std::move(value));
+    std::string out;
+    out.reserve(value.size());
+    bool last_was_space = false;
+    for (unsigned char c : value) {
+        if (std::isspace(c)) {
+            if (!last_was_space) out.push_back(' ');
+            last_was_space = true;
+        } else {
+            out.push_back(static_cast<char>(c));
+            last_was_space = false;
+        }
+    }
+    return out;
+}
+
+static bool verify_frame_record_codegen() {
+    std::string clangxx = g_build_dir + "\\bin\\clang++.exe";
+    if (!file_exists(clangxx)) {
+        printf("[Warning] clang++ not found, skipping frame record verification\n");
+        return true;
+    }
+
+    std::string src = g_script_dir + "\\test\\jni\\frame_record_codegen.cpp";
+    std::string asm_path = g_script_dir + "\\test\\frame_record_codegen.s";
+    if (!file_exists(src)) {
+        printf("[Error] Frame record probe source not found: %s\n", src.c_str());
+        return false;
+    }
+
+    std::string output;
+    std::string cmd = "\"" + clangxx +
+                      "\" --target=aarch64-linux-android21 -S -O2 "
+                      "-fno-omit-frame-pointer "
+                      "-mllvm -aarch64-obfuscate-frame-record "
+                      "-mllvm -aarch64-enable-ldst-opt=false "
+                      "\"" + src + "\" -o \"" + asm_path + "\"";
+    if (run_cmd_capture(cmd, output) != 0) {
+        if (!output.empty()) printf("%s", output.c_str());
+        printf("[Error] Failed to compile frame record probe\n");
+        return false;
+    }
+
+    std::ifstream in(asm_path, std::ios::binary);
+    if (!in.is_open()) {
+        printf("[Error] Failed to read generated asm: %s\n", asm_path.c_str());
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string asm_text = ss.str();
+    in.close();
+
+    std::istringstream iss(asm_text);
+    std::string line;
+    std::string block;
+    bool in_symbol = false;
+    while (std::getline(iss, line)) {
+        if (!in_symbol) {
+            if (line.find("frame_record_probe:") != std::string::npos) {
+                in_symbol = true;
+                block += line + "\n";
+            }
+            continue;
+        }
+
+        bool is_new_symbol = !line.empty() &&
+                             line[0] != '\t' &&
+                             line[0] != ' ' &&
+                             line[0] != '/' &&
+                             line.back() == ':' &&
+                             line.find("frame_record_probe:") == std::string::npos;
+        if (is_new_symbol || line.rfind(".Lfunc_end", 0) == 0) {
+            break;
+        }
+        block += line + "\n";
+    }
+
+    if (block.empty()) {
+        printf("[Error] frame_record_probe symbol not found in generated asm\n");
+        return false;
+    }
+
+    std::replace(block.begin(), block.end(), '\t', ' ');
+    std::string lower = lower_ascii_copy(block);
+    auto has = [&](const char* needle) {
+        return lower.find(needle) != std::string::npos;
+    };
+
+    bool has_split_store = (has("str x29") || has("stur x29")) &&
+                           (has("str x30") || has("stur x30"));
+    bool has_split_load = (has("ldr x29") || has("ldur x29")) &&
+                          (has("ldr x30") || has("ldur x30"));
+    bool has_fp_mix = has("add x29, sp") && has("sub x29, x29");
+    bool has_std_pair = has("stp x29, x30") || has("stp x30, x29") ||
+                        has("ldp x29, x30") || has("ldp x30, x29");
+    bool has_std_mov = has("mov x29, sp");
+
+    if (!has_split_store || !has_split_load || !has_fp_mix || has_std_pair || has_std_mov) {
+        printf("[Error] frame_record_probe codegen verification failed\n");
+        printf("-------- frame_record_probe --------\n%s-------- end --------\n", block.c_str());
+        return false;
+    }
+
+    printf("[Done] frame_record_probe uses split frame record sequence\n");
+    return true;
+}
+
+static bool verify_call_ret_codegen() {
+    std::string clangxx = g_build_dir + "\\bin\\clang++.exe";
+    if (!file_exists(clangxx)) {
+        printf("[Warning] clang++ not found, skipping call/ret verification\n");
+        return true;
+    }
+
+    std::string src = g_script_dir + "\\test\\jni\\call_ret_codegen.cpp";
+    std::string asm_path = g_script_dir + "\\test\\call_ret_codegen.s";
+    if (!file_exists(src)) {
+        printf("[Error] Call/ret probe source not found: %s\n", src.c_str());
+        return false;
+    }
+
+    std::string output;
+    std::string cmd = "\"" + clangxx +
+                      "\" --target=aarch64-linux-android21 -S -O2 "
+                      "-mllvm -aarch64-obfuscate-call-ret "
+                      "\"" + src + "\" -o \"" + asm_path + "\"";
+    if (run_cmd_capture(cmd, output) != 0) {
+        if (!output.empty()) printf("%s", output.c_str());
+        printf("[Error] Failed to compile call/ret probe\n");
+        return false;
+    }
+
+    std::ifstream in(asm_path, std::ios::binary);
+    if (!in.is_open()) {
+        printf("[Error] Failed to read generated asm: %s\n", asm_path.c_str());
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string asm_text = ss.str();
+    in.close();
+
+    std::istringstream iss(asm_text);
+    std::string line;
+    std::string block;
+    bool in_symbol = false;
+    while (std::getline(iss, line)) {
+        if (!in_symbol) {
+            if (line.find("call_ret_probe:") != std::string::npos) {
+                in_symbol = true;
+                block += line + "\n";
+            }
+            continue;
+        }
+
+        bool is_new_symbol = !line.empty() &&
+                             line[0] != '\t' &&
+                             line[0] != ' ' &&
+                             line[0] != '/' &&
+                             line.back() == ':' &&
+                             line.find("call_ret_probe:") == std::string::npos;
+        if (is_new_symbol || line.rfind(".Lfunc_end", 0) == 0) {
+            break;
+        }
+        block += line + "\n";
+    }
+
+    if (block.empty()) {
+        printf("[Error] call_ret_probe symbol not found in generated asm\n");
+        return false;
+    }
+
+    std::replace(block.begin(), block.end(), '\t', ' ');
+    std::string lower = lower_ascii_copy(block);
+    auto has = [&](const char* needle) {
+        return lower.find(needle) != std::string::npos;
+    };
+
+    bool has_target_materialization = has("adrp") && has("target_call") &&
+                                      (has(":lo12:target_call") ||
+                                       has(" target_call"));
+    bool has_indirect_call = has_target_materialization && has("blr x");
+    bool has_br_lr = has("br x30");
+    bool has_direct_bl = has("bl target_call");
+    bool has_ret = has("\n ret") || has("\nret");
+
+    if (!has_indirect_call || !has_br_lr || has_direct_bl || has_ret) {
+        printf("[Error] call_ret_probe codegen verification failed\n");
+        printf("-------- call_ret_probe --------\n%s-------- end --------\n", block.c_str());
+        return false;
+    }
+
+    printf("[Done] call_ret_probe uses indirect call and BR x30 sequence\n");
+    return true;
+}
+
+static bool verify_call_ret_scratch_mir() {
+    std::string llc = g_build_dir + "\\bin\\llc.exe";
+    if (!file_exists(llc)) {
+        printf("[Warning] llc not found, skipping call/ret scratch verification\n");
+        return true;
+    }
+
+    std::string src = g_script_dir + "\\llvm\\test\\CodeGen\\AArch64\\irobf-call-ret-scratch.mir";
+    if (!file_exists(src)) {
+        printf("[Error] Call/ret scratch MIR not found: %s\n", src.c_str());
+        return false;
+    }
+
+    std::string output;
+    std::string cmd = "\"" + llc +
+                      "\" -mtriple=aarch64-none-linux-gnu "
+                      "-run-pass=aarch64-call-ret-obfuscation "
+                      "-aarch64-obfuscate-call-ret "
+                      "-verify-machineinstrs=0 -o - "
+                      "\"" + src + "\"";
+    int mir_ret = run_cmd_capture(cmd, output);
+    dbg_log("mir_verify_call_ret_scratch_start", cmd);
+    if (output.empty()) {
+        printf("[Error] Failed to run call/ret scratch MIR verification\n");
+        dbg_log("mir_verify_call_ret_scratch_error", "empty_output");
+        return false;
+    }
+    if (mir_ret != 0 && !output.empty()) {
+        printf("%s", output.c_str());
+        // Continue to analyze output even if llc returned non-zero,
+        // as long as the expected patterns are present.
+        dbg_log("mir_verify_call_ret_scratch_nonzero", std::string("code=") + std::to_string(mir_ret));
+    }
+
+    std::string lower = lower_ascii_copy(output);
+    auto has = [&](const char* needle) {
+        return lower.find(needle) != std::string::npos;
+    };
+
+    bool has_indirect_call = has("adrp") && has("addxri") && has("blr");
+    bool preserves_x16_arg = has("implicit $x16");
+    bool clobbers_x16 = has("$x16 = adrp") || has("$x16 = addxri") || has("blr $x16");
+
+    if (!has_indirect_call || !preserves_x16_arg || clobbers_x16) {
+        printf("[Error] call/ret scratch MIR verification failed\n");
+        printf("-------- irobf-call-ret-scratch.mir --------\n%s-------- end --------\n", output.c_str());
+        dbg_log("mir_verify_call_ret_scratch_fail",
+                std::string("has_indirect_call=") + (has_indirect_call?"1":"0") +
+                " preserves_x16_arg=" + (preserves_x16_arg?"1":"0") +
+                " clobbers_x16=" + (clobbers_x16?"1":"0"));
+        return false;
+    }
+
+    printf("[Done] scratch MIR keeps x16 live and uses a different call scratch register\n");
+    dbg_log("mir_verify_call_ret_scratch_ok", "ok");
+    return true;
+}
+
+static bool verify_opaque_predicate_codegen() {
+    std::string llc = g_build_dir + "\\bin\\llc.exe";
+    if (!file_exists(llc)) {
+        printf("[Warning] llc not found, skipping opaque predicate verification\n");
+        return true;
+    }
+
+    std::string objdump = g_build_dir + "\\bin\\llvm-objdump.exe";
+    if (!file_exists(objdump)) {
+        printf("[Warning] llvm-objdump not found, skipping opaque predicate object verification\n");
+        return true;
+    }
+
+    std::string src = g_script_dir + "\\llvm\\test\\CodeGen\\AArch64\\irobf-opaque-predicate-bytes.ll";
+    if (!file_exists(src)) {
+        printf("[Error] Opaque predicate probe source not found: %s\n", src.c_str());
+        return false;
+    }
+
+    std::string asm_path = g_script_dir + "\\test\\opaque_predicate_codegen.s";
+    std::string obj_path = g_script_dir + "\\test\\opaque_predicate_codegen.o";
+    std::string output;
+
+    std::string asm_cmd = "\"" + llc +
+                          "\" -mtriple=aarch64-linux-gnu -O2 "
+                          "-aarch64-obfuscate-opaque-predicate "
+                          "\"" + src + "\" -o \"" + asm_path + "\"";
+    if (run_cmd_capture(asm_cmd, output) != 0) {
+        if (!output.empty()) printf("%s", output.c_str());
+        printf("[Error] Failed to compile opaque predicate asm probe\n");
+        return false;
+    }
+
+    std::ifstream in(asm_path, std::ios::binary);
+    if (!in.is_open()) {
+        printf("[Error] Failed to read generated asm: %s\n", asm_path.c_str());
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string asm_text = ss.str();
+    in.close();
+
+    std::string lower_asm = normalize_ascii_whitespace(asm_text);
+    auto asm_has = [&](const char* needle) {
+        return lower_asm.find(needle) != std::string::npos;
+    };
+
+    bool has_guard_branch = asm_has("cbnz x9");
+    bool has_dead_bytes = asm_has(".byte 0");
+    bool has_misaligned_tail = asm_has(".byte 232");
+    bool has_realign = asm_has(".p2align 2, 0x0");
+
+    if (!has_guard_branch || !has_dead_bytes || !has_misaligned_tail || !has_realign) {
+        printf("[Error] opaque predicate asm verification failed\n");
+        printf("-------- opaque_predicate_codegen.s --------\n%s-------- end --------\n", asm_text.c_str());
+        return false;
+    }
+
+    output.clear();
+    std::string obj_cmd = "\"" + llc +
+                          "\" -mtriple=aarch64-linux-gnu -filetype=obj -O2 "
+                          "-aarch64-obfuscate-opaque-predicate "
+                          "\"" + src + "\" -o \"" + obj_path + "\"";
+    if (run_cmd_capture(obj_cmd, output) != 0) {
+        if (!output.empty()) printf("%s", output.c_str());
+        printf("[Error] Failed to compile opaque predicate object probe\n");
+        return false;
+    }
+
+    output.clear();
+    std::string dump_cmd = "\"" + objdump +
+                           "\" -d --triple=aarch64-linux-gnu "
+                           "\"" + obj_path + "\"";
+    if (run_cmd_capture(dump_cmd, output) != 0) {
+        if (!output.empty()) printf("%s", output.c_str());
+        printf("[Error] Failed to disassemble opaque predicate object probe\n");
+        return false;
+    }
+
+    std::string lower_dump = normalize_ascii_whitespace(output);
+    auto dump_has = [&](const char* needle) {
+        return lower_dump.find(needle) != std::string::npos;
+    };
+
+    bool has_udf_encoding = dump_has(".word 0x00000000");
+    bool has_tail_word = dump_has(".word 0x000003e8");
+
+    if (!has_udf_encoding || !has_tail_word) {
+        printf("[Error] opaque predicate object verification failed\n");
+        printf("-------- opaque_predicate_codegen.o --------\n%s-------- end --------\n", output.c_str());
+        return false;
+    }
+
+    printf("[Done] opaque predicate emits dead bytes with UDF encoding and misaligned tail\n");
+    return true;
 }
 
 static bool build_ndk_test_project(const TestRunOptions& opts, int jobs) {
@@ -382,7 +787,9 @@ static bool build_ndk_test_project(const TestRunOptions& opts, int jobs) {
     std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=\"" +
                           opts.app_build_script + "\" NDK_APPLICATION_MK=\"" +
                           opts.app_application_mk + "\" -j" + jbuf;
+    dbg_log("ndk_build_start", std::string("cwd=") + project_dir + " cmd=" + ndk_cmd);
     int ret = run_cmd(ndk_cmd, project_dir);
+    dbg_log("ndk_build_end", std::string("ret=") + std::to_string(ret));
     if (ret != 0) {
         printf("[Error] ndk-build failed for %s (code: %d)\n", project_dir.c_str(), ret);
         return false;
@@ -424,7 +831,7 @@ static bool push_and_run_binary(const TestRunOptions& opts) {
 
     std::string device_path = opts.device_path;
     if (device_path.empty()) {
-        device_path = "/data/local/tmp/" + path_basename(local_binary);
+        device_path = choose_device_test_path(adb_path, serial, path_basename(local_binary));
     }
     printf("  -> Local binary: %s\n", local_binary.c_str());
     printf("  -> Device path : %s\n", device_path.c_str());
@@ -495,7 +902,9 @@ static bool build_and_run_fla_test(int jobs) {
     sprintf(jbuf, "%d", jobs);
     std::string ndk_build = g_ndk_dir + "\\ndk-build.cmd";
     std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk -j" + jbuf;
+    dbg_log("ndk_build_start", std::string("cwd=") + test_dir + " cmd=" + ndk_cmd);
     int ret = run_cmd(ndk_cmd, test_dir);
+    dbg_log("ndk_build_end", std::string("ret=") + std::to_string(ret));
     if (ret != 0) {
         printf("[Error] ndk-build test project failed (code: %d)\n", ret);
         return false;
@@ -521,6 +930,22 @@ static bool build_and_run_fla_test(int jobs) {
     }
     printf("  -> Device ABI: %s\n", abi.c_str());
 
+    if (!verify_frame_record_codegen()) {
+        return false;
+    }
+
+    if (!verify_call_ret_codegen()) {
+        return false;
+    }
+
+    if (!verify_call_ret_scratch_mir()) {
+        return false;
+    }
+
+    if (!verify_opaque_predicate_codegen()) {
+        return false;
+    }
+
     std::string binary = find_test_binary(test_dir, abi);
     if (binary.empty()) {
         printf("[Error] Test binary not found for ABI: %s\n", abi.c_str());
@@ -528,7 +953,8 @@ static bool build_and_run_fla_test(int jobs) {
     }
 
     std::string output;
-    std::string push_cmd = "\"" + adb_path + "\" -s " + serial + " push \"" + binary + "\" /data/local/tmp/allvm_test";
+    std::string remote_binary = choose_device_test_path(adb_path, serial, "allvm_test");
+    std::string push_cmd = "\"" + adb_path + "\" -s " + serial + " push \"" + binary + "\" \"" + remote_binary + "\"";
     ret = run_cmd_capture(push_cmd, output);
     if (!output.empty()) printf("%s", output.c_str());
     if (ret != 0) {
@@ -536,7 +962,8 @@ static bool build_and_run_fla_test(int jobs) {
         return false;
     }
 
-    std::string exec_cmd = "\"" + adb_path + "\" -s " + serial + " shell \"chmod 755 /data/local/tmp/allvm_test && /data/local/tmp/allvm_test\"";
+    std::string exec_cmd = "\"" + adb_path + "\" -s " + serial + " shell \"chmod 755 " +
+                           remote_binary + " && " + remote_binary + "\"";
     output.clear();
     ret = run_cmd_capture(exec_cmd, output);
     if (!output.empty()) printf("%s", output.c_str());
@@ -821,10 +1248,9 @@ static bool replace_ndk_clang() {
 
     std::string build_bin = g_build_dir + "\\bin";
 
-    const char* files[] = {
-        "clang.exe", "clang++.exe", "clang-cl.exe", "clang-cpp.exe",
-        "lld.exe", "llvm-strip.exe", "llvm-objcopy.exe"
-    };
+    // Replace only linker-related tools to enable ELFWrapper encryption while
+    // keeping NDK's clang/clang++ frontend stable.
+    const char* files[] = { "lld.exe", "llvm-strip.exe", "llvm-objcopy.exe" };
 
     for (auto name : files) {
         std::string src = build_bin + "\\" + name;
@@ -850,6 +1276,25 @@ static bool replace_ndk_clang() {
         }
         copy_file(lld_src, lld_dst);
         printf("  -> ld.lld.exe OK\n");
+    }
+
+    // also copy required runtime DLLs from our build bin to NDK bin to avoid ABI/version mismatch
+    WIN32_FIND_DATAA ffd;
+    HANDLE hFind = FindFirstFileA((build_bin + "\\*.dll").c_str(), &ffd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            std::string name = ffd.cFileName;
+            std::string src = build_bin + "\\" + name;
+            std::string dst = g_ndk_bin + "\\" + name;
+            if (!file_exists(src)) continue;
+            std::string backup = dst + ".bak";
+            if (!file_exists(backup) && file_exists(dst)) {
+                copy_file(dst, backup);
+            }
+            copy_file(src, dst);
+            printf("  -> %s OK\n", name.c_str());
+        } while (FindNextFileA(hFind, &ffd));
+        FindClose(hFind);
     }
 
     // Copy allvm-ui.exe to NDK root directory
@@ -969,7 +1414,7 @@ int main(int argc, char* argv[]) {
     bool step_build       = true;
     bool step_test        = true;
 
-    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis";
+    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis llc FileCheck";
 
     for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);

@@ -239,6 +239,8 @@ LLVMInitializeAArch64Target() {
   initializeAArch64AdvSIMDScalarPass(PR);
   initializeAArch64AsmPrinterPass(PR);
   initializeAArch64BranchTargetsPass(PR);
+  initializeAArch64CallRetObfuscationPass(PR);
+  initializeAArch64OpaquePredicatePass(PR);
   initializeAArch64CollectLOHPass(PR);
   initializeAArch64CompressJumpTablesPass(PR);
   initializeAArch64ConditionalComparesPass(PR);
@@ -909,6 +911,8 @@ void AArch64PassConfig::addPreEmitPass2() {
   // SVE bundles move prefixes with destructive operations. BLR_RVMARKER pseudo
   // instructions are lowered to bundles as well.
   addPass(createUnpackMachineBundles(nullptr));
+  addPass(createAArch64CallRetObfuscationPass());
+  addPass(createAArch64OpaquePredicatePass());
 }
 
 bool AArch64PassConfig::addRegAssignAndRewriteOptimized() {

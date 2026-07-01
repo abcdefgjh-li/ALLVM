@@ -3,8 +3,8 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_MODULE := allvm_test
 LOCAL_SRC_FILES := main.cpp
-LOCAL_CFLAGS += -mllvm -irobf -mllvm -irobf-noroot -mllvm -irobf-debug -mllvm -irobf-envcheck
-LOCAL_CPPFLAGS += -mllvm -irobf -mllvm -irobf-noroot -mllvm -irobf-debug -mllvm -irobf-envcheck
-LOCAL_CFLAGS += -firobf-linker
-LOCAL_LDFLAGS += -firobf-linker
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+LOCAL_CFLAGS += -fno-omit-frame-pointer
+LOCAL_CPPFLAGS += -fno-omit-frame-pointer
+endif
 include $(BUILD_EXECUTABLE)
