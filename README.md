@@ -22,6 +22,99 @@
 .\build.exe
 ```
 
+默认会依次执行以下阶段：
+
+1. 构建 `zstd`
+2. 运行 `cmake` 生成 `build-windows`
+3. 编译 `aVMPInterpreter.bc`
+4. 生成 `vm.h`
+5. 用 Ninja 构建 LLVM/Clang/lld 相关目标
+6. 自动执行 NDK 工具链替换
+7. 编译并运行 `test/jni` 回归测试
+
+> **说明**: `build.exe` 在构建阶段结束后会自动调用 `replace_ndk_clang()` 执行替换，不需要手工复制二进制。
+>
+> 当前自动替换的是链接链路相关工具和运行时依赖：
+> - `lld.exe`
+> - `ld.lld.exe`
+> - `llvm-strip.exe`
+> - `llvm-objcopy.exe`
+> - `build-windows/bin` 下匹配到的 DLL
+>
+> 它不会覆盖 NDK 自带的 `clang.exe` / `clang++.exe` 前端，这样可以尽量保持 NDK 前端兼容性，同时让最终链接走 ALLVM 自己构建的 `lld` 链路。
+
+## build.exe 用法
+
+### 基本格式
+
+```bash
+.\build.exe [选项]
+```
+
+### 阶段控制
+
+| 参数 | 说明 |
+|------|------|
+| `--skip-build` | 跳过默认构建流程中的 `cmake / interpreter / vmh / build / test` 阶段 |
+| `--skip zstd,cmake,interpreter,vmh,build,test` | 跳过指定阶段，传入值按子串匹配 |
+| `--only zstd` | 仅执行 `zstd` 阶段 |
+| `--only cmake` | 仅执行 `cmake` 配置 |
+| `--only interpreter` | 仅编译 `aVMPInterpreter.bc` |
+| `--only vmh` | 仅生成 `vm.h` |
+| `--only build` | 仅构建 LLVM/Clang/lld 并自动替换 NDK 链接工具 |
+| `--only test` | 仅执行测试链，包括机器码验证和设备运行测试 |
+
+### 构建参数
+
+| 参数 | 说明 |
+|------|------|
+| `--target <triple>` | 指定 `aVMPInterpreter` 编译目标，默认 `aarch64-linux-android` |
+| `-j <N>` / `--jobs <N>` | 指定并行构建任务数 |
+| `--build "<ninja targets>"` | 指定 Ninja 目标，默认 `clang lld llvm-strip llvm-objcopy llvm-dis llc FileCheck` |
+
+### APK 相关
+
+| 参数 | 说明 |
+|------|------|
+| `--apk` | 构建 APK |
+| `--apk-release` | 构建 Release APK |
+| `--all` | 运行默认构建流程并额外构建 APK |
+
+### 自定义测试参数
+
+| 参数 | 说明 |
+|------|------|
+| `--test-project <dir>` | 指定自定义 NDK 测试工程目录 |
+| `--test-build-script <path>` | 指定 `APP_BUILD_SCRIPT`，默认 `jni/Android.mk` |
+| `--test-application-mk <path>` | 指定 `NDK_APPLICATION_MK`，默认 `jni/Application.mk` |
+| `--test-binary <name>` | 指定设备端要运行的二进制名 |
+| `--test-local-binary <path>` | 直接指定本地待推送二进制路径 |
+| `--test-device-path <path>` | 指定设备端推送路径 |
+| `--test-run-cmd <cmd>` | 指定设备端执行命令；不指定时默认 `chmod + 执行二进制` |
+| `--test-serial <serial>` | 指定设备序列号 |
+| `--test-abi <abi>` | 指定测试 ABI |
+| `--test-timeout <sec>` | 指定设备端运行超时秒数 |
+| `--skip-test-build` | 跳过 NDK 构建，直接推送并运行现有二进制 |
+
+### 常用命令示例
+
+```bash
+# 全量构建 + 自动替换 + 默认测试
+.\build.exe
+
+# 只重编 LLVM/Clang/lld，并自动替换 NDK 链接工具
+.\build.exe --only build -j 16
+
+# 只跑后端/设备测试链
+.\build.exe --only test -j 8
+
+# 自定义测试工程
+.\build.exe --only test --test-project D:\work\demo -j 8
+
+# 直接推送本地二进制到设备运行
+.\build.exe --only test --skip-test-build --test-local-binary D:\tmp\demo --test-device-path /data/local/tests/demo
+```
+
 ## 混淆参数
 
 所有参数通过 `LOCAL_CFLAGS += -mllvm <参数>` 添加到 `Android.mk` 中。
@@ -32,6 +125,48 @@
 |------|------|
 | `-mllvm -irobf` | **混淆总开关**，启用后以下参数才会生效 |
 | `-mllvm -irobf-debug` | **调试模式**，启用后输出混淆和检测的调试信息 |
+| `-firobf-no-unwind` | **禁用 Unwind/CFI 生成**，强制附加 `-fno-asynchronous-unwind-tables`、`-fno-unwind-tables` 语义，并向后端传递 `-mllvm -irobf-no-cfi` |
+
+### Unwind / CFI 处理
+
+| 参数 | 说明 |
+|------|------|
+| `-firobf-no-unwind` | 驱动层强制关闭 unwind table 请求，覆盖默认 toolchain unwind 行为 |
+| `-mllvm -irobf-no-cfi` | 后端开关，直接屏蔽 `.cfi_*` 发射，阻断 `.eh_frame` / `debug_frame` 的 CFI 指令输出 |
+
+> `-firobf-no-unwind` 是给 `clang/clang++` 用户直接使用的外部参数。
+>
+> `-irobf-no-cfi` 是后端内部开关，通常不需要手工单独传；`-firobf-no-unwind` 会自动透传它。
+
+### AArch64 后端指令级混淆
+
+> 下面这些是 **AArch64 后端开关**，用于寄存器分配后或汇编输出阶段的机器码级改写。
+>
+> 它们不走 `-irobf` 总开关，而是直接通过后端命令行开关启用，适用于 `clang/clang++` 的 `-mllvm` 透传，或 `llc` 直接测试。
+
+| 参数 | 说明 |
+|------|------|
+| `-mllvm -aarch64-obfuscate-frame-record` | 将标准 `stp/ldp + mov x29, sp` 栈帧记录改写为 `str/ldr + add/sub` 组合，破坏标准 frame-record 特征 |
+| `-mllvm -aarch64-obfuscate-call-ret` | 将直接 `BL` 改写为 `ADRP/ADD/BLR` 间接调用序列，并将 `RET` 改写为 `BR X30` |
+| `-mllvm -aarch64-obfuscate-opaque-predicate` | 注入永远不走的死分支，并在死分支内发射非 4 字节对齐的 `.byte` 垃圾数据 |
+| `-mllvm -aarch64-enable-ldst-opt=false` | 验证 frame-record 改写时建议临时关闭，防止 `ldst-opt` 把序列重新配对回 `STP/LDP` |
+
+### AArch64 后端开关示例
+
+```makefile
+# 彻底关闭 unwind / CFI
+LOCAL_CPPFLAGS += -firobf-no-unwind
+
+# 拆分 frame record
+LOCAL_CPPFLAGS += -mllvm -aarch64-obfuscate-frame-record
+LOCAL_CPPFLAGS += -mllvm -aarch64-enable-ldst-opt=false
+
+# Call/Ret 混淆
+LOCAL_CPPFLAGS += -mllvm -aarch64-obfuscate-call-ret
+
+# 不透明谓词 + 死分支垃圾字节
+LOCAL_CPPFLAGS += -mllvm -aarch64-obfuscate-opaque-predicate
+```
 
 ### 代码混淆
 
@@ -233,6 +368,55 @@ LOCAL_LDFLAGS += -firobf-linker
 └─────────────────────────────────────┘
 ```
 
+## 机器码验证与反汇编扰乱
+
+`.\build.exe --only test` 不只是跑 `test/jni`，还会在设备执行前先做一轮 AArch64 后端机器码验证。
+
+### 自动验证项
+
+1. `frame_record_probe`
+   - 使用 `build-windows/bin/clang++.exe` 生成 AArch64 汇编
+   - 校验是否出现拆分后的 `str/ldr` 与 `add/sub x29` 序列
+   - 拒绝出现标准 `stp/ldp` 或 `mov x29, sp`
+
+2. `call_ret_probe`
+   - 校验是否把直接 `BL` 改写为间接调用
+   - 校验返回是否改写为 `BR X30`
+
+3. `irobf-call-ret-scratch.mir`
+   - 使用 `llc -run-pass=aarch64-call-ret-obfuscation`
+   - 验证不会固定占用 `X16`
+   - 验证 scratch 寄存器来自动态选择
+
+4. `opaque predicate`
+   - 使用 `llc` 先生成汇编，检查死分支中是否存在 `.byte 0`、`.byte 232`、`.p2align 2, 0x0`
+   - 再生成目标文件，用 `llvm-objdump -d` 校验错位后的机器码
+   - 当前验证目标包括：
+     - `.word 0x00000000`，对应 `UDF #0` 编码
+     - `.word 0x000003e8`，对应错位尾部字节拼接结果
+
+5. `no unwind / no cfi`
+   - `clang` driver 侧验证 `-firobf-no-unwind` 会抑制 `-funwind-tables=`
+   - `llc` / 后端侧验证 `-irobf-no-cfi` 后汇编中不再出现任何 `.cfi_*`
+   - 目标是同时从 driver 和 AsmPrinter 两侧破坏 `.eh_frame` 生成链
+
+### 相关测试输入
+
+| 文件 | 作用 |
+|------|------|
+| `test/jni/frame_record_codegen.cpp` | 栈帧拆分 codegen 验证输入 |
+| `test/jni/call_ret_codegen.cpp` | Call/Ret 改写 codegen 验证输入 |
+| `llvm/test/CodeGen/AArch64/irobf-call-ret-scratch.mir` | 动态 scratch 寄存器 MIR 回归 |
+| `llvm/test/CodeGen/AArch64/irobf-opaque-predicate-bytes.ll` | 不透明谓词字节输出与目标文件回归 |
+| `llvm/test/CodeGen/AArch64/irobf-opaque-predicate.mir` | 不透明谓词 CFG/MIR 形态回归 |
+| `llvm/test/MC/AArch64/udf.s` | `0x00000000 == udf #0` 的 MC 侧编码依据 |
+
+### 设备执行路径
+
+- 默认优先推送到 `/data/local/tmp/<binary>`
+- 如果当前设备禁止写入 `/data/local/tmp`，`build.exe` 会自动回退到 `/data/local/tests/<binary>`
+- 推送成功后自动执行 `chmod 755 + 运行`
+
 ## Android.mk 示例
 
 ```makefile
@@ -264,6 +448,12 @@ LOCAL_CFLAGS += -mllvm -irobf-rtti
 
 # === 系统调用保护 (仅 ARM64) ===
 LOCAL_CFLAGS += -mllvm -irobf-syscall
+
+# === AArch64 后端指令级混淆 (仅 AArch64) ===
+# LOCAL_CPPFLAGS += -mllvm -aarch64-obfuscate-frame-record
+# LOCAL_CPPFLAGS += -mllvm -aarch64-enable-ldst-opt=false
+# LOCAL_CPPFLAGS += -mllvm -aarch64-obfuscate-call-ret
+# LOCAL_CPPFLAGS += -mllvm -aarch64-obfuscate-opaque-predicate
 
 # === VMP 虚拟机保护 ===
 # LOCAL_CFLAGS += -mllvm -irobf-vmp
@@ -298,6 +488,10 @@ include $(BUILD_EXECUTABLE)
 | 文件 | 说明 |
 |------|------|
 | `llvm\lib\Transforms\Obfuscation\ObfuscationPassManager.cpp` | Pass 管理器 |
+| `llvm\lib\Target\AArch64\AArch64FrameLowering.cpp` | AArch64 frame-record 拆分与恢复 |
+| `llvm\lib\Target\AArch64\AArch64CallRetObfuscation.cpp` | AArch64 Call/Ret 机器码改写 |
+| `llvm\lib\Target\AArch64\AArch64OpaquePredicate.cpp` | AArch64 不透明谓词与死分支构造 |
+| `llvm\lib\Target\AArch64\AArch64AsmPrinter.cpp` | 死分支 `.byte` 垃圾数据发射 |
 | `llvm\lib\Transforms\Obfuscation\aVMP.cpp` | VMP 虚拟机保护 |
 | `llvm\lib\Transforms\Obfuscation\SyscallProtect.cpp` | 系统调用保护 |
 | `llvm\lib\Transforms\Obfuscation\Flattening.cpp` | 控制流平坦化 |

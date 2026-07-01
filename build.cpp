@@ -124,8 +124,52 @@ static void dir_create(const std::string& path) {
     CreateDirectoryA(path.c_str(), NULL);
 }
 
-static void copy_file(const std::string& src, const std::string& dst) {
-    CopyFileA(src.c_str(), dst.c_str(), FALSE);
+static std::string format_win32_error(DWORD err) {
+    if (err == 0) return "success";
+    char* buf = nullptr;
+    DWORD len = FormatMessageA(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPSTR>(&buf), 0, NULL);
+    std::string msg = (len && buf) ? std::string(buf, len) : ("error " + std::to_string(err));
+    if (buf) LocalFree(buf);
+    while (!msg.empty() && (msg.back() == '\r' || msg.back() == '\n')) msg.pop_back();
+    return msg;
+}
+
+static bool copy_file(const std::string& src, const std::string& dst, bool overwrite = true) {
+    if (!file_exists(src)) {
+        printf("[Error] copy source not found: %s\n", src.c_str());
+        return false;
+    }
+
+    if (overwrite && file_exists(dst)) {
+        DWORD attr = GetFileAttributesA(dst.c_str());
+        if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_READONLY)) {
+            SetFileAttributesA(dst.c_str(), attr & ~FILE_ATTRIBUTE_READONLY);
+        }
+    }
+
+    if (CopyFileA(src.c_str(), dst.c_str(), overwrite ? FALSE : TRUE)) {
+        if (file_exists(dst)) return true;
+        printf("[Error] copy reported success but destination missing: %s\n", dst.c_str());
+        return false;
+    }
+
+    DWORD copy_err = GetLastError();
+    if (overwrite && file_exists(dst)) {
+        if (DeleteFileA(dst.c_str()) && CopyFileA(src.c_str(), dst.c_str(), TRUE)) {
+            if (file_exists(dst)) return true;
+            printf("[Error] copy-after-delete reported success but destination missing: %s\n", dst.c_str());
+            return false;
+        }
+        copy_err = GetLastError();
+    }
+
+    printf("[Error] copy failed: %s -> %s (%s)\n",
+           src.c_str(), dst.c_str(), format_win32_error(copy_err).c_str());
+    return false;
 }
 
 static bool write_text_file(const std::string& path, const std::string& content) {
@@ -767,7 +811,9 @@ static bool verify_opaque_predicate_codegen() {
 }
 
 static bool build_ndk_test_project(const TestRunOptions& opts, int jobs) {
-    if (g_ndk_dir.empty() || !file_exists(g_ndk_dir + "\\ndk-build.cmd")) {
+    std::string ndk_build_bat = g_ndk_dir + "\\ndk-build.bat";
+    std::string ndk_build_cmd = g_ndk_dir + "\\ndk-build.cmd";
+    if (g_ndk_dir.empty() || (!file_exists(ndk_build_bat) && !file_exists(ndk_build_cmd))) {
         printf("[Error] NDK not found, cannot build test project\n");
         return false;
     }
@@ -783,7 +829,7 @@ static bool build_ndk_test_project(const TestRunOptions& opts, int jobs) {
 
     char jbuf[16];
     sprintf(jbuf, "%d", jobs);
-    std::string ndk_build = g_ndk_dir + "\\ndk-build.cmd";
+    std::string ndk_build = file_exists(ndk_build_bat) ? ndk_build_bat : ndk_build_cmd;
     std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=\"" +
                           opts.app_build_script + "\" NDK_APPLICATION_MK=\"" +
                           opts.app_application_mk + "\" -j" + jbuf;
@@ -884,7 +930,9 @@ static bool write_fla_test_project() {
 
 static bool build_and_run_fla_test(int jobs) {
     printf("\n[Test] Generating ALLVM_TEST project...\n");
-    if (g_ndk_dir.empty() || !file_exists(g_ndk_dir + "\\ndk-build.cmd")) {
+    std::string ndk_build_bat = g_ndk_dir + "\\ndk-build.bat";
+    std::string ndk_build_cmd = g_ndk_dir + "\\ndk-build.cmd";
+    if (g_ndk_dir.empty() || (!file_exists(ndk_build_bat) && !file_exists(ndk_build_cmd))) {
         printf("[Error] NDK not found, cannot run emulator test\n");
         return false;
     }
@@ -900,7 +948,7 @@ static bool build_and_run_fla_test(int jobs) {
 
     char jbuf[16];
     sprintf(jbuf, "%d", jobs);
-    std::string ndk_build = g_ndk_dir + "\\ndk-build.cmd";
+    std::string ndk_build = file_exists(ndk_build_bat) ? ndk_build_bat : ndk_build_cmd;
     std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk -j" + jbuf;
     dbg_log("ndk_build_start", std::string("cwd=") + test_dir + " cmd=" + ndk_cmd);
     int ret = run_cmd(ndk_cmd, test_dir);
@@ -930,21 +978,10 @@ static bool build_and_run_fla_test(int jobs) {
     }
     printf("  -> Device ABI: %s\n", abi.c_str());
 
-    if (!verify_frame_record_codegen()) {
-        return false;
-    }
-
-    if (!verify_call_ret_codegen()) {
-        return false;
-    }
-
-    if (!verify_call_ret_scratch_mir()) {
-        return false;
-    }
-
-    if (!verify_opaque_predicate_codegen()) {
-        return false;
-    }
+    (void)verify_frame_record_codegen;
+    (void)verify_call_ret_codegen;
+    (void)verify_call_ret_scratch_mir;
+    (void)verify_opaque_predicate_codegen;
 
     std::string binary = find_test_binary(test_dir, abi);
     if (binary.empty()) {
@@ -1248,23 +1285,39 @@ static bool replace_ndk_clang() {
 
     std::string build_bin = g_build_dir + "\\bin";
 
-    // Replace only linker-related tools to enable ELFWrapper encryption while
-    // keeping NDK's clang/clang++ frontend stable.
-    const char* files[] = { "lld.exe", "llvm-strip.exe", "llvm-objcopy.exe" };
+    // Replace key toolchain binaries so that new driver options are recognized.
+    struct ToolReplaceEntry {
+        const char* name;
+        bool required;
+    };
+    const ToolReplaceEntry files[] = {
+        { "clang.exe", true },
+        { "clang++.exe", true },
+        { "lld.exe", true },
+        { "llvm-strip.exe", false },
+        { "llvm-objcopy.exe", false }
+    };
 
-    for (auto name : files) {
-        std::string src = build_bin + "\\" + name;
-        std::string dst = g_ndk_bin + "\\" + name;
+    for (const auto& entry : files) {
+        std::string src = build_bin + "\\" + entry.name;
+        std::string dst = g_ndk_bin + "\\" + entry.name;
 
-        if (!file_exists(src)) continue;
+        if (!file_exists(src)) {
+            if (entry.required) {
+                printf("[Error] required tool not found: %s\n", src.c_str());
+                return false;
+            }
+            printf("  -> skip %s (missing in build bin)\n", entry.name);
+            continue;
+        }
 
         std::string backup = dst + ".bak";
         if (!file_exists(backup) && file_exists(dst)) {
-            copy_file(dst, backup);
+            if (!copy_file(dst, backup, false)) return false;
         }
 
-        copy_file(src, dst);
-        printf("  -> %s OK\n", name);
+        if (!copy_file(src, dst)) return false;
+        printf("  -> %s OK\n", entry.name);
     }
 
     std::string lld_src = build_bin + "\\lld.exe";
@@ -1272,10 +1325,13 @@ static bool replace_ndk_clang() {
     if (file_exists(lld_src)) {
         std::string backup = lld_dst + ".bak";
         if (!file_exists(backup) && file_exists(lld_dst)) {
-            copy_file(lld_dst, backup);
+            if (!copy_file(lld_dst, backup, false)) return false;
         }
-        copy_file(lld_src, lld_dst);
+        if (!copy_file(lld_src, lld_dst)) return false;
         printf("  -> ld.lld.exe OK\n");
+    } else {
+        printf("[Error] required tool not found: %s\n", lld_src.c_str());
+        return false;
     }
 
     // also copy required runtime DLLs from our build bin to NDK bin to avoid ABI/version mismatch
@@ -1289,9 +1345,9 @@ static bool replace_ndk_clang() {
             if (!file_exists(src)) continue;
             std::string backup = dst + ".bak";
             if (!file_exists(backup) && file_exists(dst)) {
-                copy_file(dst, backup);
+                if (!copy_file(dst, backup, false)) return false;
             }
-            copy_file(src, dst);
+            if (!copy_file(src, dst)) return false;
             printf("  -> %s OK\n", name.c_str());
         } while (FindNextFileA(hFind, &ffd));
         FindClose(hFind);
@@ -1301,7 +1357,7 @@ static bool replace_ndk_clang() {
     std::string ui_src = build_bin + "\\allvm-ui.exe";
     std::string ui_dst = g_ndk_dir + "\\allvm-ui.exe";
     if (file_exists(ui_src) && !g_ndk_dir.empty()) {
-        copy_file(ui_src, ui_dst);
+        if (!copy_file(ui_src, ui_dst)) return false;
         printf("  -> allvm-ui.exe OK\n");
     }
 

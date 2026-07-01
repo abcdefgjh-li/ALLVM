@@ -21,11 +21,25 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include <cstdint>
 using namespace llvm;
 
 #define DEBUG_TYPE "asm-printer"
+
+namespace llvm {
+bool isIRObfuscationNoCFIEnabled();
+}
+
+static cl::opt<bool>
+    IrobfNoCFI("irobf-no-cfi", cl::Hidden,
+               cl::desc("Suppress emission of CFI instructions for OLLVM hardening"),
+               cl::init(false));
+
+namespace llvm {
+bool isIRObfuscationNoCFIEnabled() { return IrobfNoCFI; }
+}
 
 //===----------------------------------------------------------------------===//
 // Dwarf Emission Helper Routines
@@ -203,6 +217,8 @@ void AsmPrinter::emitCallSiteValue(uint64_t Value, unsigned Encoding) const {
 //===----------------------------------------------------------------------===//
 
 void AsmPrinter::emitCFIInstruction(const MCCFIInstruction &Inst) const {
+  if (isIRObfuscationNoCFIEnabled())
+    return;
   SMLoc Loc = Inst.getLoc();
   switch (Inst.getOperation()) {
   default:

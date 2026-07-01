@@ -6020,10 +6020,22 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   bool UnwindTables =
       Args.hasFlag(options::OPT_funwind_tables, options::OPT_fno_unwind_tables,
                    IsSyncUnwindTablesDefault && !Freestanding);
-  if (AsyncUnwindTables)
-    CmdArgs.push_back("-funwind-tables=2");
-  else if (UnwindTables)
-     CmdArgs.push_back("-funwind-tables=1");
+  bool IrobfNoUnwind = Args.hasArg(options::OPT_firobf_no_unwind);
+  if (IrobfNoUnwind) {
+    // Forcefully suppress unwind table lowering even if the toolchain or
+    // explicit user flags would normally request it.
+    AsyncUnwindTables = false;
+    UnwindTables = false;
+  }
+  if (!IrobfNoUnwind) {
+    if (AsyncUnwindTables)
+      CmdArgs.push_back("-funwind-tables=2");
+    else if (UnwindTables)
+      CmdArgs.push_back("-funwind-tables=1");
+  } else {
+    CmdArgs.push_back("-mllvm");
+    CmdArgs.push_back("-irobf-no-cfi");
+  }
 
   // Prepare `-aux-target-cpu` and `-aux-target-feature` unless
   // `--gpu-use-aux-triple-only` is specified.

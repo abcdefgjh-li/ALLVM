@@ -1606,6 +1606,9 @@ def fastf : Flag<["-"], "fastf">, Group<f_Group>;
 def fast : Flag<["-"], "fast">, Group<f_Group>;
 def fasynchronous_unwind_tables : Flag<["-"], "fasynchronous-unwind-tables">, Group<f_Group>;
 
+def firobf_no_unwind : Flag<["-"], "firobf-no-unwind">, Group<f_Group>,
+  HelpText<"Disable generation of unwind tables and CFI emission for OLLVM hardening (implies -fno-asynchronous-unwind-tables -fno-unwind-tables and passes -mllvm -irobf-no-cfi to backend)">;
+
 defm double_square_bracket_attributes : BoolFOption<"double-square-bracket-attributes",
   LangOpts<"DoubleSquareBracketAttributes">, DefaultTrue, PosFlag<SetTrue>,
  NegFlag<SetFalse>>;

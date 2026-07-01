@@ -134,6 +134,10 @@
 
 using namespace llvm;
 
+namespace llvm {
+bool isIRObfuscationNoCFIEnabled();
+}
+
 #define DEBUG_TYPE "asm-printer"
 
 // This is a replication of fields of object::PGOAnalysisMap::Features. It
@@ -1312,6 +1316,9 @@ static bool emitDebugLabelComment(const MachineInstr *MI, AsmPrinter &AP) {
 
 AsmPrinter::CFISection
 AsmPrinter::getFunctionCFISectionType(const Function &F) const {
+  if (isIRObfuscationNoCFIEnabled())
+    return CFISection::None;
+
   // Ignore functions that won't get emitted.
   if (F.isDeclarationForLinker())
     return CFISection::None;
@@ -1343,6 +1350,9 @@ bool AsmPrinter::usesCFIWithoutEH() const {
 }
 
 void AsmPrinter::emitCFIInstruction(const MachineInstr &MI) {
+  if (isIRObfuscationNoCFIEnabled())
+    return;
+
   ExceptionHandling ExceptionHandlingType = MAI->getExceptionHandlingType();
   if (!usesCFIWithoutEH() &&
       ExceptionHandlingType != ExceptionHandling::DwarfCFI &&
