@@ -532,8 +532,6 @@ include $(BUILD_EXECUTABLE)
 |----|------|
 | **LLVM 21.x** | https://github.com/llvm/llvm-project |
 | **OLLVM (obfuscator-llvm)** | https://github.com/obfuscator-llvm/obfuscator |
-| **Qt 6** | https://www.qt.io/download-open-source |
-| **xVMP** | https://github.com/amunmv/xvmp |
 
 ## 作者
 
