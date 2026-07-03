@@ -1225,7 +1225,6 @@ static bool cmake_configure() {
 
     if (!zlib_lib.empty() && zlib_lib.rfind(".a") == std::string::npos) {
         cmake_cmd += "-DLLVM_ENABLE_ZLIB=FORCE_ON "
-                     "-DLLVM_USE_STATIC_ZLIB=ON "
                      "-DZLIB_INCLUDE_DIR=\"" + zlib_include_dir + "\" "
                      "-DZLIB_LIBRARY=\"" + zlib_lib + "\" ";
     } else {

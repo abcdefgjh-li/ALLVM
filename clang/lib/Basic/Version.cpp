@@ -105,7 +105,11 @@ namespace clang {
 	std::string getClangToolFullVersion(StringRef ToolName) {
 		std::string buf;
 		llvm::raw_string_ostream OS(buf);
-		OS << "\nA-protector\nBy abcdefgjh.\n" << getRandomSignature() << "\n";
+		static bool printed = false;
+		if (!printed) {
+			OS << "\nA-protector\nBy abcdefgjh.\n" << getRandomSignature() << "\n";
+			printed = true;
+		}
 		return buf;
 	}
 
