@@ -51,6 +51,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <chrono>
 
 using namespace llvm;
 using namespace std;
@@ -239,6 +240,16 @@ static uint64_t splitmix64Next(uint64_t &State) {
     return vmMix64(State);
 }
 
+static uint64_t getVMBuildSalt() {
+    static uint64_t Salt = vmNonZero64(
+        vmMix64((uint64_t)std::chrono::high_resolution_clock::now()
+                    .time_since_epoch()
+                    .count() ^
+                (uint64_t)(uintptr_t)&Salt),
+        0x7a5f4d3c2b190817ULL);
+    return Salt;
+}
+
 static uint64_t deriveVMFunctionKey(const Function &F) {
     uint64_t Hash = 1469598103934665603ULL;
     std::string Name = F.getName().str();
@@ -248,6 +259,7 @@ static uint64_t deriveVMFunctionKey(const Function &F) {
     }
     Hash ^= (uint64_t)F.arg_size() * 0x9e3779b97f4a7c15ULL;
     Hash ^= (uint64_t)F.size() * 0xbf58476d1ce4e5b9ULL;
+    Hash ^= getVMBuildSalt();
     return vmNonZero64(vmMix64(Hash), 0x51f15e5ULL);
 }
 
@@ -629,14 +641,21 @@ class GOVMTranslator {
         Function *get_callinst_handler() {
             return this->callinst_handler;
         }
+        Function *get_function() { return this->F; }
 
         GlobalVariable *get_gv_data_seg() { return this->gv_data_seg; }
         GlobalVariable *get_gv_code_seg() { return this->gv_code_seg; }
         GlobalVariable *get_ip() { return this->ip; }
         GlobalVariable *get_data_seg_addr() { return this->data_seg_addr; }
         GlobalVariable *get_code_seg_addr() { return this->code_seg_addr; }
+        uint64_t get_vm_function_key() const { return this->vm_function_key; }
         int get_data_seg_size() { return this->curr_data_offset; }
+        std::map<GlobalVariable *, int> *get_gv_value_map() { return &gv_value_map; }
+        std::map<int, GEPInfo> *get_gep_info_map() { return &gep_info_map; }
+        std::map<int, BlockAddressInfo> *get_blockaddress_info_map() { return &blockaddress_info_map; }
+        std::map<Value *, int> *get_value_map() { return &value_map; }
 
+    private:
         // insert arg into res.end
         template <typename T, typename Arg>
         void vector_appender(T &res, Arg arg)
@@ -649,22 +668,6 @@ class GOVMTranslator {
         void ins_to_hex(T &res, Args ... arg)
         {
             (void)std::initializer_list<int>{ (vector_appender(res, arg), 0)... };
-        }
-
-        std::map<GlobalVariable *, int> *get_gv_value_map() {
-            return &gv_value_map;
-        }
-
-        std::map<int, GEPInfo> *get_gep_info_map() {
-            return &gep_info_map;
-        }
-
-        std::map<int, BlockAddressInfo> *get_blockaddress_info_map() {
-            return &blockaddress_info_map;
-        }
-
-        std::map<Value *, int> *get_value_map() {
-            return &value_map;
         }
 
 
@@ -1065,6 +1068,10 @@ class GOVMTranslator {
 // GlobalVariable * data_seg_addr;
 // GlobalVariable * code_seg_addr;
 
+static GlobalVariable *getOrCreateSharedGV(Module *M, Type *Ty, Constant *Init,
+                                            StringRef Name,
+                                            StringRef Section = ".AProtect.data");
+
 void GOVMTranslator::construct_gv() {
     // construct code global array from vm_code
     
@@ -1109,63 +1116,42 @@ void GOVMTranslator::construct_gv() {
     gv_data_seg->setAlignment(Align(16));
 
 
-    // ip
-    Constant *ip_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    ip = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
-                false,  GlobalValue::InternalLinkage,
-                ip_initGV, "ip_"+F->getName());
-    ip->setSection(".AProtect.data");
+    ip = getOrCreateSharedGV(Mod, Type::getInt32Ty(Mod->getContext()),
+                             ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0),
+                             "vmp_shared_ip", ".AProtect.data");
 
-    // data_seg_addr
-    Constant *data_seg_addr_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    data_seg_addr = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false,  GlobalValue::InternalLinkage,
-                data_seg_addr_initGV, "data_seg_addr_"+F->getName());
-    data_seg_addr->setSection(".AProtect.data");
+    data_seg_addr = getOrCreateSharedGV(Mod, Type::getInt64Ty(Mod->getContext()),
+                                        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+                                        "vmp_shared_data_seg_addr", ".AProtect.data");
 
-    // code_seg_addr
-    Constant *code_seg_addr_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    code_seg_addr = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false,  GlobalValue::InternalLinkage,
-                code_seg_addr_initGV, "code_seg_addr_"+F->getName());
-    code_seg_addr->setSection(".AProtect.data");
+    code_seg_addr = getOrCreateSharedGV(Mod, Type::getInt64Ty(Mod->getContext()),
+                                        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+                                        "vmp_shared_code_seg_addr", ".AProtect.data");
 
-    // exception_thrown
-    Constant *exc_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0);
-    exception_thrown = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, exc_init, "exception_thrown_"+F->getName());
-    exception_thrown->setSection(".AProtect.data");
+    exception_thrown = getOrCreateSharedGV(Mod, Type::getInt8Ty(Mod->getContext()),
+                                           ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0),
+                                           "vmp_shared_exception_thrown", ".AProtect.data");
 
-    // exception_ptr_global (void*)
-    Constant *exc_ptr_init = ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0));
-    exception_ptr_global = new GlobalVariable(*Mod, PointerType::get(Mod->getContext(), 0),
-        false, GlobalValue::InternalLinkage, exc_ptr_init, "exception_ptr_"+F->getName());
-    exception_ptr_global->setSection(".AProtect.data");
+    exception_ptr_global = getOrCreateSharedGV(Mod, PointerType::get(Mod->getContext(), 0),
+                                               ConstantPointerNull::get(PointerType::get(Mod->getContext(), 0)),
+                                               "vmp_shared_exception_ptr", ".AProtect.data");
 
-    // exception_selector_global
-    Constant *exc_sel_init = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0);
-    exception_selector_global = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, exc_sel_init, "exception_selector_"+F->getName());
-    exception_selector_global->setSection(".AProtect.data");
+    exception_selector_global = getOrCreateSharedGV(Mod, Type::getInt32Ty(Mod->getContext()),
+                                                    ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0),
+                                                    "vmp_shared_exception_selector", ".AProtect.data");
 
-    // last_br_from_bb_id
-    Constant *last_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    last_br_from_bb_id = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, last_bb_init, "last_br_from_bb_id_"+F->getName());
-    last_br_from_bb_id->setSection(".AProtect.data");
+    last_br_from_bb_id = getOrCreateSharedGV(Mod, Type::getInt64Ty(Mod->getContext()),
+                                             ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+                                             "vmp_shared_last_br_from_bb_id", ".AProtect.data");
 
-    // current_bb_id
-    Constant *curr_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    current_bb_id = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, curr_bb_init, "current_bb_id_"+F->getName());
-    current_bb_id->setSection(".AProtect.data");
+    current_bb_id = getOrCreateSharedGV(Mod, Type::getInt64Ty(Mod->getContext()),
+                                        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+                                        "vmp_shared_current_bb_id", ".AProtect.data");
 
-    // vmp_debug_enabled - set to 1 if -irobf-debug is enabled, 0 otherwise
     uint8_t debug_enabled = isIRObfuscationDebugEnabled() ? 1 : 0;
-    Constant *debug_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), debug_enabled);
-    vmp_debug_enabled_gv = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, debug_init, "vmp_debug_enabled_"+F->getName());
-    vmp_debug_enabled_gv->setSection(".AProtect.data");
+    vmp_debug_enabled_gv = getOrCreateSharedGV(Mod, Type::getInt8Ty(Mod->getContext()),
+                                               ConstantInt::get(Type::getInt8Ty(Mod->getContext()), debug_enabled),
+                                               "vmp_shared_debug_enabled", ".AProtect.data");
 }
 
 void GOVMTranslator::setup_callinst_handler() {
@@ -1220,6 +1206,50 @@ void GOVMTranslator::finish_callinst_handler() {
     // 为最后一个基本块添加返回指令
     IRBuilder<> IRB(this->callinst_handler_conBBL);
     IRB.CreateRetVoid();
+}
+
+static Function *buildSharedCallDispatcher(
+    Module *M,
+    ArrayRef<GOVMTranslator *> Translators,
+    GlobalVariable *SharedCodeSegAddr) {
+    LLVMContext &Ctx = M->getContext();
+    FunctionType *FuncTy = FunctionType::get(Type::getVoidTy(Ctx),
+                                             {Type::getInt64Ty(Ctx)}, false);
+    Function *Dispatcher = M->getFunction("vmp_shared_call_dispatch");
+    if (!Dispatcher) {
+        Dispatcher = Function::Create(FuncTy, GlobalValue::InternalLinkage,
+                                      "vmp_shared_call_dispatch", M);
+        Dispatcher->setSection(".AProtect.text");
+    }
+    if (!Dispatcher->empty()) {
+        Dispatcher->deleteBody();
+    }
+
+    BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", Dispatcher);
+    BasicBlock *Exit = BasicBlock::Create(Ctx, "exit", Dispatcher);
+    IRBuilder<> Builder(Entry);
+    Argument *FuncId = Dispatcher->arg_begin();
+    Value *CurrentCodeSeg = Builder.CreateLoad(Type::getInt64Ty(Ctx), SharedCodeSegAddr);
+
+    BasicBlock *Next = nullptr;
+    for (GOVMTranslator *Translator : Translators) {
+        BasicBlock *CallBB = BasicBlock::Create(Ctx, "dispatch.call", Dispatcher);
+        Next = BasicBlock::Create(Ctx, "dispatch.next", Dispatcher);
+        Value *CodePtr = Builder.CreatePtrToInt(Translator->get_gv_code_seg(), Type::getInt64Ty(Ctx));
+        Value *Matches = Builder.CreateICmpEQ(CurrentCodeSeg, CodePtr);
+        Builder.CreateCondBr(Matches, CallBB, Next);
+
+        IRBuilder<> CallBuilder(CallBB);
+        CallBuilder.CreateCall(Translator->get_callinst_handler(), {FuncId});
+        CallBuilder.CreateBr(Exit);
+
+        Builder.SetInsertPoint(Next);
+    }
+    Builder.CreateBr(Exit);
+
+    IRBuilder<> ExitBuilder(Exit);
+    ExitBuilder.CreateRetVoid();
+    return Dispatcher;
 }
 
 void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
@@ -3581,12 +3611,18 @@ class GOVMModifier {
                      GlobalVariable *gv_data_seg, GlobalVariable *gv_code_seg,
                      GlobalVariable *ip, GlobalVariable *data_seg_addr,
                      GlobalVariable *code_seg_addr,
+                     GlobalVariable *dispatch_code_seg_addr,
                      GlobalVariable *exception_thrown_gv,
                      GlobalVariable *exception_ptr_gv,
                      GlobalVariable *exception_selector_gv,
                      GlobalVariable *vm_block_chain_state_gv,
                      GlobalVariable *expected_bb_token_gv,
-                     Function *govm_interpreter, Function *resume_unwind_helper,
+                     GlobalVariable *vm_function_key_gv,
+                     GlobalVariable *opcode_xorshift32_state_gv,
+                     GlobalVariable *vm_code_state_gv,
+                     uint64_t vm_function_key,
+                     Function *govm_interpreter,
+                     Function *resume_unwind_helper,
                      int data_seg_size) {
             this->Mod = F->getParent();
             this->F = F;
@@ -3600,11 +3636,16 @@ class GOVMModifier {
             this->ip = ip;
             this->data_seg_addr = data_seg_addr;
             this->code_seg_addr = code_seg_addr;
+            this->dispatch_code_seg_addr = dispatch_code_seg_addr;
             this->exception_thrown_gv = exception_thrown_gv;
             this->exception_ptr_gv = exception_ptr_gv;
             this->exception_selector_gv = exception_selector_gv;
             this->vm_block_chain_state_gv = vm_block_chain_state_gv;
             this->expected_bb_token_gv = expected_bb_token_gv;
+            this->vm_function_key_gv = vm_function_key_gv;
+            this->opcode_xorshift32_state_gv = opcode_xorshift32_state_gv;
+            this->vm_code_state_gv = vm_code_state_gv;
+            this->vm_function_key = vm_function_key;
             this->govm_interpreter = govm_interpreter;
             this->resume_unwind_helper = resume_unwind_helper;
             this->data_seg_size = data_seg_size;
@@ -3624,11 +3665,16 @@ class GOVMModifier {
         GlobalVariable *ip;
         GlobalVariable *data_seg_addr;
         GlobalVariable *code_seg_addr;
+        GlobalVariable *dispatch_code_seg_addr;
         GlobalVariable *exception_thrown_gv;
         GlobalVariable *exception_ptr_gv;
         GlobalVariable *exception_selector_gv;
         GlobalVariable *vm_block_chain_state_gv;
         GlobalVariable *expected_bb_token_gv;
+        GlobalVariable *vm_function_key_gv;
+        GlobalVariable *opcode_xorshift32_state_gv;
+        GlobalVariable *vm_code_state_gv;
+        uint64_t vm_function_key;
         Function *govm_interpreter;
         Function *resume_unwind_helper;
         int data_seg_size;
@@ -3830,11 +3876,23 @@ void GOVMModifier::run() {
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMModifier]   Setting data_seg_addr and code_seg_addr...\n";
     }
-    
+
+    Value *saved_ip = irbuilder.CreateLoad(Type::getInt32Ty(Mod->getContext()), ip);
+    Value *saved_data_seg_addr = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), data_seg_addr);
+    Value *saved_code_seg_addr = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), code_seg_addr);
+    Value *saved_vm_function_key = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), vm_function_key_gv);
+    Value *saved_opcode_xorshift32_state = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), opcode_xorshift32_state_gv);
+    Value *saved_vm_code_state = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), vm_code_state_gv);
+    Value *saved_vm_block_chain_state = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), vm_block_chain_state_gv);
+    Value *saved_expected_bb_token = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), expected_bb_token_gv);
+
     Value * data_seg_ptr2int = irbuilder.CreatePtrToInt(gv_data_seg, Type::getInt64Ty(Mod->getContext()));
     irbuilder.CreateStore(data_seg_ptr2int, data_seg_addr);
     Value * code_seg_ptr2int = irbuilder.CreatePtrToInt(gv_code_seg, Type::getInt64Ty(Mod->getContext()));
     irbuilder.CreateStore(code_seg_ptr2int, code_seg_addr);
+    irbuilder.CreateStore(code_seg_ptr2int, dispatch_code_seg_addr);
+
+    irbuilder.CreateStore(ConstantInt::get(Type::getInt64Ty(Mod->getContext()), vm_function_key), vm_function_key_gv);
 
     // 重置 ip 为 0，确保每次调用都从函数开头执行
     irbuilder.CreateStore(ConstantInt::get(Type::getInt32Ty(Mod->getContext()), 0), ip);
@@ -3857,7 +3915,19 @@ void GOVMModifier::run() {
         ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0));
     irbuilder.CreateCondBr(hasUnhandledException, resumeExceptionBB, normalReturnBB);
 
+    auto restoreSharedVmState = [&](IRBuilder<> &Builder) {
+        Builder.CreateStore(saved_ip, ip);
+        Builder.CreateStore(saved_data_seg_addr, data_seg_addr);
+        Builder.CreateStore(saved_code_seg_addr, code_seg_addr);
+        Builder.CreateStore(saved_vm_function_key, vm_function_key_gv);
+        Builder.CreateStore(saved_opcode_xorshift32_state, opcode_xorshift32_state_gv);
+        Builder.CreateStore(saved_vm_code_state, vm_code_state_gv);
+        Builder.CreateStore(saved_vm_block_chain_state, vm_block_chain_state_gv);
+        Builder.CreateStore(saved_expected_bb_token, expected_bb_token_gv);
+    };
+
     IRBuilder<> normalBuilder(normalReturnBB);
+    restoreSharedVmState(normalBuilder);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMModifier]   Creating return...\n";
@@ -3876,6 +3946,7 @@ void GOVMModifier::run() {
 
     IRBuilder<> resumeBuilder(resumeExceptionBB);
     Value *resumeExceptionPtr = resumeBuilder.CreateLoad(PointerType::get(Mod->getContext(), 0), exception_ptr_gv);
+    restoreSharedVmState(resumeBuilder);
     resumeBuilder.CreateCall(resume_unwind_helper, {resumeExceptionPtr});
     resumeBuilder.CreateUnreachable();
 }
@@ -3925,6 +3996,7 @@ class GOVMInterpreter {
 
         Function *callinst_handler;
 
+        GlobalVariable *dispatch_code_seg_addr;
         GlobalVariable *gv_data_seg;
         GlobalVariable *gv_code_seg;
         GlobalVariable *ip;
@@ -3947,6 +4019,10 @@ class GOVMInterpreter {
         virtual void construct_gv ();
         GlobalVariable *get_vm_block_chain_state_gv() { return vm_block_chain_state_gv; }
         GlobalVariable *get_expected_bb_token_gv() { return expected_bb_token_gv; }
+        GlobalVariable *get_vm_function_key_gv() { return vm_function_key_gv; }
+        GlobalVariable *get_dispatch_code_seg_addr_gv() { return dispatch_code_seg_addr; }
+        GlobalVariable *get_opcode_xorshift32_state_gv() { return opcode_xorshift32_state; }
+        GlobalVariable *get_vm_code_state_gv() { return vm_code_state; }
 
 
         Module *llvm_parse_bitcode_from_string()
@@ -4064,70 +4140,79 @@ const std::set<std::string> interpreter_function_names{
 ***********************************************************************
 */
 
+static GlobalVariable *getOrCreateSharedGV(Module *M, Type *Ty, Constant *Init,
+                                            StringRef Name,
+                                            StringRef Section) {
+    if (GlobalVariable *GV = M->getGlobalVariable(Name, true)) {
+        if (!Section.empty()) {
+            GV->setSection(Section);
+        }
+        return GV;
+    }
+    GlobalVariable *GV = new GlobalVariable(*M, Ty, false, GlobalValue::InternalLinkage,
+                                            Init, Name);
+    if (!Section.empty()) {
+        GV->setSection(Section);
+    }
+    return GV;
+}
+
 void GOVMInterpreter::construct_gv() {
-    // pointer_size - 根据目标架构动态设置（必须是可修改的，因为解释器会设置它）
     unsigned ptr_size = modDataLayout->getPointerSize();
-    Constant *pointer_size_initGV = ConstantInt::get(Type::getInt32Ty(Mod->getContext()), ptr_size);
-    pointer_size_gv = new GlobalVariable(*Mod, Type::getInt32Ty(Mod->getContext()),
-                false,  GlobalValue::InternalLinkage,
-                pointer_size_initGV, "pointer_size_"+F->getName());
-    pointer_size_gv->setSection(".AProtect.data");
+    dispatch_code_seg_addr = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_dispatch_code_seg_addr", ".AProtect.data");
 
-    // opcode_xorshift32_state      64bit splitmix64 state
-    Constant *opcode_xorshift32_state_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    opcode_xorshift32_state = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false,  GlobalValue::InternalLinkage,
-                opcode_xorshift32_state_initGV, "opcode_xorshift32_state_"+F->getName());
-    opcode_xorshift32_state->setSection(".AProtect.data");
+    pointer_size_gv = getOrCreateSharedGV(
+        Mod, Type::getInt32Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt32Ty(Mod->getContext()), ptr_size),
+        "vmp_shared_pointer_size", ".AProtect.data");
 
-    // vm_code_state                64bit payload seed
-    Constant *vm_code_state_initGV = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    vm_code_state = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false,  GlobalValue::InternalLinkage,
-                vm_code_state_initGV, "vm_code_state_"+F->getName());
-    vm_code_state->setSection(".AProtect.data");
+    opcode_xorshift32_state = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_opcode_xorshift32_state", ".AProtect.data");
 
-    Constant *vm_function_key_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()),
-                                                     deriveVMFunctionKey(*F));
-    vm_function_key_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false, GlobalValue::InternalLinkage,
-                vm_function_key_init, "vm_function_key_"+F->getName());
-    vm_function_key_gv->setSection(".AProtect.data");
+    vm_code_state = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_vm_code_state", ".AProtect.data");
 
-    Constant *vm_block_chain_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    vm_block_chain_state_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false, GlobalValue::InternalLinkage,
-                vm_block_chain_init, "vm_block_chain_state_"+F->getName());
-    vm_block_chain_state_gv->setSection(".AProtect.data");
+    vm_function_key_gv = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_vm_function_key", ".AProtect.data");
 
-    Constant *expected_bb_token_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    expected_bb_token_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-                false, GlobalValue::InternalLinkage,
-                expected_bb_token_init, "expected_bb_token_"+F->getName());
-    expected_bb_token_gv->setSection(".AProtect.data");
+    vm_block_chain_state_gv = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_vm_block_chain_state", ".AProtect.data");
+
+    expected_bb_token_gv = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_expected_bb_token", ".AProtect.data");
 
     assert(exc_thrown_gv && "missing shared exception_thrown global");
     assert(exc_ptr_gv && "missing shared exception_ptr global");
     assert(exc_sel_gv && "missing shared exception_selector global");
 
-    // last_br_from_bb_id - 添加函数名后缀避免多函数冲突
-    Constant *last_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    last_bb_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, last_bb_init, "last_br_from_bb_id_"+F->getName());
-    last_bb_gv->setSection(".AProtect.data");
+    last_bb_gv = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_last_br_from_bb_id", ".AProtect.data");
 
-    // current_bb_id - 添加函数名后缀避免多函数冲突
-    Constant *curr_bb_init = ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0);
-    curr_bb_gv = new GlobalVariable(*Mod, Type::getInt64Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, curr_bb_init, "current_bb_id_"+F->getName());
-    curr_bb_gv->setSection(".AProtect.data");
+    curr_bb_gv = getOrCreateSharedGV(
+        Mod, Type::getInt64Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt64Ty(Mod->getContext()), 0),
+        "vmp_shared_current_bb_id", ".AProtect.data");
 
-    // vmp_debug_enabled - set to 1 if -irobf-debug is enabled, 0 otherwise
     uint8_t debug_enabled = isIRObfuscationDebugEnabled() ? 1 : 0;
-    Constant *debug_init = ConstantInt::get(Type::getInt8Ty(Mod->getContext()), debug_enabled);
-    vmp_debug_enabled_gv = new GlobalVariable(*Mod, Type::getInt8Ty(Mod->getContext()),
-        false, GlobalValue::InternalLinkage, debug_init, "vmp_debug_enabled_"+F->getName());
-    vmp_debug_enabled_gv->setSection(".AProtect.data");
+    vmp_debug_enabled_gv = getOrCreateSharedGV(
+        Mod, Type::getInt8Ty(Mod->getContext()),
+        ConstantInt::get(Type::getInt8Ty(Mod->getContext()), debug_enabled),
+        "vmp_shared_debug_enabled", ".AProtect.data");
 }
 
 // Function *govm_interpreter;
@@ -4270,8 +4355,8 @@ void GOVMInterpreter::run() {
         errs() << "[GOVMInterpreter]   code_seg_addr = " << (void*)code_seg_addr << "\n";
     }
     
-    std::vector<std::string> gv_list = {"gv_data_seg", "gv_code_seg", "ip", "data_seg_addr", "code_seg_addr", "pointer_size", "opcode_xorshift32_state", "vm_code_state", "vm_function_key", "vm_block_chain_state", "expected_bb_token", "exception_thrown", "exception_ptr", "exception_selector", "last_br_from_bb_id", "current_bb_id", "vmp_debug_enabled"};
-    std::vector<GlobalVariable *> new_gv_list = {gv_data_seg, gv_code_seg, ip, data_seg_addr, code_seg_addr, pointer_size_gv, opcode_xorshift32_state, vm_code_state, vm_function_key_gv, vm_block_chain_state_gv, expected_bb_token_gv, exc_thrown_gv, exc_ptr_gv, exc_sel_gv, last_bb_gv, curr_bb_gv, vmp_debug_enabled_gv};
+    std::vector<std::string> gv_list = {"gv_data_seg", "gv_code_seg", "ip", "data_seg_addr", "code_seg_addr", "dispatch_code_seg_addr", "pointer_size", "opcode_xorshift32_state", "vm_code_state", "vm_function_key", "vm_block_chain_state", "expected_bb_token", "exception_thrown", "exception_ptr", "exception_selector", "last_br_from_bb_id", "current_bb_id", "vmp_debug_enabled"};
+    std::vector<GlobalVariable *> new_gv_list = {gv_data_seg, gv_code_seg, ip, data_seg_addr, code_seg_addr, dispatch_code_seg_addr, pointer_size_gv, opcode_xorshift32_state, vm_code_state, vm_function_key_gv, vm_block_chain_state_gv, expected_bb_token_gv, exc_thrown_gv, exc_ptr_gv, exc_sel_gv, last_bb_gv, curr_bb_gv, vmp_debug_enabled_gv};
     
     std::map<GlobalVariable*, GlobalVariable*> gv_remap;
     for (unsigned i = 0; i < gv_list.size(); i++) {
@@ -4303,9 +4388,6 @@ void GOVMInterpreter::run() {
         errs() << "[GOVMInterpreter] Step 5: Replacing call_handler...\n";
     }
     Function *old_func = interpreter_module->getFunction("call_handler");
-    if (old_func && callinst_handler) {
-        old_func->replaceAllUsesWith(callinst_handler);
-    }
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMInterpreter] Step 5: call_handler replaced\n";
     }
@@ -4316,6 +4398,9 @@ void GOVMInterpreter::run() {
     for(auto Func = interpreter_module->begin(); Func != interpreter_module->end(); ++Func) {
         Function *fun = &*Func;
         if(fun->isDeclaration()) {
+            if (fun->getName() == "call_handler") {
+                continue;
+            }
             if(!Mod->getFunction(fun->getName())) {
                 FunctionCallee FC = Mod->getOrInsertFunction(fun->getName().str(), fun->getFunctionType());
                 Function *NewF = cast<Function>(FC.getCallee());
@@ -4339,20 +4424,12 @@ void GOVMInterpreter::run() {
             std::string funcName = fun->getName().str();
             std::string newFuncName;
             
-            // 检查函数名是否已经包含当前VMP函数名
-            if (funcName.find(F->getName().str()) != std::string::npos) {
-                // 已经包含，直接使用原名
-                newFuncName = funcName;
-            } else {
-                // 不包含，添加后缀
-                newFuncName = funcName + "_" + F->getName().str();
-            }
+            newFuncName = funcName + "_shared";
             
-            // 检查是否已存在
             Function *NewF = Mod->getFunction(newFuncName);
             if (!NewF) {
-                NewF = Function::Create(fun->getFunctionType(), 
-                    llvm::GlobalValue::LinkageTypes::InternalLinkage, 
+                NewF = Function::Create(fun->getFunctionType(),
+                    llvm::GlobalValue::LinkageTypes::InternalLinkage,
                     newFuncName, Mod);
             }
             interpreter_func_map[fun] = NewF;
@@ -4374,27 +4451,25 @@ void GOVMInterpreter::run() {
                 std::string funcName = fun->getName().str();
                 std::string newFuncName;
                 
-                // 检查函数名是否已经包含当前VMP函数名
-                if (funcName.find(F->getName().str()) != std::string::npos) {
-                    // 已经包含，直接使用原名
-                    newFuncName = funcName;
-                } else {
-                    // 不包含，添加后缀
-                    newFuncName = funcName + "_" + F->getName().str();
-                }
+                newFuncName = funcName + "_shared";
                 
                 if (isIRObfuscationDebugEnabled()) {
                     errs() << "[GOVMInterpreter]   Cloning function: " << fun->getName() << " -> " << newFuncName << " (idx=" << func_idx++ << ")\n";
                 }
                 
-                // 获取之前创建的函数
                 Function *NewF = interpreter_func_map[fun];
+                if (!NewF->empty()) {
+                    continue;
+                }
 
                 ValueToValueMapTy VMap;
                 SmallVector<ReturnInst*, 8> returns;
 
                 if (DebugIdFunc) {
                     VMap[interpreter_module->getFunction("vmp_debug_id")] = DebugIdFunc;
+                }
+                if (old_func && callinst_handler) {
+                    VMap[old_func] = callinst_handler;
                 }
 
                 for (auto &gv_pair : gv_remap) {
@@ -4422,7 +4497,7 @@ void GOVMInterpreter::run() {
                             GV.isConstant(),
                             GV.getLinkage(),
                             Init,
-                            GV.getName().str() + "_" + F->getName().str()
+                            GV.getName().str() + "_shared"
                         );
                         if (GV.hasInitializer()) {
                             NewGV->setInitializer(Init);
@@ -4463,10 +4538,7 @@ void GOVMInterpreter::run() {
                                 VMap[Callee] = it->second;
                             } else if (is_interpreter_function(Callee)) {
                                 std::string calleeFuncName = Callee->getName().str();
-                                std::string mappedName =
-                                    (calleeFuncName.find(F->getName().str()) != std::string::npos)
-                                        ? calleeFuncName
-                                        : (calleeFuncName + "_" + F->getName().str());
+                                std::string mappedName = calleeFuncName + "_shared";
                                 Function *TargetCallee = Mod->getFunction(mappedName);
                                 if (TargetCallee) {
                                     VMap[Callee] = TargetCallee;
@@ -4487,10 +4559,7 @@ void GOVMInterpreter::run() {
                                 
                                 // 其他非声明函数，查找或创建声明
                                 std::string calleeFuncName = Callee->getName().str();
-                                std::string calleeNewName =
-                                    (calleeFuncName.find(F->getName().str()) != std::string::npos)
-                                        ? calleeFuncName
-                                        : (calleeFuncName + "_" + F->getName().str());
+                                std::string calleeNewName = calleeFuncName + "_shared";
                                 Function *TargetCallee = Mod->getFunction(calleeNewName);
                                 
                                 if (!TargetCallee) {
@@ -4739,59 +4808,71 @@ struct VMProtect : public ModulePass {
         return false;
       }
       
-      // 处理收集到的函数
-      int func_count = 0;
+      std::vector<GOVMTranslator *> translators;
       for(Function *F : functions_to_process)
       {
         if (isIRObfuscationDebugEnabled()) {
-          errs() << "[VMP] Processing function: " << F->getName() << "\n";
+          errs() << "[VMP] Translating function: " << F->getName() << "\n";
         }
-        
-        GOVMTranslator * translator = new GOVMTranslator(F);
-        
-        if (!translator->run()) {
-          continue;
+        GOVMTranslator *translator = new GOVMTranslator(F);
+        if (translator->run()) {
+          translators.push_back(translator);
         }
-        
-        GOVMInterpreter * interpreter = new GOVMInterpreter(F, translator->get_callinst_handler(),
-                                                              translator->get_gv_data_seg(),
-                                                              translator->get_gv_code_seg(),
-                                                              translator->get_ip(),
-                                                              translator->get_data_seg_addr(),
-                                                              translator->get_code_seg_addr(),
-                                                              translator->exception_thrown,
-                                                              translator->exception_ptr_global,
-                                                              translator->exception_selector_global);
-        interpreter->run();
-        
-        Function *vm_interpreter_func = F->getParent()->getFunction("vm_interpreter_"+F->getName().str());
-        Function *resume_unwind_helper_func =
-            F->getParent()->getFunction("vmp_resume_unwind_"+F->getName().str());
-        
-        GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
-                                                    translator->get_blockaddress_info_map(),
-                                                    translator->get_value_map(),
-                                                    translator->get_gv_data_seg(),
-                                                    translator->get_gv_code_seg(),
-                                                    translator->get_ip(),
-                                                    translator->get_data_seg_addr(),
-                                                    translator->get_code_seg_addr(),
-                                                    translator->exception_thrown,
-                                                    translator->exception_ptr_global,
-                                                    translator->exception_selector_global,
-                                                    interpreter->get_vm_block_chain_state_gv(),
-                                                    interpreter->get_expected_bb_token_gv(),
-                                                    vm_interpreter_func,
-                                                    resume_unwind_helper_func,
-                                                    translator->get_data_seg_size());
+      }
+
+      if (translators.empty()) {
+        return false;
+      }
+
+      GlobalVariable *dispatch_code_seg_addr = getOrCreateSharedGV(
+          &M, Type::getInt64Ty(M.getContext()),
+          ConstantInt::get(Type::getInt64Ty(M.getContext()), 0),
+          "vmp_shared_dispatch_code_seg_addr", ".AProtect.data");
+      Function *shared_dispatcher = buildSharedCallDispatcher(
+          &M, translators, dispatch_code_seg_addr);
+      GOVMInterpreter *interpreter = new GOVMInterpreter(
+          translators.front()->get_function(), shared_dispatcher,
+          translators.front()->get_gv_data_seg(),
+          translators.front()->get_gv_code_seg(),
+          translators.front()->get_ip(),
+          translators.front()->get_data_seg_addr(),
+          translators.front()->get_code_seg_addr(),
+          translators.front()->exception_thrown,
+          translators.front()->exception_ptr_global,
+          translators.front()->exception_selector_global);
+      interpreter->run();
+
+      Function *vm_interpreter_func = M.getFunction("vm_interpreter_shared");
+      Function *resume_unwind_helper_func = M.getFunction("vmp_resume_unwind_shared");
+      for (GOVMTranslator *translator : translators) {
+        Function *F = translator->get_function();
+        GOVMModifier *modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
+                                                   translator->get_blockaddress_info_map(),
+                                                   translator->get_value_map(),
+                                                   translator->get_gv_data_seg(),
+                                                   translator->get_gv_code_seg(),
+                                                   translator->get_ip(),
+                                                   translator->get_data_seg_addr(),
+                                                   translator->get_code_seg_addr(),
+                                                   dispatch_code_seg_addr,
+                                                   translator->exception_thrown,
+                                                   translator->exception_ptr_global,
+                                                   translator->exception_selector_global,
+                                                   interpreter->get_vm_block_chain_state_gv(),
+                                                   interpreter->get_expected_bb_token_gv(),
+                                                   interpreter->get_vm_function_key_gv(),
+                                                   interpreter->get_opcode_xorshift32_state_gv(),
+                                                   interpreter->get_vm_code_state_gv(),
+                                                   translator->get_vm_function_key(),
+                                                   vm_interpreter_func,
+                                                   resume_unwind_helper_func,
+                                                   translator->get_data_seg_size());
         modifier->run();
-        
         if (isIRObfuscationDebugEnabled()) {
           errs() << "[VMP] Function done: " << F->getName() << "\n";
         }
-        func_count++;
       }
-      
+
       return true;
 
   }
@@ -4838,50 +4919,62 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
     return PreservedAnalyses::all();
   }
   
-  int func_count = 0;
+  std::vector<GOVMTranslator *> translators;
   for(Function *F : functions_to_process) {
-    GOVMTranslator * translator = new GOVMTranslator(F);
-    
-    if (!translator->run()) {
-      continue;
+    GOVMTranslator *translator = new GOVMTranslator(F);
+    if (translator->run()) {
+      translators.push_back(translator);
     }
-    
-    GOVMInterpreter * interpreter = new GOVMInterpreter(F, translator->get_callinst_handler(),
-                                                          translator->get_gv_data_seg(),
-                                                          translator->get_gv_code_seg(),
-                                                          translator->get_ip(),
-                                                          translator->get_data_seg_addr(),
-                                                          translator->get_code_seg_addr(),
-                                                          translator->exception_thrown,
-                                                          translator->exception_ptr_global,
-                                                          translator->exception_selector_global);
-    
-    interpreter->run();
-    
-    Function *vm_interpreter_func = F->getParent()->getFunction("vm_interpreter_"+F->getName().str());
-    Function *resume_unwind_helper_func =
-        F->getParent()->getFunction("vmp_resume_unwind_"+F->getName().str());
-    
-    GOVMModifier * modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
-                                                translator->get_blockaddress_info_map(),
-                                                translator->get_value_map(),
-                                                translator->get_gv_data_seg(),
-                                                translator->get_gv_code_seg(),
-                                                translator->get_ip(),
-                                                translator->get_data_seg_addr(),
-                                                translator->get_code_seg_addr(),
-                                                translator->exception_thrown,
-                                                translator->exception_ptr_global,
-                                                translator->exception_selector_global,
-                                                interpreter->get_vm_block_chain_state_gv(),
-                                                interpreter->get_expected_bb_token_gv(),
-                                                vm_interpreter_func,
-                                                resume_unwind_helper_func,
-                                                translator->get_data_seg_size());
-    
+  }
+
+  if (translators.empty()) {
+    return PreservedAnalyses::all();
+  }
+
+  GlobalVariable *dispatch_code_seg_addr = getOrCreateSharedGV(
+      &M, Type::getInt64Ty(M.getContext()),
+      ConstantInt::get(Type::getInt64Ty(M.getContext()), 0),
+      "vmp_shared_dispatch_code_seg_addr", ".AProtect.data");
+  Function *shared_dispatcher = buildSharedCallDispatcher(
+      &M, translators, dispatch_code_seg_addr);
+  GOVMInterpreter *interpreter = new GOVMInterpreter(
+      translators.front()->get_function(), shared_dispatcher,
+      translators.front()->get_gv_data_seg(),
+      translators.front()->get_gv_code_seg(),
+      translators.front()->get_ip(),
+      translators.front()->get_data_seg_addr(),
+      translators.front()->get_code_seg_addr(),
+      translators.front()->exception_thrown,
+      translators.front()->exception_ptr_global,
+      translators.front()->exception_selector_global);
+  interpreter->run();
+
+  Function *vm_interpreter_func = M.getFunction("vm_interpreter_shared");
+  Function *resume_unwind_helper_func = M.getFunction("vmp_resume_unwind_shared");
+  for (GOVMTranslator *translator : translators) {
+    Function *F = translator->get_function();
+    GOVMModifier *modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
+                                               translator->get_blockaddress_info_map(),
+                                               translator->get_value_map(),
+                                               translator->get_gv_data_seg(),
+                                               translator->get_gv_code_seg(),
+                                               translator->get_ip(),
+                                               translator->get_data_seg_addr(),
+                                               translator->get_code_seg_addr(),
+                                               dispatch_code_seg_addr,
+                                               translator->exception_thrown,
+                                               translator->exception_ptr_global,
+                                               translator->exception_selector_global,
+                                               interpreter->get_vm_block_chain_state_gv(),
+                                               interpreter->get_expected_bb_token_gv(),
+                                               interpreter->get_vm_function_key_gv(),
+                                               interpreter->get_opcode_xorshift32_state_gv(),
+                                               interpreter->get_vm_code_state_gv(),
+                                               translator->get_vm_function_key(),
+                                               vm_interpreter_func,
+                                               resume_unwind_helper_func,
+                                               translator->get_data_seg_size());
     modifier->run();
-    
-    func_count++;
     changed = true;
   }
   

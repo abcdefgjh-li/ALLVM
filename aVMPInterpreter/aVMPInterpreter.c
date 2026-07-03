@@ -504,6 +504,7 @@ uint8_t gv_data_seg[SEG_SIZE] = {};
 //
 uintptr_t data_seg_addr = 0;
 uintptr_t code_seg_addr = 0;
+uintptr_t dispatch_code_seg_addr = 0;
 
 extern int ip;
 
@@ -2745,6 +2746,9 @@ void vm_interpreter() {
 				uint64_t saved_vmcode_state = vm_code_state;
 				uint64_t saved_chain_state = vm_block_chain_state;
 				uint64_t saved_expected_token = expected_bb_token;
+				uintptr_t saved_data_seg_addr = data_seg_addr;
+				uintptr_t saved_code_seg_addr = code_seg_addr;
+				uint64_t saved_function_key = vm_function_key;
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 0, (uint8_t)exception_thrown,
 				             packed_funcid, (uint64_t)saved_ip, offset, (uint64_t)caught_exception_selector);
 				EH_TRACE("[EH_VM_CALL] before funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%016llx vm_state=0x%016llx\n",
@@ -2758,6 +2762,7 @@ void vm_interpreter() {
 				         caught_exception_selector,
 				         (unsigned long long)saved_opcode_state,
 				         (unsigned long long)saved_vmcode_state);
+				dispatch_code_seg_addr = saved_code_seg_addr;
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 1, (uint8_t)exception_thrown,
@@ -2780,6 +2785,9 @@ void vm_interpreter() {
 				vm_code_state = saved_vmcode_state;
 				vm_block_chain_state = saved_chain_state;
 				expected_bb_token = saved_expected_token;
+				data_seg_addr = saved_data_seg_addr;
+				code_seg_addr = saved_code_seg_addr;
+				vm_function_key = saved_function_key;
 				EH_TRACE("[EH_VM_CALL] restored funcid=%llu restore_ip=%u exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%016llx vm_state=0x%016llx\n",
 				         (unsigned long long)packed_funcid,
 				         (unsigned)ip,
@@ -2813,8 +2821,12 @@ void vm_interpreter() {
 				uint64_t saved_vmcode_state = vm_code_state;
 				uint64_t saved_chain_state = vm_block_chain_state;
 				uint64_t saved_expected_token = expected_bb_token;
+				uintptr_t saved_data_seg_addr = data_seg_addr;
+				uintptr_t saved_code_seg_addr = code_seg_addr;
+				uint64_t saved_function_key = vm_function_key;
 
 				// 调用函数（与 Call_OP 相同）
+				dispatch_code_seg_addr = saved_code_seg_addr;
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
 
@@ -2824,6 +2836,9 @@ void vm_interpreter() {
 				vm_code_state = saved_vmcode_state;
 				vm_block_chain_state = saved_chain_state;
 				expected_bb_token = saved_expected_token;
+				data_seg_addr = saved_data_seg_addr;
+				code_seg_addr = saved_code_seg_addr;
+				vm_function_key = saved_function_key;
 
 				// CallBr 的分支处理在翻译器中已经生成，这里不需要额外处理
 			}

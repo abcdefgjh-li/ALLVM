@@ -925,7 +925,60 @@ static bool write_fla_test_project() {
     dir_create(test_dir);
     dir_create(jni_dir);
 
-    return true;
+    const std::string android_mk =
+        "LOCAL_PATH := $(call my-dir)\n"
+        "include $(CLEAR_VARS)\n"
+        "LOCAL_MODULE := allvm_test\n"
+        "LOCAL_SRC_FILES := main.cpp\n"
+        "LOCAL_CFLAGS += -mllvm -irobf-vmp\n"
+        "LOCAL_CPPFLAGS += -mllvm -irobf-vmp\n"
+        "include $(BUILD_EXECUTABLE)\n";
+    const std::string application_mk =
+        "APP_ABI := arm64-v8a armeabi-v7a x86 x86_64\n"
+        "APP_PLATFORM := android-23\n"
+        "APP_STL := c++_static\n";
+    const std::string main_cpp =
+        "#include <cstdio>\n"
+        "#include <cstdint>\n\n"
+        "#define VMP_FN __attribute__((noinline, annotate(\"vmp\")))\n\n"
+        "VMP_FN int vm_leaf(int x) { return (x * 3) ^ 0x55; }\n\n"
+        "VMP_FN int vm_mid(int a, int b) {\n"
+        "    int left = vm_leaf(a + 1);\n"
+        "    int right = vm_leaf(b + 2);\n"
+        "    return (left + right) ^ (a - b);\n"
+        "}\n\n"
+        "VMP_FN int vm_top(int n) {\n"
+        "    int acc = vm_mid(n, n - 3);\n"
+        "    acc += vm_leaf(acc & 15);\n"
+        "    return acc ^ n;\n"
+        "}\n\n"
+        "static int ref_leaf(int x) { return (x * 3) ^ 0x55; }\n"
+        "static int ref_mid(int a, int b) { return (ref_leaf(a + 1) + ref_leaf(b + 2)) ^ (a - b); }\n"
+        "static int ref_top(int n) {\n"
+        "    int acc = ref_mid(n, n - 3);\n"
+        "    acc += ref_leaf(acc & 15);\n"
+        "    return acc ^ n;\n"
+        "}\n\n"
+        "int main() {\n"
+        "    setvbuf(stdout, nullptr, _IONBF, 0);\n"
+        "    setvbuf(stderr, nullptr, _IONBF, 0);\n"
+        "    int got = vm_top(9) + vm_mid(11, 4) + vm_leaf(13);\n"
+        "    int expect = ref_top(9) + ref_mid(11, 4) + ref_leaf(13);\n"
+        "    std::printf(\"ALLVM_VMP_VALUES got=%d expect=%d\\n\", got, expect);\n"
+        "    std::fprintf(stderr, \"ALLVM_VMP_VALUES got=%d expect=%d\\n\", got, expect);\n"
+        "    if (got != expect) {\n"
+        "        std::printf(\"ALLVM_TEST_FAIL\\n\");\n"
+        "        std::fprintf(stderr, \"ALLVM_TEST_FAIL\\n\");\n"
+        "        return 1;\n"
+        "    }\n"
+        "    std::printf(\"ALLVM_TEST_PASS\\n\");\n"
+        "    std::fprintf(stderr, \"ALLVM_TEST_PASS\\n\");\n"
+        "    return 0;\n"
+        "}\n";
+
+    return write_text_file(jni_dir + "\\Android.mk", android_mk) &&
+           write_text_file(jni_dir + "\\Application.mk", application_mk) &&
+           write_text_file(jni_dir + "\\main.cpp", main_cpp);
 }
 
 static bool build_and_run_fla_test(int jobs) {
