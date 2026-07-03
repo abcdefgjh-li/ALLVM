@@ -12,17 +12,23 @@ VMP_FN int vm_mid(int a, int b) {
 }
 
 VMP_FN int vm_top(int n) {
-    int acc = vm_mid(n, n - 3);
-    acc += vm_leaf(acc & 15);
-    return acc ^ n;
+    int acc = 7;
+    for (int i = 0; i < n; ++i) {
+        acc += vm_mid(i, n - i);
+        acc ^= vm_leaf(acc & 15);
+    }
+    return acc;
 }
 
 static int ref_leaf(int x) { return (x * 3) ^ 0x55; }
 static int ref_mid(int a, int b) { return (ref_leaf(a + 1) + ref_leaf(b + 2)) ^ (a - b); }
 static int ref_top(int n) {
-    int acc = ref_mid(n, n - 3);
-    acc += ref_leaf(acc & 15);
-    return acc ^ n;
+    int acc = 7;
+    for (int i = 0; i < n; ++i) {
+        acc += ref_mid(i, n - i);
+        acc ^= ref_leaf(acc & 15);
+    }
+    return acc;
 }
 
 int main() {

@@ -523,6 +523,66 @@ int exception_selector;
 uint64_t last_br_from_bb_id;
 uint64_t current_bb_id;
 
+void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail1);
+
+typedef struct vm_call_frame_t {
+	int ip;
+	uint64_t opcode_xorshift32_state;
+	uint64_t vm_code_state;
+	uint64_t vm_block_chain_state;
+	uint64_t expected_bb_token;
+	uintptr_t data_seg_addr;
+	uintptr_t code_seg_addr;
+	uintptr_t dispatch_code_seg_addr;
+	uint64_t vm_function_key;
+	uint64_t last_br_from_bb_id;
+	uint64_t current_bb_id;
+} vm_call_frame_t;
+
+#define VM_CALL_STACK_MAX 256
+static vm_call_frame_t vm_call_stack[VM_CALL_STACK_MAX];
+static unsigned vm_call_stack_top = 0;
+
+static int vm_push_call_frame(void) {
+	if (vm_call_stack_top >= VM_CALL_STACK_MAX) {
+		vm_dump_fault_context("vm-call-stack-overflow", vm_call_stack_top, VM_CALL_STACK_MAX);
+		return 0;
+	}
+	vm_call_frame_t *frame = &vm_call_stack[vm_call_stack_top++];
+	frame->ip = ip;
+	frame->opcode_xorshift32_state = opcode_xorshift32_state;
+	frame->vm_code_state = vm_code_state;
+	frame->vm_block_chain_state = vm_block_chain_state;
+	frame->expected_bb_token = expected_bb_token;
+	frame->data_seg_addr = data_seg_addr;
+	frame->code_seg_addr = code_seg_addr;
+	frame->dispatch_code_seg_addr = dispatch_code_seg_addr;
+	frame->vm_function_key = vm_function_key;
+	frame->last_br_from_bb_id = last_br_from_bb_id;
+	frame->current_bb_id = current_bb_id;
+	return 1;
+}
+
+static int vm_restore_call_frame(void) {
+	if (vm_call_stack_top == 0) {
+		vm_dump_fault_context("vm-call-stack-underflow", 0, 0);
+		return 0;
+	}
+	vm_call_frame_t *frame = &vm_call_stack[--vm_call_stack_top];
+	ip = frame->ip;
+	opcode_xorshift32_state = frame->opcode_xorshift32_state;
+	vm_code_state = frame->vm_code_state;
+	vm_block_chain_state = frame->vm_block_chain_state;
+	expected_bb_token = frame->expected_bb_token;
+	data_seg_addr = frame->data_seg_addr;
+	code_seg_addr = frame->code_seg_addr;
+	dispatch_code_seg_addr = frame->dispatch_code_seg_addr;
+	vm_function_key = frame->vm_function_key;
+	last_br_from_bb_id = frame->last_br_from_bb_id;
+	current_bb_id = frame->current_bb_id;
+	return 1;
+}
+
 #define VM_CRASH_TRACE_DEPTH 32
 #define VM_TRACE_KIND_BB 1
 #define VM_TRACE_KIND_OPCODE 2
@@ -2740,15 +2800,13 @@ void vm_interpreter() {
 				// Use DEBUG_ID_NEW_BB (1) for funcid, DEBUG_ID_OPCODE (2) for offset
 				DEBUG(DEBUG_ID_NEW_BB, packed_funcid);
 				DEBUG(DEBUG_ID_OPCODE, offset);
-				// 保存所有全局状态，因为递归调用会破坏这些状态
 				int saved_ip = ip;
 				uint64_t saved_opcode_state = opcode_xorshift32_state;
 				uint64_t saved_vmcode_state = vm_code_state;
-				uint64_t saved_chain_state = vm_block_chain_state;
-				uint64_t saved_expected_token = expected_bb_token;
-				uintptr_t saved_data_seg_addr = data_seg_addr;
 				uintptr_t saved_code_seg_addr = code_seg_addr;
-				uint64_t saved_function_key = vm_function_key;
+				if (!vm_push_call_frame()) {
+					return;
+				}
 				vm_trace_push(VM_TRACE_KIND_CALL, (uint32_t)saved_ip, 0, (uint8_t)exception_thrown,
 				             packed_funcid, (uint64_t)saved_ip, offset, (uint64_t)caught_exception_selector);
 				EH_TRACE("[EH_VM_CALL] before funcid=%llu saved_ip=%u offset=%llu exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%016llx vm_state=0x%016llx\n",
@@ -2779,15 +2837,9 @@ void vm_interpreter() {
 				         ip,
 				         (unsigned long long)opcode_xorshift32_state,
 				         (unsigned long long)vm_code_state);
-				// 恢复所有状态，确保返回后能正确解密后续操作码
-				ip = saved_ip;
-				opcode_xorshift32_state = saved_opcode_state;
-				vm_code_state = saved_vmcode_state;
-				vm_block_chain_state = saved_chain_state;
-				expected_bb_token = saved_expected_token;
-				data_seg_addr = saved_data_seg_addr;
-				code_seg_addr = saved_code_seg_addr;
-				vm_function_key = saved_function_key;
+				if (!vm_restore_call_frame()) {
+					return;
+				}
 				EH_TRACE("[EH_VM_CALL] restored funcid=%llu restore_ip=%u exception_thrown=%u exception_ptr=%p selector=%d caught_ptr=%p caught_selector=%d opcode_state=0x%016llx vm_state=0x%016llx\n",
 				         (unsigned long long)packed_funcid,
 				         (unsigned)ip,
@@ -2815,30 +2867,19 @@ void vm_interpreter() {
 				uint8_t type_id = get_byte_code();
 				uint64_t offset = unpack_code(pointer_size);
 
-				// 保存所有全局状态，因为递归调用会破坏这些状态
-				int saved_ip = ip;
-				uint64_t saved_opcode_state = opcode_xorshift32_state;
-				uint64_t saved_vmcode_state = vm_code_state;
-				uint64_t saved_chain_state = vm_block_chain_state;
-				uint64_t saved_expected_token = expected_bb_token;
-				uintptr_t saved_data_seg_addr = data_seg_addr;
 				uintptr_t saved_code_seg_addr = code_seg_addr;
-				uint64_t saved_function_key = vm_function_key;
+				if (!vm_push_call_frame()) {
+					return;
+				}
 
 				// 调用函数（与 Call_OP 相同）
 				dispatch_code_seg_addr = saved_code_seg_addr;
 				// 使用异常捕获包装函数
 				call_handler_with_exception_handling(packed_funcid);
 
-				// 恢复所有状态，确保返回后能正确解密后续操作码
-				ip = saved_ip;
-				opcode_xorshift32_state = saved_opcode_state;
-				vm_code_state = saved_vmcode_state;
-				vm_block_chain_state = saved_chain_state;
-				expected_bb_token = saved_expected_token;
-				data_seg_addr = saved_data_seg_addr;
-				code_seg_addr = saved_code_seg_addr;
-				vm_function_key = saved_function_key;
+				if (!vm_restore_call_frame()) {
+					return;
+				}
 
 				// CallBr 的分支处理在翻译器中已经生成，这里不需要额外处理
 			}

@@ -3877,14 +3877,6 @@ void GOVMModifier::run() {
         errs() << "[GOVMModifier]   Setting data_seg_addr and code_seg_addr...\n";
     }
 
-    Value *saved_ip = irbuilder.CreateLoad(Type::getInt32Ty(Mod->getContext()), ip);
-    Value *saved_data_seg_addr = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), data_seg_addr);
-    Value *saved_code_seg_addr = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), code_seg_addr);
-    Value *saved_vm_function_key = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), vm_function_key_gv);
-    Value *saved_opcode_xorshift32_state = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), opcode_xorshift32_state_gv);
-    Value *saved_vm_code_state = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), vm_code_state_gv);
-    Value *saved_vm_block_chain_state = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), vm_block_chain_state_gv);
-    Value *saved_expected_bb_token = irbuilder.CreateLoad(Type::getInt64Ty(Mod->getContext()), expected_bb_token_gv);
 
     Value * data_seg_ptr2int = irbuilder.CreatePtrToInt(gv_data_seg, Type::getInt64Ty(Mod->getContext()));
     irbuilder.CreateStore(data_seg_ptr2int, data_seg_addr);
@@ -3915,19 +3907,7 @@ void GOVMModifier::run() {
         ConstantInt::get(Type::getInt8Ty(Mod->getContext()), 0));
     irbuilder.CreateCondBr(hasUnhandledException, resumeExceptionBB, normalReturnBB);
 
-    auto restoreSharedVmState = [&](IRBuilder<> &Builder) {
-        Builder.CreateStore(saved_ip, ip);
-        Builder.CreateStore(saved_data_seg_addr, data_seg_addr);
-        Builder.CreateStore(saved_code_seg_addr, code_seg_addr);
-        Builder.CreateStore(saved_vm_function_key, vm_function_key_gv);
-        Builder.CreateStore(saved_opcode_xorshift32_state, opcode_xorshift32_state_gv);
-        Builder.CreateStore(saved_vm_code_state, vm_code_state_gv);
-        Builder.CreateStore(saved_vm_block_chain_state, vm_block_chain_state_gv);
-        Builder.CreateStore(saved_expected_bb_token, expected_bb_token_gv);
-    };
-
     IRBuilder<> normalBuilder(normalReturnBB);
-    restoreSharedVmState(normalBuilder);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[GOVMModifier]   Creating return...\n";
@@ -3946,7 +3926,6 @@ void GOVMModifier::run() {
 
     IRBuilder<> resumeBuilder(resumeExceptionBB);
     Value *resumeExceptionPtr = resumeBuilder.CreateLoad(PointerType::get(Mod->getContext(), 0), exception_ptr_gv);
-    restoreSharedVmState(resumeBuilder);
     resumeBuilder.CreateCall(resume_unwind_helper, {resumeExceptionPtr});
     resumeBuilder.CreateUnreachable();
 }
