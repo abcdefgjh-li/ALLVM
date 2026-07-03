@@ -50,8 +50,8 @@ class DetectUtils {
 public:
     /// 创建统一的报告和终止函数
     /// 检测到威胁时打印:
-    ///   - A-protector
-    ///   - Protection v1.0.0
+    ///   - A-Protector
+    ///   - Protection v1.2.0
     ///   - [DEBUG] {detectName} detected! Killing process...
     /// @param M 模块
     /// @param detectName 检测类型名称（如 "LD_PRELOAD", "IDA", "Ptrace"等）

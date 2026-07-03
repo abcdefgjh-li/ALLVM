@@ -50,8 +50,8 @@ static void createStderrWrite(Module &M, IRBuilder<> &Builder,
 }
 
 static void createAProtectBannerWrite(Module &M, IRBuilder<> &Builder) {
-    createStderrWrite(M, Builder, "A-Protect\n", ".detect.banner");
-    createStderrWrite(M, Builder, "Protection v1.1.0\n", ".detect.version");
+    createStderrWrite(M, Builder, "A-Protector\n", ".detect.banner");
+    createStderrWrite(M, Builder, "Protection v1.2.0\n", ".detect.version");
 }
 
 Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &detectName) {

@@ -31,10 +31,25 @@ struct TestRunOptions {
     std::string abi;
     int timeout_sec = 20;
     bool skip_ndk_build = false;
+    bool clean_test = false;
 };
 
 static bool file_exists(const std::string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+static bool get_file_time(const std::string& path, FILETIME& time) {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &data)) return false;
+    time = data.ftLastWriteTime;
+    return true;
+}
+
+static bool is_file_newer_or_equal(const std::string& output, const std::string& input) {
+    FILETIME output_time, input_time;
+    if (!get_file_time(output, output_time)) return false;
+    if (!get_file_time(input, input_time)) return true;
+    return CompareFileTime(&output_time, &input_time) >= 0;
 }
 
 static bool dir_exists(const std::string& path) {
@@ -172,14 +187,6 @@ static bool copy_file(const std::string& src, const std::string& dst, bool overw
     return false;
 }
 
-static bool write_text_file(const std::string& path, const std::string& content) {
-    FILE *f = fopen(path.c_str(), "wb");
-    if (!f) return false;
-    fwrite(content.data(), 1, content.size(), f);
-    fclose(f);
-    return true;
-}
-
 static std::string trim_copy(const std::string& input) {
     size_t begin = 0;
     while (begin < input.size() && std::isspace(static_cast<unsigned char>(input[begin]))) begin++;
@@ -200,6 +207,13 @@ static std::string search_path_binary(const char* name) {
     DWORD len = SearchPathA(NULL, name, NULL, MAX_PATH, buf, NULL);
     if (len == 0 || len >= MAX_PATH) return "";
     return std::string(buf, len);
+}
+
+static std::string find_compiler_cache_launcher() {
+    std::string launcher = search_path_binary("sccache.exe");
+    if (!launcher.empty()) return launcher;
+    launcher = search_path_binary("clcache.exe");
+    return launcher;
 }
 
 static int run_cmd(const std::string& cmd, const std::string& cwd = "") {
@@ -824,8 +838,10 @@ static bool build_ndk_test_project(const TestRunOptions& opts, int jobs) {
         return false;
     }
 
-    run_cmd("if exist obj rmdir /s /q obj", project_dir);
-    run_cmd("if exist libs rmdir /s /q libs", project_dir);
+    if (opts.clean_test) {
+        run_cmd("if exist obj rmdir /s /q obj", project_dir);
+        run_cmd("if exist libs rmdir /s /q libs", project_dir);
+    }
 
     char jbuf[16];
     sprintf(jbuf, "%d", jobs);
@@ -919,101 +935,25 @@ static bool push_and_run_binary(const TestRunOptions& opts) {
     return true;
 }
 
-static bool write_fla_test_project() {
-    std::string test_dir = g_script_dir + "\\test";
-    std::string jni_dir = test_dir + "\\jni";
-    dir_create(test_dir);
-    dir_create(jni_dir);
-
-    const std::string android_mk =
-        "LOCAL_PATH := $(call my-dir)\n"
-        "include $(CLEAR_VARS)\n"
-        "LOCAL_MODULE := allvm_test\n"
-        "LOCAL_SRC_FILES := main.cpp\n"
-        "LOCAL_CFLAGS += -mllvm -irobf-vmp\n"
-        "LOCAL_CPPFLAGS += -mllvm -irobf-vmp\n"
-        "include $(BUILD_EXECUTABLE)\n";
-    const std::string application_mk =
-        "APP_ABI := arm64-v8a armeabi-v7a x86 x86_64\n"
-        "APP_PLATFORM := android-23\n"
-        "APP_STL := c++_static\n";
-    const std::string main_cpp =
-        "#include <cstdio>\n"
-        "#include <cstdint>\n\n"
-        "#define VMP_FN __attribute__((noinline, annotate(\"vmp\")))\n\n"
-        "VMP_FN int vm_leaf(int x) { return (x * 3) ^ 0x55; }\n\n"
-        "VMP_FN int vm_mid(int a, int b) {\n"
-        "    int left = vm_leaf(a + 1);\n"
-        "    int right = vm_leaf(b + 2);\n"
-        "    return (left + right) ^ (a - b);\n"
-        "}\n\n"
-        "VMP_FN int vm_top(int n) {\n"
-        "    int acc = 7;\n"
-        "    for (int i = 0; i < n; ++i) {\n"
-        "        acc += vm_mid(i, n - i);\n"
-        "        acc ^= vm_leaf(acc & 15);\n"
-        "    }\n"
-        "    return acc;\n"
-        "}\n\n"
-        "static int ref_leaf(int x) { return (x * 3) ^ 0x55; }\n"
-        "static int ref_mid(int a, int b) { return (ref_leaf(a + 1) + ref_leaf(b + 2)) ^ (a - b); }\n"
-        "static int ref_top(int n) {\n"
-        "    int acc = 7;\n"
-        "    for (int i = 0; i < n; ++i) {\n"
-        "        acc += ref_mid(i, n - i);\n"
-        "        acc ^= ref_leaf(acc & 15);\n"
-        "    }\n"
-        "    return acc;\n"
-        "}\n\n"
-        "int main() {\n"
-        "    setvbuf(stdout, nullptr, _IONBF, 0);\n"
-        "    setvbuf(stderr, nullptr, _IONBF, 0);\n"
-        "    int got = vm_top(9) + vm_mid(11, 4) + vm_leaf(13);\n"
-        "    int expect = ref_top(9) + ref_mid(11, 4) + ref_leaf(13);\n"
-        "    std::printf(\"ALLVM_VMP_VALUES got=%d expect=%d\\n\", got, expect);\n"
-        "    std::fprintf(stderr, \"ALLVM_VMP_VALUES got=%d expect=%d\\n\", got, expect);\n"
-        "    if (got != expect) {\n"
-        "        std::printf(\"ALLVM_TEST_FAIL\\n\");\n"
-        "        std::fprintf(stderr, \"ALLVM_TEST_FAIL\\n\");\n"
-        "        return 1;\n"
-        "    }\n"
-        "    std::printf(\"ALLVM_TEST_PASS\\n\");\n"
-        "    std::fprintf(stderr, \"ALLVM_TEST_PASS\\n\");\n"
-        "    return 0;\n"
-        "}\n";
-
-    return write_text_file(jni_dir + "\\Android.mk", android_mk) &&
-           write_text_file(jni_dir + "\\Application.mk", application_mk) &&
-           write_text_file(jni_dir + "\\main.cpp", main_cpp);
+static bool ensure_fla_test_project_exists() {
+    std::string jni_dir = g_script_dir + "\\test\\jni";
+    const char* required[] = {"Android.mk", "Application.mk", "main.cpp"};
+    for (const char* name : required) {
+        std::string path = jni_dir + "\\" + name;
+        if (!file_exists(path)) {
+            printf("[Error] Missing handwritten test file: %s\n", path.c_str());
+            return false;
+        }
+    }
+    return true;
 }
 
-static bool build_and_run_fla_test(int jobs) {
-    printf("\n[Test] Generating ALLVM_TEST project...\n");
+static bool build_and_run_fla_test(int jobs, const TestRunOptions& opts) {
+    printf("\n[Test] Building handwritten ALLVM_TEST project...\n");
     std::string ndk_build_bat = g_ndk_dir + "\\ndk-build.bat";
     std::string ndk_build_cmd = g_ndk_dir + "\\ndk-build.cmd";
     if (g_ndk_dir.empty() || (!file_exists(ndk_build_bat) && !file_exists(ndk_build_cmd))) {
         printf("[Error] NDK not found, cannot run emulator test\n");
-        return false;
-    }
-
-    if (!write_fla_test_project()) {
-        printf("[Error] Failed to write test/jni project files\n");
-        return false;
-    }
-
-    std::string test_dir = g_script_dir + "\\test";
-    run_cmd("if exist obj rmdir /s /q obj", test_dir);
-    run_cmd("if exist libs rmdir /s /q libs", test_dir);
-
-    char jbuf[16];
-    sprintf(jbuf, "%d", jobs);
-    std::string ndk_build = file_exists(ndk_build_bat) ? ndk_build_bat : ndk_build_cmd;
-    std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk -j" + jbuf;
-    dbg_log("ndk_build_start", std::string("cwd=") + test_dir + " cmd=" + ndk_cmd);
-    int ret = run_cmd(ndk_cmd, test_dir);
-    dbg_log("ndk_build_end", std::string("ret=") + std::to_string(ret));
-    if (ret != 0) {
-        printf("[Error] ndk-build test project failed (code: %d)\n", ret);
         return false;
     }
 
@@ -1023,24 +963,42 @@ static bool build_and_run_fla_test(int jobs) {
         return false;
     }
 
-    std::string serial = find_test_device(adb_path);
+    std::string serial = opts.serial.empty() ? find_test_device(adb_path) : opts.serial;
     if (serial.empty()) {
         printf("[Error] No connected emulator/device found for adb testing\n");
         return false;
     }
     printf("  -> Using device: %s\n", serial.c_str());
 
-    std::string abi = detect_device_abi(adb_path, serial);
+    std::string abi = opts.abi.empty() ? detect_device_abi(adb_path, serial) : normalize_abi(opts.abi);
     if (abi.empty()) {
         printf("[Error] Failed to detect device ABI\n");
         return false;
     }
-    printf("  -> Device ABI: %s\n", abi.c_str());
+    printf("  -> Test ABI: %s\n", abi.c_str());
 
-    (void)verify_frame_record_codegen;
-    (void)verify_call_ret_codegen;
-    (void)verify_call_ret_scratch_mir;
-    (void)verify_opaque_predicate_codegen;
+    if (!ensure_fla_test_project_exists()) {
+        return false;
+    }
+
+    std::string test_dir = g_script_dir + "\\test";
+    if (opts.clean_test) {
+        run_cmd("if exist obj rmdir /s /q obj", test_dir);
+        run_cmd("if exist libs rmdir /s /q libs", test_dir);
+    }
+
+    char jbuf[16];
+    sprintf(jbuf, "%d", jobs);
+    std::string ndk_build = file_exists(ndk_build_bat) ? ndk_build_bat : ndk_build_cmd;
+    std::string ndk_cmd = "\"" + ndk_build + "\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=" + abi + " -j" + jbuf;
+    dbg_log("ndk_build_start", std::string("cwd=") + test_dir + " cmd=" + ndk_cmd);
+    int ret = run_cmd(ndk_cmd, test_dir);
+    dbg_log("ndk_build_end", std::string("ret=") + std::to_string(ret));
+    if (ret != 0) {
+        printf("[Error] ndk-build test project failed (code: %d)\n", ret);
+        return false;
+    }
+
 
     std::string binary = find_test_binary(test_dir, abi);
     if (binary.empty()) {
@@ -1107,6 +1065,11 @@ static bool compile_interpreter(const std::string& target_triple) {
         return false;
     }
 
+    if (is_file_newer_or_equal(bc_file, src_file)) {
+        printf("[Skip] aVMPInterpreter.bc is up to date\n");
+        return true;
+    }
+
     std::string cmd = "\"" + clang_path + "\" -O2 -emit-llvm -c \"" + src_file + "\" -o \"" + bc_file + "\" -target " + target_triple;
 
     int ret = run_cmd(cmd);
@@ -1128,6 +1091,10 @@ static bool generate_vm_h() {
     if (!file_exists(bc_file)) {
         printf("[Error] %s not found\n", bc_file.c_str());
         return false;
+    }
+    if (is_file_newer_or_equal(vm_h, bc_file)) {
+        printf("[Skip] vm.h is up to date\n");
+        return true;
     }
 
     std::ifstream in(bc_file, std::ios::binary);
@@ -1235,7 +1202,7 @@ static bool build_zstd() {
 }
 
 // ========== cmake_configure ==========
-static bool cmake_configure() {
+static bool cmake_configure(bool reconfigure) {
     printf("\n[CMake] Configuring...\n");
 
     std::string vcvars = find_vs();
@@ -1247,6 +1214,10 @@ static bool cmake_configure() {
     dir_create(g_build_dir);
 
     std::string cmake_cache = g_build_dir + "\\CMakeCache.txt";
+    if (file_exists(cmake_cache) && !reconfigure) {
+        printf("[Skip] CMakeCache.txt exists, use --reconfigure to regenerate\n");
+        return true;
+    }
     if (file_exists(cmake_cache)) {
         DeleteFileA(cmake_cache.c_str());
     }
@@ -1273,7 +1244,15 @@ static bool cmake_configure() {
     if (!zlib_lib.empty()) std::replace(zlib_lib.begin(), zlib_lib.end(), '\\', '/');
 
     std::string cmake_cmd = "cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=/utf-8 "
-                            "-DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_EH=ON "
+                            "-DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_EH=ON ";
+    std::string cache_launcher = find_compiler_cache_launcher();
+    if (!cache_launcher.empty()) {
+        std::replace(cache_launcher.begin(), cache_launcher.end(), '\\', '/');
+        cmake_cmd += "-DCMAKE_C_COMPILER_LAUNCHER=\"" + cache_launcher + "\" "
+                     "-DCMAKE_CXX_COMPILER_LAUNCHER=\"" + cache_launcher + "\" ";
+        printf("  -> Compiler cache: %s\n", cache_launcher.c_str());
+    }
+    cmake_cmd += 
                             "-DLLVM_ENABLE_PROJECTS=\"llvm;clang;lld\" "
                             "-DLLVM_TARGETS_TO_BUILD=\"AArch64;ARM;X86\" "
                             "-DLLVM_ENABLE_ZSTD=FORCE_ON "
@@ -1519,6 +1498,7 @@ int main(int argc, char* argv[]) {
     int jobs = 32;
     bool build_apk_flag = false;
     bool build_apk_release_flag = false;
+    bool reconfigure = false;
     TestRunOptions test_opts;
 
     bool step_zstd        = false;
@@ -1528,7 +1508,7 @@ int main(int argc, char* argv[]) {
     bool step_build       = true;
     bool step_test        = true;
 
-    std::string ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis llc FileCheck";
+    std::string ninja_targets = "clang lld";
 
     for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);
@@ -1542,6 +1522,10 @@ int main(int argc, char* argv[]) {
             jobs = atoi(argv[++i]);
         } else if (arg == "--build" && i + 1 < argc) {
             ninja_targets = argv[++i];
+        } else if (arg == "--build-tools") {
+            ninja_targets = "clang lld llvm-strip llvm-objcopy llvm-dis llc FileCheck";
+        } else if (arg == "--reconfigure") {
+            reconfigure = true;
         } else if (arg == "--skip" && i + 1 < argc) {
             std::string skip_arg(argv[++i]);
             step_zstd        = (skip_arg.find("zstd") == std::string::npos);
@@ -1598,6 +1582,8 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--skip-test-build") {
             test_opts.custom_test = true;
             test_opts.skip_ndk_build = true;
+        } else if (arg == "--clean-test") {
+            test_opts.clean_test = true;
         }
     }
 
@@ -1605,7 +1591,7 @@ int main(int argc, char* argv[]) {
         if (!build_zstd()) return 1;
     }
     if (step_cmake) {
-        if (!cmake_configure()) return 1;
+        if (!cmake_configure(reconfigure)) return 1;
     }
     if (step_interpreter) {
         if (!compile_interpreter(target_triple)) return 1;
@@ -1621,7 +1607,7 @@ int main(int argc, char* argv[]) {
         if (test_opts.custom_test) {
             if (!build_and_run_custom_test(test_opts, jobs)) return 1;
         } else {
-            if (!build_and_run_fla_test(jobs)) return 1;
+            if (!build_and_run_fla_test(jobs, test_opts)) return 1;
         }
     }
 

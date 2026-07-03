@@ -1,8 +1,8 @@
-//===- AProtect.cpp - A-protector注入Pass ----------------------===//
+//===- AProtect.cpp - A-Protector注入Pass ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
-// A-protector 输出注入 Pass
+// A-Protector 输出注入 Pass
 // 注入到全局构造函数，避免与VMProtect冲突
 //
 //===----------------------------------------------------------------------===//
@@ -62,8 +62,8 @@ bool AProtect::runOnModule(Module &M) {
     FunctionCallee PrintfFunc = M.getOrInsertFunction(
         "printf", FunctionType::get(Int32Ty, {CharPtrTy}, true));
 
-    // 打印 A-Protect 标识
-    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-Protect\n");
+    // 打印 A-Protector 标识
+    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "A-Protector\n");
     GlobalVariable *AProtectGV = new GlobalVariable(
         M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
         AProtectStr, ".ap.str");
@@ -71,7 +71,7 @@ bool AProtect::runOnModule(Module &M) {
     Builder.CreateCall(PrintfFunc, {AProtectPtr});
 
     // 打印版本号
-    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.1.0\n");
+    Constant *VersionStr = ConstantDataArray::getString(Ctx, "Protection v1.2.0\n");
     GlobalVariable *VersionGV = new GlobalVariable(
         M, VersionStr->getType(), true, GlobalValue::PrivateLinkage,
         VersionStr, ".ap.version");
@@ -120,5 +120,5 @@ ModulePass *llvm::createAProtectPass() {
     return new AProtect();
 }
 
-INITIALIZE_PASS_BEGIN(AProtect, "aprotect", "Inject A-protector output at program start", false, false)
-INITIALIZE_PASS_END(AProtect, "aprotect", "Inject A-protector output at program start", false, false)
+INITIALIZE_PASS_BEGIN(AProtect, "aprotect", "Inject A-Protector output at program start", false, false)
+INITIALIZE_PASS_END(AProtect, "aprotect", "Inject A-Protector output at program start", false, false)

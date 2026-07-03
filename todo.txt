@@ -1,14 +1,6 @@
 ALLVM 后续加强 TODO
 
-1. VMP 翻译失败回滚
-   - 先预扫描 unsupported IR，再创建 gv_code_seg/gv_data_seg/call_handler。
-   - 若翻译中途失败，删除已创建的全局变量和 handler，避免脏 IR 留在模块中。
-
-2. 函数规模限制处理
-   - MAX_BASIC_BLOCKS / MAX_INSTRUCTIONS 命中时标记该函数 unsupported。
-   - 不允许生成半截 VM 字节码后继续 modifier。
-
-3. 复杂 LLVM IR 语义补齐
+1. 复杂 LLVM IR 语义补齐
    - 完整补 AtomicRMW 的 Nand/Min/Max/UMin/UMax/FAdd/FSub 等语义。
    - 完整补非 1/2/4/8 字节原子访问处理。
    - 继续完善 CallBr / IndirectBr / BlockAddress / inline asm goto。
@@ -23,26 +15,15 @@ ALLVM 后续加强 TODO
    - 按 arm64-v8a / armeabi-v7a / x86 / x86_64 分别实现 va_list 布局。
    - 增加整数、浮点、指针、结构体可变参数测试。
 
-6. 发布版调试泄漏清理
-   - 将 printf / VM_CRASH trace / code bytes dump 统一受宏控制。
-   - 发布版默认关闭 opcode_state、vm_state、code_bytes、BB trace 输出。
-
-7. 测试矩阵扩展
+6. 测试矩阵扩展
    - 保留当前循环压力 VMP 互调测试。
    - 增加递归 VMP 调用、switch、PHI、指针参数、结构体返回、sret、异常、原子测试。
    - 默认只跑 VMP 相关测试，非 VMP 测试放入 custom test。
 
-8. 编译速度优化但不降低强度
-   - cmake_configure 不要每次删除 CMakeCache.txt；增加 --reconfigure 强制重配选项。
-   - 默认 test Application.mk 只生成当前设备 ABI，避免四 ABI 全编。
-   - 默认不删除 test/obj 和 test/libs；增加 --clean-test 显式清理。
-   - 只改 aVMP.cpp 时允许跳过 interpreter/vmh。
-   - 只改 aVMPInterpreter.c 时允许跳过 CMake。
-   - 默认 build target 可缩小为 clang lld，其他工具改为可选。
-   - 引入 sccache/clcache 缓存 MSVC/Clang 编译结果。
+7. 编译速度优化但不降低强度
    - 长期拆分 aVMP.cpp 为 translator/modifier/interpreter/crypto/dispatcher 多个编译单元。
 
-9. 反破解增强
+8. 反破解增强
    - 函数 key 不只依赖函数名/参数/BB 数，加入编译期随机 salt。
    - 每个函数生成不同 opcode permutation 和 handler 顺序。
    - 混淆 shared dispatcher，避免按 code_seg_addr 直接静态识别 handler。

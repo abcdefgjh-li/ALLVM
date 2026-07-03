@@ -552,9 +552,22 @@ class GOVMTranslator {
             this->pointer_size = modDataLayout->getPointerSize();  // 动态获取指针大小
             this->has_unsupported_instruction = false;  // 初始化标志
             this->vm_function_key = deriveVMFunctionKey(*F);
-
-            // construct function and global variables
-            init();
+            this->gv_code_seg = nullptr;
+            this->gv_data_seg = nullptr;
+            this->ip = nullptr;
+            this->data_seg_addr = nullptr;
+            this->code_seg_addr = nullptr;
+            this->exception_thrown = nullptr;
+            this->exception_ptr_global = nullptr;
+            this->exception_selector_global = nullptr;
+            this->last_br_from_bb_id = nullptr;
+            this->current_bb_id = nullptr;
+            this->vmp_debug_enabled_gv = nullptr;
+            this->callinst_handler = nullptr;
+            this->callinst_handler_conBBL = nullptr;
+            this->callinst_handler_entryBB = nullptr;
+            this->targetfunc_id = nullptr;
+            this->callinst_handler_curr_idx = 0;
         }
 
         Module * Mod;
@@ -606,12 +619,16 @@ class GOVMTranslator {
 
         // collect BlockAddress constants used by indirectbr/callbr dispatch
         std::map<int, BlockAddressInfo> blockaddress_info_map;  // key: data_seg 中的偏移量
+        std::vector<std::tuple<Instruction *, unsigned, ConstantExpr *, Instruction *>> lowered_constexprs;
 
         // current offset in data_seg
         int curr_data_offset = 0;
 
 
         virtual bool run ();
+        virtual bool prescan_supported_ir();
+        virtual bool is_supported_instruction(Instruction *ins);
+        virtual void rollback_created_ir();
         virtual void handle_inst(Instruction *);
         virtual void construct_gv();
 
@@ -1956,6 +1973,116 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
 
 }
 
+
+bool GOVMTranslator::is_supported_instruction(Instruction *ins) {
+    if (CallBase *CB = dyn_cast<CallBase>(ins)) {
+        if (Function *Callee = CB->getCalledFunction()) {
+            if (Callee->isIntrinsic()) {
+                Intrinsic::ID IID = Callee->getIntrinsicID();
+                if (IID == Intrinsic::lifetime_start ||
+                    IID == Intrinsic::lifetime_end ||
+                    IID == Intrinsic::dbg_declare ||
+                    IID == Intrinsic::dbg_value ||
+                    IID == Intrinsic::dbg_assign) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    if (UnaryOperator *UO = dyn_cast<UnaryOperator>(ins)) {
+        return UO->getOpcode() == Instruction::FNeg;
+    }
+
+    return isa<AllocaInst>(ins) || isa<LoadInst>(ins) || isa<StoreInst>(ins) ||
+           ins->isBinaryOp() || isa<CmpInst>(ins) || isa<GetElementPtrInst>(ins) ||
+           isa<CastInst>(ins) || isa<BranchInst>(ins) || isa<ReturnInst>(ins) ||
+           isa<InvokeInst>(ins) || isa<CallBase>(ins) || isa<PHINode>(ins) ||
+           isa<SelectInst>(ins) || isa<SwitchInst>(ins) || isa<ExtractValueInst>(ins) ||
+           isa<UnreachableInst>(ins) || isa<LandingPadInst>(ins) || isa<ResumeInst>(ins) ||
+           isa<InsertValueInst>(ins) || isa<IndirectBrInst>(ins) ||
+           isa<ExtractElementInst>(ins) || isa<InsertElementInst>(ins) ||
+           isa<ShuffleVectorInst>(ins) || isa<FreezeInst>(ins) ||
+           isa<CatchSwitchInst>(ins) || isa<CatchReturnInst>(ins) ||
+           isa<CleanupReturnInst>(ins) || isa<CallBrInst>(ins) || isa<FenceInst>(ins) ||
+           isa<AtomicCmpXchgInst>(ins) || isa<AtomicRMWInst>(ins) || isa<VAArgInst>(ins);
+}
+
+bool GOVMTranslator::prescan_supported_ir() {
+    const int MAX_BASIC_BLOCKS = 10000;
+    const int MAX_INSTRUCTIONS = 100000;
+    int bb_count = 0;
+    int total_instructions = 0;
+
+    for (BasicBlock &BB : *F) {
+        if (bb_count >= MAX_BASIC_BLOCKS) {
+            errs() << "[VMP Warning] Function '" << F->getName()
+                   << "' exceeds VMP basic block limit.\n";
+            return false;
+        }
+        bb_count++;
+
+        for (Instruction &I : BB) {
+            if (total_instructions >= MAX_INSTRUCTIONS) {
+                errs() << "[VMP Warning] Function '" << F->getName()
+                       << "' exceeds VMP instruction limit.\n";
+                return false;
+            }
+            total_instructions++;
+
+            if (!is_supported_instruction(&I)) {
+                errs() << "[VMP Warning] Unsupported instruction in function '" << F->getName() << "':\n";
+                errs() << "[VMP Warning]   " << I << "\n";
+                errs() << "[VMP Warning]   Instruction type: " << I.getOpcodeName() << "\n";
+                errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
+                return false;
+            }
+
+            for (unsigned idx = 0; idx < I.getNumOperands(); idx++) {
+                if (ConstantExpr *Op = dyn_cast<ConstantExpr>(I.getOperand(idx))) {
+                    std::unique_ptr<Instruction> ConstInst(Op->getAsInstruction());
+                    if (!is_supported_instruction(ConstInst.get())) {
+                        errs() << "[VMP Warning] Unsupported constant expression lowering in function '"
+                               << F->getName() << "':\n";
+                        errs() << "[VMP Warning]   " << *ConstInst << "\n";
+                        errs() << "[VMP Warning]   Instruction type: " << ConstInst->getOpcodeName() << "\n";
+                        errs() << "[VMP Warning] Skipping VMP protection for this function.\n";
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
+void GOVMTranslator::rollback_created_ir() {
+    for (auto it = lowered_constexprs.rbegin(); it != lowered_constexprs.rend(); ++it) {
+        Instruction *UserInst = std::get<0>(*it);
+        unsigned OperandIndex = std::get<1>(*it);
+        ConstantExpr *OriginalExpr = std::get<2>(*it);
+        Instruction *LoweredInst = std::get<3>(*it);
+        if (UserInst && UserInst->getParent() && OperandIndex < UserInst->getNumOperands()) {
+            UserInst->setOperand(OperandIndex, OriginalExpr);
+        }
+        if (LoweredInst && LoweredInst->getParent()) {
+            LoweredInst->eraseFromParent();
+        }
+    }
+    lowered_constexprs.clear();
+    if (callinst_handler) {
+        callinst_handler->eraseFromParent();
+        callinst_handler = nullptr;
+    }
+    if (gv_code_seg) {
+        gv_code_seg->eraseFromParent();
+        gv_code_seg = nullptr;
+    }
+    if (gv_data_seg) {
+        gv_data_seg->eraseFromParent();
+        gv_data_seg = nullptr;
+    }
+}
 
 void GOVMTranslator::handle_inst(Instruction *ins) {
     if (CallBase *CB = dyn_cast<CallBase>(ins)) {
@@ -3377,6 +3504,11 @@ bool GOVMTranslator::run(){
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[Translator] Starting for function: " << F->getName() << "\n";
     }
+
+    if (!prescan_supported_ir()) {
+        return false;
+    }
+    init();
     
     bool has_exception_handling = false;
     for(auto &BB : *F) {
@@ -3436,7 +3568,9 @@ bool GOVMTranslator::run(){
     for(auto bbl = F->begin(); bbl != F->end(); bbl++){
         
         if (bb_count >= MAX_BASIC_BLOCKS) {
-            break;
+            has_unsupported_instruction = true;
+            rollback_created_ir();
+            return false;
         }
 
         BasicBlock * bb = &*bbl;
@@ -3464,7 +3598,9 @@ bool GOVMTranslator::run(){
         for(Instruction *inst : instructions_to_process){
 
             if (total_instructions >= MAX_INSTRUCTIONS) {
-                break;
+                has_unsupported_instruction = true;
+                rollback_created_ir();
+                return false;
             }
             
             if (!inst || inst->getParent() != bb) {
@@ -3496,6 +3632,7 @@ bool GOVMTranslator::run(){
                 }
 
                 inst->setOperand(idx, const_inst);
+                lowered_constexprs.emplace_back(inst, idx, Op, const_inst);
 
                 handle_inst(const_inst);
             }
@@ -3508,7 +3645,9 @@ bool GOVMTranslator::run(){
         }
         
         if (total_instructions >= MAX_INSTRUCTIONS) {
-            break;
+            has_unsupported_instruction = true;
+            rollback_created_ir();
+            return false;
         }
 
         uint32_t currbb_end = vm_code.size();
@@ -3583,9 +3722,11 @@ bool GOVMTranslator::run(){
     if (has_unsupported_instruction) {
         errs() << "[VMP Warning] Function '" << F->getName() << "' contains unsupported instructions.\n";
         errs() << "[VMP Warning] VMP protection has been skipped for this function.\n";
+        rollback_created_ir();
         return false;  // 返回 false 表示跳过虚拟化
     }
 
+    lowered_constexprs.clear();
     // errs() << "[Translator] Done!\n";
     return true;  // 返回 true 表示成功处理
 }

@@ -1,6 +1,8 @@
 // Verbose VM tracing is disabled by default.
-// Crash context is dumped independently and does not rely on this macro.
-#ifdef GOVM_CPP_DEBUG
+#ifndef VM_ENABLE_DEBUG_TRACE
+#define VM_ENABLE_DEBUG_TRACE 0
+#endif
+#if !VM_ENABLE_DEBUG_TRACE && defined(GOVM_CPP_DEBUG)
 #undef GOVM_CPP_DEBUG
 #endif
 
@@ -12,9 +14,24 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 #include "aVMPInterpreter.h"
 
 extern void _Unwind_Resume(void *exc) __attribute__((noreturn));
+
+static __attribute__((noreturn)) void vmp_report_and_kill(void) {
+	static const char banner[] = "A-Protector\nProtection v1.2.0\n";
+	(void)write(2, banner, sizeof(banner) - 1);
+	kill(getpid(), SIGKILL);
+#if defined(__aarch64__) || defined(__arm64__)
+	__asm__ __volatile__("brk #0");
+#elif defined(__arm__)
+	__asm__ __volatile__("bkpt #0");
+#elif defined(__x86_64__) || defined(__i386__)
+	__asm__ __volatile__("int3");
+#endif
+	__builtin_unreachable();
+}
 
 __attribute__((noreturn)) void vmp_resume_unwind(void *exc) {
 	_Unwind_Resume(exc);
@@ -368,12 +385,18 @@ static int caught_exception_selector = 0;
 static std::exception_ptr current_exception_ptr;
 #endif
 
-#define EH_TRACE(fmt, ...) do { \
+#if VM_ENABLE_DEBUG_TRACE
+#define VM_DEBUG_PRINTF(fmt, ...) do { \
 	if (vmp_debug_enabled) { \
 		printf(fmt, ##__VA_ARGS__); \
 		fflush(NULL); \
 	} \
 } while (0)
+#else
+#define VM_DEBUG_PRINTF(fmt, ...) do { } while (0)
+#endif
+
+#define EH_TRACE(fmt, ...) VM_DEBUG_PRINTF(fmt, ##__VA_ARGS__)
 
 // C++ 异常捕获包装函数
 #ifdef __cplusplus
@@ -431,7 +454,7 @@ void call_handler_with_exception_handling(uint64_t targetfunc_id) {
 			         ip);
 
 #ifdef GOVM_CPP_DEBUG
-			printf("[CALL_HANDLER] Caught std::exception: %s\n", e.what());
+			VM_DEBUG_PRINTF("[CALL_HANDLER] Caught std::exception: %s\n", e.what());
 			fflush(NULL);
 #endif
 		} catch (...) {
@@ -449,7 +472,7 @@ void call_handler_with_exception_handling(uint64_t targetfunc_id) {
 			         ip);
 
 #ifdef GOVM_CPP_DEBUG
-			printf("[CALL_HANDLER] Caught unknown exception\n");
+			VM_DEBUG_PRINTF("[CALL_HANDLER] Caught unknown exception\n");
 			fflush(NULL);
 #endif
 		}
@@ -601,15 +624,18 @@ typedef struct {
 	uint64_t d;
 } VMTraceEntry;
 
+#if VM_ENABLE_DEBUG_TRACE
 VMTraceEntry vm_trace_ring[VM_CRASH_TRACE_DEPTH];
 uint32_t vm_trace_next = 0;
 uint64_t vm_trace_total = 0;
+#endif
 
 #ifdef IS_INLINE_FUNC
 	__inline__ __attribute__((always_inline))
 #endif
 void vm_trace_push(uint8_t kind, uint32_t ip_value, uint8_t tag0, uint8_t tag1,
 	               uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
+#if VM_ENABLE_DEBUG_TRACE
 	VMTraceEntry *entry = &vm_trace_ring[vm_trace_next];
 	entry->kind = kind;
 	entry->tag0 = tag0;
@@ -622,9 +648,20 @@ void vm_trace_push(uint8_t kind, uint32_t ip_value, uint8_t tag0, uint8_t tag1,
 	entry->d = d;
 	vm_trace_next = (vm_trace_next + 1) % VM_CRASH_TRACE_DEPTH;
 	vm_trace_total++;
+#else
+	(void)kind;
+	(void)ip_value;
+	(void)tag0;
+	(void)tag1;
+	(void)a;
+	(void)b;
+	(void)c;
+	(void)d;
+#endif
 }
 
 void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail1) {
+#if VM_ENABLE_DEBUG_TRACE
 	uint64_t available = vm_trace_total < VM_CRASH_TRACE_DEPTH ? vm_trace_total : VM_CRASH_TRACE_DEPTH;
 	uint64_t start = vm_trace_total > VM_CRASH_TRACE_DEPTH ? vm_trace_next : 0;
 	uint32_t fault_ip = ip > 0 ? (uint32_t)(ip - 1) : 0;
@@ -697,6 +734,12 @@ void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail
 		}
 	}
 	fflush(NULL);
+#else
+	(void)reason;
+	(void)detail0;
+	(void)detail1;
+#endif
+	vmp_report_and_kill();
 }
 
 // #region debug-point vm-stdio-entry
@@ -1851,7 +1894,7 @@ void br_handler() {
 		trace_aux0 = true_br;
 		trace_aux1 = false_br;
 #ifdef GOVM_CPP_DEBUG
-		printf("[BR_HANDLER] invoke source=%llu exception_thrown=%u true=%llu false=%llu target=%llu\n",
+		VM_DEBUG_PRINTF("[BR_HANDLER] invoke source=%llu exception_thrown=%u true=%llu false=%llu target=%llu\n",
 		       (unsigned long long)source_bb_offset,
 		       (unsigned)exception_thrown,
 		       (unsigned long long)true_br,
@@ -1874,7 +1917,7 @@ void br_handler() {
 		trace_aux0 = true_br;
 		trace_aux1 = false_br;
 #ifdef GOVM_CPP_DEBUG
-		printf("[BR_HANDLER] cond source=%llu cond=%llu true=%llu false=%llu target=%llu\n",
+		VM_DEBUG_PRINTF("[BR_HANDLER] cond source=%llu cond=%llu true=%llu false=%llu target=%llu\n",
 		       (unsigned long long)source_bb_offset,
 		       (unsigned long long)condition_value,
 		       (unsigned long long)true_br,
@@ -3223,78 +3266,8 @@ void vm_interpreter() {
 			break;
 
 			default:
-			{
-				uint64_t available = vm_trace_total < VM_CRASH_TRACE_DEPTH ? vm_trace_total : VM_CRASH_TRACE_DEPTH;
-				uint64_t start = vm_trace_total > VM_CRASH_TRACE_DEPTH ? vm_trace_next : 0;
-				uint32_t fault_ip = ip > 0 ? (uint32_t)(ip - 1) : 0;
-
-				printf("\n[VM_CRASH] reason=unknown_opcode detail0=%llu detail1=%llu ip=%u current_bb=%llu last_br_from=%llu exception=%u selector=%d\n",
-				       (unsigned long long)opcode,
-				       (unsigned long long)current_bb_id,
-				       (unsigned)fault_ip,
-				       (unsigned long long)current_bb_id,
-				       (unsigned long long)last_br_from_bb_id,
-				       (unsigned)exception_thrown,
-				       exception_selector);
-
-				printf("[VM_CRASH] opcode_state=0x%08x vm_state=0x%08x code_bytes=",
-				       (unsigned)opcode_xorshift32_state,
-				       (unsigned)vm_code_state);
-				{
-					uint32_t raw_start = fault_ip > 8 ? fault_ip - 8 : 0;
-					for (uint32_t i = 0; i < 24; ++i) {
-						uint32_t pos = raw_start + i;
-						printf("%02x", ((uint8_t *)code_seg_addr)[pos]);
-						if (i + 1 != 24) printf(" ");
-					}
-				}
-				printf("\n");
-
-				for (uint64_t i = 0; i < available; ++i) {
-					VMTraceEntry *entry = &vm_trace_ring[(start + i) % VM_CRASH_TRACE_DEPTH];
-					switch (entry->kind) {
-						case VM_TRACE_KIND_BB:
-							printf("[VM_CRASH][TRACE] bb ip=%u opcode_seed=0x%08llx vm_seed=0x%08llx\n",
-							       entry->ip_value,
-							       (unsigned long long)entry->a,
-							       (unsigned long long)entry->b);
-							break;
-						case VM_TRACE_KIND_OPCODE:
-							printf("[VM_CRASH][TRACE] opcode ip=%u op=%u raw=0x%02llx bb=%llu opcode_state=0x%08llx vm_state=0x%08llx\n",
-							       entry->ip_value,
-							       (unsigned)entry->tag0,
-							       (unsigned long long)entry->a,
-							       (unsigned long long)entry->d,
-							       (unsigned long long)entry->b,
-							       (unsigned long long)entry->c);
-							break;
-						case VM_TRACE_KIND_BRANCH:
-							printf("[VM_CRASH][TRACE] br source=%llu target=%llu type=%u flag=%u aux0=%llu aux1=%llu\n",
-							       (unsigned long long)entry->a,
-							       (unsigned long long)entry->b,
-							       (unsigned)entry->tag0,
-							       (unsigned)entry->tag1,
-							       (unsigned long long)entry->c,
-							       (unsigned long long)entry->d);
-							break;
-						case VM_TRACE_KIND_CALL:
-							printf("[VM_CRASH][TRACE] call stage=%s funcid=%llu saved_ip=%llu res_offset=%llu exc=%u selector=%llu\n",
-							       entry->tag0 ? "leave" : "enter",
-							       (unsigned long long)entry->a,
-							       (unsigned long long)entry->b,
-							       (unsigned long long)entry->c,
-							       (unsigned)entry->tag1,
-							       (unsigned long long)entry->d);
-							break;
-						default:
-							break;
-					}
-				}
-
-				printf("[VM] Unknown opcode 0x%02x, returning\n", opcode);
-				fflush(NULL);
+				vm_dump_fault_context("unknown-opcode", opcode, current_bb_id);
 				return;
-			}
 				// cannot recognize opcode
 
 		}

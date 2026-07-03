@@ -70,7 +70,10 @@
 |------|------|
 | `--target <triple>` | 指定 `aVMPInterpreter` 编译目标，默认 `aarch64-linux-android` |
 | `-j <N>` / `--jobs <N>` | 指定并行构建任务数 |
-| `--build "<ninja targets>"` | 指定 Ninja 目标，默认 `clang lld llvm-strip llvm-objcopy llvm-dis llc FileCheck` |
+| `--build "<ninja targets>"` | 指定 Ninja 目标，默认 `clang lld` |
+| `--build-tools` | 构建完整工具集：`clang lld llvm-strip llvm-objcopy llvm-dis llc FileCheck` |
+| `--reconfigure` | 强制删除并重新生成 `CMakeCache.txt`，不指定时复用已有 CMake 配置 |
+| `--clean-test` | 测试前显式清理 `test/obj` 和 `test/libs`，默认保留 NDK 增量产物 |
 
 ### APK 相关
 
@@ -95,6 +98,8 @@
 | `--test-abi <abi>` | 指定测试 ABI |
 | `--test-timeout <sec>` | 指定设备端运行超时秒数 |
 | `--skip-test-build` | 跳过 NDK 构建，直接推送并运行现有二进制 |
+
+> **说明**：默认测试工程 `test/jni/Android.mk`、`test/jni/Application.mk`、`test/jni/main.cpp` 现在手动维护，`build.exe` 只负责检查、编译和运行，不再生成或覆盖这些文件。默认测试 ABI 会按当前设备检测结果通过 `APP_ABI=<abi>` 传给 `ndk-build`。
 
 ### 常用命令示例
 
@@ -249,7 +254,6 @@ LOCAL_CPPFLAGS += -mllvm -irobf-vmp -mllvm -irobf-vmp-noinline -mllvm -irobf-vm_
 | `-mllvm -irobf-time` | 时间差调试检测 |
 | `-mllvm -irobf-hosts` | Hosts文件检测 |
 | `-mllvm -irobf-bandump` | 内存 Dump 保护 |
-| `-mllvm -irobf-no-aprotect` | 禁用 A-protector 启动输出（默认启用） |
 | `-mllvm -irobf-root` | Root检测 (有root退出) |
 | `-mllvm -irobf-noroot` | 无Root检测 (无root退出) |
 | `-mllvm -irobf-hidemaps` | 隐藏 Maps 保护 (需Root) |
@@ -354,8 +358,8 @@ LOCAL_LDFLAGS += -firobf-linker
 │ 1. 检测类Pass注入的代码              │
 │    (LD_PRELOAD检测、调试器检测等)    │
 │    检测到威胁时打印:                 │
-│    - A-protector                     │
-│    - Protection v1.0.0               │
+│    - A-Protector                     │
+│    - Protection v1.2.0               │
 │    - [DEBUG] XXX detected!           │
 └─────────────────────────────────────┘
     │
@@ -474,7 +478,6 @@ LOCAL_CFLAGS += -mllvm -irobf-syscall
 # LOCAL_CFLAGS += -mllvm -irobf-time
 # LOCAL_CFLAGS += -mllvm -irobf-hosts
 # LOCAL_CFLAGS += -mllvm -irobf-bandump
-# LOCAL_CFLAGS += -mllvm -irobf-no-aprotect  # 禁用 A-protector 输出（默认启用）
 # LOCAL_CFLAGS += -mllvm -irobf-root
 # LOCAL_CFLAGS += -mllvm -irobf-noroot
 # LOCAL_CFLAGS += -mllvm -irobf-hidemaps
@@ -502,7 +505,7 @@ include $(BUILD_EXECUTABLE)
 | `llvm\lib\Transforms\Obfuscation\ConstantIntEncryption.cpp` | 整数常量加密 |
 | `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
 | `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
-| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | A-protector 输出注入 |
+| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | A-Protector 输出注入 |
 | `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 内存 Dump 保护 |
 | `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
 | `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 Maps 保护 |
