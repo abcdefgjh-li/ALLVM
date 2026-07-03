@@ -21,7 +21,8 @@ ALLVM 后续加强 TODO
    - 默认只跑 VMP 相关测试，非 VMP 测试放入 custom test。
 
 5. 编译速度优化但不降低强度
-   - 继续拆分 aVMP.cpp 的 translator/modifier/interpreter/dispatcher 为独立编译单元。
+   - 继续拆分 aVMP.cpp 的 translator/modifier/interpreter 为独立编译单元。
+   - 解释器后续可继续按 runtime/opcode/exception/crypto 拆 .c 实现文件；当前已完成手写接口头拆分。
 
 6. 反破解增强
    - 函数 key 不只依赖函数名/参数/BB 数，加入编译期随机 salt。
