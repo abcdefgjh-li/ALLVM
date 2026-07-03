@@ -14,8 +14,9 @@ add_llvm_library(LLVMObfuscation
   ConstantIntEncryption.cpp
   ConstantFPEncryption.cpp
   MicrosoftRTTIEraser.cpp
-  aVMPCrypto.cpp
-  aVMP.cpp
+  aVMP/aVMPCrypto.cpp
+  aVMP/aVMPDispatcher.cpp
+  aVMP/aVMP.cpp
   AProtect.cpp
   LdPreloadProtect.cpp
   VmProtectDetect.cpp
@@ -46,5 +47,5 @@ add_dependencies(LLVMObfuscation intrinsics_gen LLVMLinker)
 
 if(EXISTS "${INTERPRETER_BC}")
   message(STATUS "Embedding aVMPInterpreter.bc into LLVMObfuscation")
-  set_source_files_properties(aVMP.cpp PROPERTIES OBJECT_DEPENDS "${INTERPRETER_BC}")
+  set_source_files_properties(aVMP/aVMP.cpp PROPERTIES OBJECT_DEPENDS "${INTERPRETER_BC}")
 endif()

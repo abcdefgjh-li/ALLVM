@@ -1086,7 +1086,7 @@ static bool generate_vm_h() {
     printf("\n[2/3] Generating vm.h...\n");
 
     std::string bc_file = g_script_dir + "\\aVMPInterpreter\\aVMPInterpreter.bc";
-    std::string vm_h = g_script_dir + "\\llvm\\include\\llvm\\Transforms\\Obfuscation\\vm.h";
+    std::string vm_h = g_script_dir + "\\llvm\\include\\llvm\\Transforms\\Obfuscation\\aVMP\\vm.h";
 
     if (!file_exists(bc_file)) {
         printf("[Error] %s not found\n", bc_file.c_str());

@@ -1,10 +1,4 @@
-// Verbose VM tracing is disabled by default.
-#ifndef VM_ENABLE_DEBUG_TRACE
-#define VM_ENABLE_DEBUG_TRACE 0
-#endif
-#if !VM_ENABLE_DEBUG_TRACE && defined(GOVM_CPP_DEBUG)
-#undef GOVM_CPP_DEBUG
-#endif
+#include "aVMPInterpreterConfig.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +10,11 @@
 #include <unistd.h>
 #include <signal.h>
 #include "aVMPInterpreter.h"
+#include "aVMPInterpreterState.h"
+#include "aVMPInterpreterTrace.h"
+#include "aVMPInterpreterCrypto.h"
+#include "aVMPInterpreterException.h"
+#include "aVMPInterpreterOpcode.h"
 
 extern void _Unwind_Resume(void *exc) __attribute__((noreturn));
 
@@ -37,93 +36,6 @@ __attribute__((noreturn)) void vmp_resume_unwind(void *exc) {
 	_Unwind_Resume(exc);
 	__builtin_unreachable();
 }
-
-// C++ RTTI 类型信息结构（简化版，基于 Itanium C++ ABI）
-// 参考：https://itanium-cxx-abi.github.io/cxx-abi/abi.html#rtti
-
-// type_info 基类
-typedef struct {
-	void *vtable;  // 虚表指针
-	const char *name;  // 类型名称
-} __type_info_t;
-
-// __class_type_info - 普通类（无基类）
-typedef struct {
-	void *vtable;
-	const char *name;
-} __class_type_info_t;
-
-// __si_class_type_info - 单继承类
-typedef struct {
-	void *vtable;
-	const char *name;
-	const __class_type_info_t *base_type;
-} __si_class_type_info_t;
-
-// __base_class_type_info - 基类信息
-typedef struct {
-	const __class_type_info_t *base_type;
-	long offset_flags;  // 低8位是标志，高位是偏移量
-} __base_class_type_info_t;
-
-// __vmi_class_type_info - 多重继承/虚拟继承类
-typedef struct {
-	void *vtable;
-	const char *name;
-	unsigned int flags;
-	unsigned int base_count;
-	__base_class_type_info_t base_info[1];  // 可变长度数组
-} __vmi_class_type_info_t;
-
-// RTTI 类型标志
-#define RTTI_CLASS_TYPE        0
-#define RTTI_SI_CLASS_TYPE     1
-#define RTTI_VMI_CLASS_TYPE    2
-
-// 基类标志
-#define BASE_VIRTUAL_MASK   0x1
-#define BASE_PUBLIC_MASK    0x2
-#define BASE_OFFSET_SHIFT   8
-
-// 动态转换信息
-typedef struct {
-	const __class_type_info_t *dst_type;
-	const void *static_ptr;
-	const __class_type_info_t *static_type;
-	const void *dst_ptr_leading_to_static_ptr;
-	int path_dst_ptr_to_static_ptr;  // 0=unknown, 1=public, 2=not_public
-	int number_to_static_ptr;
-	bool search_done;
-} __dynamic_cast_info_t;
-
-// 异常对象结构（基于 __cxa_exception）
-typedef struct {
-	// __cxa_exception 头部
-	void *reserve;  // 64位系统的填充
-	size_t referenceCount;  // C++11 exception_ptr 支持
-
-	// 异常类型信息
-	const void *exceptionType;  // 指向 type_info 的指针
-	void (*exceptionDestructor)(void *);
-
-	// 异常处理器
-	void *unexpectedHandler;
-	void *terminateHandler;
-
-	// 异常链
-	void *nextException;
-	int handlerCount;
-
-	// 异常处理上下文
-	int handlerSwitchValue;
-	const unsigned char *actionRecord;
-	const unsigned char *languageSpecificData;
-	void *catchTemp;
-	void *adjustedPtr;
-
-	// Unwind 头部
-	void *unwindHeader[6];  // _Unwind_Exception
-} __cxa_exception_t;
 
 // 判断两个 type_info 是否相等
 static bool is_type_info_equal(const void *type1, const void *type2) {
@@ -510,10 +422,6 @@ extern uint8_t vmp_debug_enabled;
 // DEBUG macro: only outputs when vmp_debug_enabled is set
 #define DEBUG(id, val) do { if (vmp_debug_enabled) vmp_debug_id(id, val); } while(0)
 
-#define SEG_SIZE 5000
-
-#define IS_INLINE_FUNC
-
 // #define TEST_GOVM_C
 
 uint8_t gv_code_seg[SEG_SIZE] = {
@@ -548,21 +456,6 @@ uint64_t current_bb_id;
 
 void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail1);
 
-typedef struct vm_call_frame_t {
-	int ip;
-	uint64_t opcode_xorshift32_state;
-	uint64_t vm_code_state;
-	uint64_t vm_block_chain_state;
-	uint64_t expected_bb_token;
-	uintptr_t data_seg_addr;
-	uintptr_t code_seg_addr;
-	uintptr_t dispatch_code_seg_addr;
-	uint64_t vm_function_key;
-	uint64_t last_br_from_bb_id;
-	uint64_t current_bb_id;
-} vm_call_frame_t;
-
-#define VM_CALL_STACK_MAX 256
 static vm_call_frame_t vm_call_stack[VM_CALL_STACK_MAX];
 static unsigned vm_call_stack_top = 0;
 
@@ -605,24 +498,6 @@ static int vm_restore_call_frame(void) {
 	current_bb_id = frame->current_bb_id;
 	return 1;
 }
-
-#define VM_CRASH_TRACE_DEPTH 32
-#define VM_TRACE_KIND_BB 1
-#define VM_TRACE_KIND_OPCODE 2
-#define VM_TRACE_KIND_BRANCH 3
-#define VM_TRACE_KIND_CALL 4
-
-typedef struct {
-	uint8_t kind;
-	uint8_t tag0;
-	uint8_t tag1;
-	uint8_t reserved;
-	uint32_t ip_value;
-	uint64_t a;
-	uint64_t b;
-	uint64_t c;
-	uint64_t d;
-} VMTraceEntry;
 
 #if VM_ENABLE_DEBUG_TRACE
 VMTraceEntry vm_trace_ring[VM_CRASH_TRACE_DEPTH];

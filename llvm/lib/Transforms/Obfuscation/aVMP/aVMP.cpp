@@ -44,9 +44,10 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
-#include "llvm/Transforms/Obfuscation/aVMP.h"
-#include "llvm/Transforms/Obfuscation/vm.h"
-#include "aVMPCrypto.h"
+#include "llvm/Transforms/Obfuscation/aVMP/aVMP.h"
+#include "llvm/Transforms/Obfuscation/aVMP/vm.h"
+#include "llvm/Transforms/Obfuscation/aVMP/aVMPCrypto.h"
+#include "llvm/Transforms/Obfuscation/aVMP/aVMPDispatcher.h"
 #include <assert.h>
 
 static uint64_t vmpSplitmix64NextLocal(uint64_t &State) {
@@ -1062,50 +1063,6 @@ void GOVMTranslator::finish_callinst_handler() {
     // 为最后一个基本块添加返回指令
     IRBuilder<> IRB(this->callinst_handler_conBBL);
     IRB.CreateRetVoid();
-}
-
-static Function *buildSharedCallDispatcher(
-    Module *M,
-    ArrayRef<GOVMTranslator *> Translators,
-    GlobalVariable *SharedCodeSegAddr) {
-    LLVMContext &Ctx = M->getContext();
-    FunctionType *FuncTy = FunctionType::get(Type::getVoidTy(Ctx),
-                                             {Type::getInt64Ty(Ctx)}, false);
-    Function *Dispatcher = M->getFunction("vmp_shared_call_dispatch");
-    if (!Dispatcher) {
-        Dispatcher = Function::Create(FuncTy, GlobalValue::InternalLinkage,
-                                      "vmp_shared_call_dispatch", M);
-        Dispatcher->setSection(".AProtect.text");
-    }
-    if (!Dispatcher->empty()) {
-        Dispatcher->deleteBody();
-    }
-
-    BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", Dispatcher);
-    BasicBlock *Exit = BasicBlock::Create(Ctx, "exit", Dispatcher);
-    IRBuilder<> Builder(Entry);
-    Argument *FuncId = Dispatcher->arg_begin();
-    Value *CurrentCodeSeg = Builder.CreateLoad(Type::getInt64Ty(Ctx), SharedCodeSegAddr);
-
-    BasicBlock *Next = nullptr;
-    for (GOVMTranslator *Translator : Translators) {
-        BasicBlock *CallBB = BasicBlock::Create(Ctx, "dispatch.call", Dispatcher);
-        Next = BasicBlock::Create(Ctx, "dispatch.next", Dispatcher);
-        Value *CodePtr = Builder.CreatePtrToInt(Translator->get_gv_code_seg(), Type::getInt64Ty(Ctx));
-        Value *Matches = Builder.CreateICmpEQ(CurrentCodeSeg, CodePtr);
-        Builder.CreateCondBr(Matches, CallBB, Next);
-
-        IRBuilder<> CallBuilder(CallBB);
-        CallBuilder.CreateCall(Translator->get_callinst_handler(), {FuncId});
-        CallBuilder.CreateBr(Exit);
-
-        Builder.SetInsertPoint(Next);
-    }
-    Builder.CreateBr(Exit);
-
-    IRBuilder<> ExitBuilder(Exit);
-    ExitBuilder.CreateRetVoid();
-    return Dispatcher;
 }
 
 void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
@@ -4791,8 +4748,14 @@ struct VMProtect : public ModulePass {
           &M, Type::getInt64Ty(M.getContext()),
           ConstantInt::get(Type::getInt64Ty(M.getContext()), 0),
           "vmp_shared_dispatch_code_seg_addr", ".AProtect.data");
+      std::vector<VMPDispatchTarget> dispatch_targets;
+      dispatch_targets.reserve(translators.size());
+      for (GOVMTranslator *translator : translators) {
+        dispatch_targets.push_back({translator->get_gv_code_seg(),
+                                    translator->get_callinst_handler()});
+      }
       Function *shared_dispatcher = buildSharedCallDispatcher(
-          &M, translators, dispatch_code_seg_addr);
+          &M, dispatch_targets, dispatch_code_seg_addr);
       GOVMInterpreter *interpreter = new GOVMInterpreter(
           translators.front()->get_function(), shared_dispatcher,
           translators.front()->get_gv_data_seg(),
@@ -4898,8 +4861,14 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
       &M, Type::getInt64Ty(M.getContext()),
       ConstantInt::get(Type::getInt64Ty(M.getContext()), 0),
       "vmp_shared_dispatch_code_seg_addr", ".AProtect.data");
+  std::vector<VMPDispatchTarget> dispatch_targets;
+  dispatch_targets.reserve(translators.size());
+  for (GOVMTranslator *translator : translators) {
+    dispatch_targets.push_back({translator->get_gv_code_seg(),
+                                translator->get_callinst_handler()});
+  }
   Function *shared_dispatcher = buildSharedCallDispatcher(
-      &M, translators, dispatch_code_seg_addr);
+      &M, dispatch_targets, dispatch_code_seg_addr);
   GOVMInterpreter *interpreter = new GOVMInterpreter(
       translators.front()->get_function(), shared_dispatcher,
       translators.front()->get_gv_data_seg(),

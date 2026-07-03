@@ -17,7 +17,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationOptions.h"
-#include "llvm/Transforms/Obfuscation/aVMP.h"
+#include "llvm/Transforms/Obfuscation/aVMP/aVMP.h"
 #include "llvm/Transforms/Obfuscation/LdPreloadProtect.h"
 #include "llvm/Transforms/Obfuscation/VmProtectDetect.h"
 #include "llvm/Transforms/Obfuscation/UsbProtect.h"
