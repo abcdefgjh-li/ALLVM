@@ -14,6 +14,7 @@ add_llvm_library(LLVMObfuscation
   ConstantIntEncryption.cpp
   ConstantFPEncryption.cpp
   MicrosoftRTTIEraser.cpp
+  aVMPCrypto.cpp
   aVMP.cpp
   AProtect.cpp
   LdPreloadProtect.cpp
