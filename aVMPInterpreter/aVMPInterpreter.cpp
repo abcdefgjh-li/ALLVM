@@ -297,6 +297,8 @@ static int caught_exception_selector = 0;
 static std::exception_ptr current_exception_ptr;
 #endif
 
+extern uint8_t vmp_debug_enabled;
+
 #if VM_ENABLE_DEBUG_TRACE
 #define VM_DEBUG_PRINTF(fmt, ...) do { \
 	if (vmp_debug_enabled) { \
@@ -420,7 +422,7 @@ extern uint8_t vmp_debug_enabled;
 #define DEBUG_ID_IP         10
 
 // DEBUG macro: only outputs when vmp_debug_enabled is set
-#define DEBUG(id, val) do { if (vmp_debug_enabled) vmp_debug_id(id, val); } while(0)
+#define DEBUG(id, val) do { if (vmp_debug_enabled) vmp_debug_id(id, vm_debug_layout_value((uint8_t)(id), (uint64_t)(val))); } while(0)
 
 // #define TEST_GOVM_C
 
@@ -455,6 +457,86 @@ uint64_t last_br_from_bb_id;
 uint64_t current_bb_id;
 static uint64_t vm_opcode_variant_key;
 static uint8_t vm_opcode_decode_map[OP_TOTAL + 1];
+static uint64_t vm_layout_variant_key;
+static uint8_t vm_trace_layout_id;
+static uint8_t vm_fault_layout_id;
+static uint8_t vm_debug_layout_id;
+
+#define VM_LAYOUT_VARIANT_COUNT 24
+static const uint8_t vm_layout_permutations[VM_LAYOUT_VARIANT_COUNT][4] = {
+	{0, 1, 2, 3}, {0, 1, 3, 2}, {0, 2, 1, 3}, {0, 2, 3, 1},
+	{0, 3, 1, 2}, {0, 3, 2, 1}, {1, 0, 2, 3}, {1, 0, 3, 2},
+	{1, 2, 0, 3}, {1, 2, 3, 0}, {1, 3, 0, 2}, {1, 3, 2, 0},
+	{2, 0, 1, 3}, {2, 0, 3, 1}, {2, 1, 0, 3}, {2, 1, 3, 0},
+	{2, 3, 0, 1}, {2, 3, 1, 0}, {3, 0, 1, 2}, {3, 0, 2, 1},
+	{3, 1, 0, 2}, {3, 1, 2, 0}, {3, 2, 0, 1}, {3, 2, 1, 0}
+};
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t vm_layout_mix64(uint64_t value) {
+	value ^= value >> 30;
+	value *= 0xbf58476d1ce4e5b9ULL;
+	value ^= value >> 27;
+	value *= 0x94d049bb133111ebULL;
+	value ^= value >> 31;
+	return value;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static void vm_prepare_layout_variant(void) {
+	if (vm_layout_variant_key == vm_function_key && vm_layout_variant_key != 0) {
+		return;
+	}
+	uint64_t mixed = vm_layout_mix64(vm_function_key ^ 0x8cb92ba72f3d8dd7ULL);
+	vm_trace_layout_id = (uint8_t)(mixed % VM_LAYOUT_VARIANT_COUNT);
+	vm_fault_layout_id = (uint8_t)((mixed >> 8) % VM_LAYOUT_VARIANT_COUNT);
+	vm_debug_layout_id = (uint8_t)((mixed >> 16) & 0x7U);
+	vm_layout_variant_key = vm_function_key ? vm_function_key : 0x9e3779b97f4a7c15ULL;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static void vm_trace_encode_payload(uint64_t a, uint64_t b, uint64_t c, uint64_t d,
+	                                uint64_t out[4]) {
+	vm_prepare_layout_variant();
+	uint64_t logical[4] = {a, b, c, d};
+	const uint8_t *perm = vm_layout_permutations[vm_trace_layout_id % VM_LAYOUT_VARIANT_COUNT];
+	out[perm[0]] = logical[0];
+	out[perm[1]] = logical[1];
+	out[perm[2]] = logical[2];
+	out[perm[3]] = logical[3];
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static void vm_trace_decode_payload(const VMTraceEntry *entry, uint64_t out[4]) {
+	uint8_t layout = entry->reserved % VM_LAYOUT_VARIANT_COUNT;
+	const uint8_t *perm = vm_layout_permutations[layout];
+	uint64_t physical[4] = {entry->a, entry->b, entry->c, entry->d};
+	out[0] = physical[perm[0]];
+	out[1] = physical[perm[1]];
+	out[2] = physical[perm[2]];
+	out[3] = physical[perm[3]];
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint64_t vm_debug_layout_value(uint8_t id, uint64_t value) {
+	vm_prepare_layout_variant();
+	uint64_t mask = vm_layout_mix64(vm_function_key ^
+	                               ((uint64_t)id * 0x100000001b3ULL) ^
+	                               ((uint64_t)vm_debug_layout_id * 0xd6e8feb86659fd93ULL));
+	unsigned rot = (unsigned)((vm_debug_layout_id + id) & 63U);
+	uint64_t mixed = rot ? ((value << rot) | (value >> (64U - rot))) : value;
+	return mixed ^ mask;
+}
 
 void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail1);
 
@@ -513,16 +595,18 @@ uint64_t vm_trace_total = 0;
 void vm_trace_push(uint8_t kind, uint32_t ip_value, uint8_t tag0, uint8_t tag1,
 	               uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
 #if VM_ENABLE_DEBUG_TRACE
+	uint64_t payload[4];
+	vm_trace_encode_payload(a, b, c, d, payload);
 	VMTraceEntry *entry = &vm_trace_ring[vm_trace_next];
 	entry->kind = kind;
 	entry->tag0 = tag0;
 	entry->tag1 = tag1;
-	entry->reserved = 0;
+	entry->reserved = vm_trace_layout_id;
 	entry->ip_value = ip_value;
-	entry->a = a;
-	entry->b = b;
-	entry->c = c;
-	entry->d = d;
+	entry->a = payload[0];
+	entry->b = payload[1];
+	entry->c = payload[2];
+	entry->d = payload[3];
 	vm_trace_next = (vm_trace_next + 1) % VM_CRASH_TRACE_DEPTH;
 	vm_trace_total++;
 #else
@@ -539,72 +623,127 @@ void vm_trace_push(uint8_t kind, uint32_t ip_value, uint8_t tag0, uint8_t tag1,
 
 void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail1) {
 #if VM_ENABLE_DEBUG_TRACE
+	vm_prepare_layout_variant();
 	uint64_t available = vm_trace_total < VM_CRASH_TRACE_DEPTH ? vm_trace_total : VM_CRASH_TRACE_DEPTH;
 	uint64_t start = vm_trace_total > VM_CRASH_TRACE_DEPTH ? vm_trace_next : 0;
 	uint32_t fault_ip = ip > 0 ? (uint32_t)(ip - 1) : 0;
 
-	printf("\n[VM_CRASH] reason=%s detail0=%llu detail1=%llu ip=%u current_bb=%llu last_br_from=%llu exception=%u selector=%d\n",
-	       reason,
-	       (unsigned long long)detail0,
-	       (unsigned long long)detail1,
-	       (unsigned)fault_ip,
-	       (unsigned long long)current_bb_id,
-	       (unsigned long long)last_br_from_bb_id,
-	       (unsigned)exception_thrown,
-	       exception_selector);
+	switch (vm_fault_layout_id & 3U) {
+		case 0:
+			printf("\n[VM_CRASH] reason=%s detail0=%llu detail1=%llu ip=%u current_bb=%llu last_br_from=%llu exception=%u selector=%d\n",
+			       reason,
+			       (unsigned long long)detail0,
+			       (unsigned long long)detail1,
+			       (unsigned)fault_ip,
+			       (unsigned long long)current_bb_id,
+			       (unsigned long long)last_br_from_bb_id,
+			       (unsigned)exception_thrown,
+			       exception_selector);
+			break;
+		case 1:
+			printf("\n[VM_CRASH:%u] ip=%u bb=%llu prev=%llu reason=%s selector=%d exception=%u d1=%llu d0=%llu\n",
+			       (unsigned)vm_fault_layout_id,
+			       (unsigned)fault_ip,
+			       (unsigned long long)current_bb_id,
+			       (unsigned long long)last_br_from_bb_id,
+			       reason,
+			       exception_selector,
+			       (unsigned)exception_thrown,
+			       (unsigned long long)detail1,
+			       (unsigned long long)detail0);
+			break;
+		case 2:
+			printf("\n[VM_CRASH:%u] reason=%s exception=%u selector=%d state_bb=%llu/%llu ip=%u detail=%llu:%llu\n",
+			       (unsigned)vm_fault_layout_id,
+			       reason,
+			       (unsigned)exception_thrown,
+			       exception_selector,
+			       (unsigned long long)last_br_from_bb_id,
+			       (unsigned long long)current_bb_id,
+			       (unsigned)fault_ip,
+			       (unsigned long long)detail0,
+			       (unsigned long long)detail1);
+			break;
+		default:
+			printf("\n[VM_CRASH:%u] d0=%llu d1=%llu sel=%d exc=%u from=%llu bb=%llu ip=%u reason=%s\n",
+			       (unsigned)vm_fault_layout_id,
+			       (unsigned long long)detail0,
+			       (unsigned long long)detail1,
+			       exception_selector,
+			       (unsigned)exception_thrown,
+			       (unsigned long long)last_br_from_bb_id,
+			       (unsigned long long)current_bb_id,
+			       (unsigned)fault_ip,
+			       reason);
+			break;
+	}
 
-	printf("[VM_CRASH] opcode_state=0x%08x vm_state=0x%08x chain_state=0x%08llx expected_token=0x%08llx code_bytes=",
-	       (unsigned)opcode_xorshift32_state,
-	       (unsigned)vm_code_state,
-	       (unsigned long long)vm_block_chain_state,
-	       (unsigned long long)expected_bb_token);
+	if ((vm_fault_layout_id & 1U) == 0) {
+		printf("[VM_CRASH] opcode_state=0x%08x vm_state=0x%08x chain_state=0x%08llx expected_token=0x%08llx code_bytes=",
+		       (unsigned)opcode_xorshift32_state,
+		       (unsigned)vm_code_state,
+		       (unsigned long long)vm_block_chain_state,
+		       (unsigned long long)expected_bb_token);
+	} else {
+		printf("[VM_CRASH:%u] expected=0x%08llx chain=0x%08llx vm=0x%08x opcode=0x%08x bytes=",
+		       (unsigned)vm_fault_layout_id,
+		       (unsigned long long)expected_bb_token,
+		       (unsigned long long)vm_block_chain_state,
+		       (unsigned)vm_code_state,
+		       (unsigned)opcode_xorshift32_state);
+	}
 	{
-		uint32_t raw_start = fault_ip > 8 ? fault_ip - 8 : 0;
-		for (uint32_t i = 0; i < 24; ++i) {
+		uint32_t back = 4U + (uint32_t)((vm_fault_layout_id >> 1) & 7U);
+		uint32_t count = 16U + (uint32_t)((vm_fault_layout_id & 3U) * 8U);
+		uint32_t raw_start = fault_ip > back ? fault_ip - back : 0;
+		for (uint32_t i = 0; i < count; ++i) {
 			uint32_t pos = raw_start + i;
 			printf("%02x", ((uint8_t *)code_seg_addr)[pos]);
-			if (i + 1 != 24) printf(" ");
+			if (i + 1 != count) printf(" ");
 		}
 	}
 	printf("\n");
 
 	for (uint64_t i = 0; i < available; ++i) {
 		VMTraceEntry *entry = &vm_trace_ring[(start + i) % VM_CRASH_TRACE_DEPTH];
+		uint64_t payload[4];
+		vm_trace_decode_payload(entry, payload);
 		switch (entry->kind) {
 			case VM_TRACE_KIND_BB:
 				printf("[VM_CRASH][TRACE] bb ip=%u opcode_seed=0x%08llx vm_seed=0x%08llx bb_token=0x%08llx chain_seed=0x%08llx\n",
 				       entry->ip_value,
-				       (unsigned long long)entry->a,
-				       (unsigned long long)entry->b,
-				       (unsigned long long)entry->c,
-				       (unsigned long long)entry->d);
+				       (unsigned long long)payload[0],
+				       (unsigned long long)payload[1],
+				       (unsigned long long)payload[2],
+				       (unsigned long long)payload[3]);
 				break;
 			case VM_TRACE_KIND_OPCODE:
-				printf("[VM_CRASH][TRACE] opcode ip=%u op=%u raw=0x%02llx bb=%llu opcode_state=0x%08llx vm_state=0x%08llx\n",
+				printf("[VM_CRASH][TRACE:%u] opcode ip=%u op=%u raw=0x%02llx bb=%llu opcode_state=0x%08llx vm_state=0x%08llx\n",
+				       (unsigned)entry->reserved,
 				       entry->ip_value,
 				       (unsigned)entry->tag0,
-				       (unsigned long long)entry->a,
-				       (unsigned long long)entry->d,
-				       (unsigned long long)entry->b,
-				       (unsigned long long)entry->c);
+				       (unsigned long long)payload[0],
+				       (unsigned long long)payload[3],
+				       (unsigned long long)payload[1],
+				       (unsigned long long)payload[2]);
 				break;
 			case VM_TRACE_KIND_BRANCH:
 				printf("[VM_CRASH][TRACE] br source=%llu target=%llu type=%u flag=%u aux0=%llu aux1=%llu\n",
-				       (unsigned long long)entry->a,
-				       (unsigned long long)entry->b,
+				       (unsigned long long)payload[0],
+				       (unsigned long long)payload[1],
 				       (unsigned)entry->tag0,
 				       (unsigned)entry->tag1,
-				       (unsigned long long)entry->c,
-				       (unsigned long long)entry->d);
+				       (unsigned long long)payload[2],
+				       (unsigned long long)payload[3]);
 				break;
 			case VM_TRACE_KIND_CALL:
 				printf("[VM_CRASH][TRACE] call stage=%s funcid=%llu saved_ip=%llu res_offset=%llu exc=%u selector=%llu\n",
 				       entry->tag0 ? "leave" : "enter",
-				       (unsigned long long)entry->a,
-				       (unsigned long long)entry->b,
-				       (unsigned long long)entry->c,
+				       (unsigned long long)payload[0],
+				       (unsigned long long)payload[1],
+				       (unsigned long long)payload[2],
 				       (unsigned)entry->tag1,
-				       (unsigned long long)entry->d);
+				       (unsigned long long)payload[3]);
 				break;
 			default:
 				break;
@@ -624,9 +763,17 @@ static void vm_debug_log_stdio_entry(const char *stage) {
 	if (!vmp_debug_enabled) {
 		return;
 	}
+	vm_prepare_layout_variant();
 	char buffer[96];
-	int len = snprintf(buffer, sizeof(buffer),
-	                  "[vm-debug] stage=%s\n", stage);
+	int len;
+	if ((vm_debug_layout_id & 1U) == 0) {
+		len = snprintf(buffer, sizeof(buffer),
+		               "[vm-debug] stage=%s\n", stage);
+	} else {
+		len = snprintf(buffer, sizeof(buffer),
+		               "[vm-debug:%u] s=%s\n",
+		               (unsigned)vm_debug_layout_id, stage);
+	}
 	if (len > 0) {
 		size_t to_write = (size_t)len < sizeof(buffer) ? (size_t)len : sizeof(buffer);
 		(void)write(2, buffer, to_write);
@@ -638,10 +785,34 @@ static void vm_debug_log_ip_stage(const char *stage, uint64_t ip_value) {
 	if (!vmp_debug_enabled) {
 		return;
 	}
+	vm_prepare_layout_variant();
 	char buffer[128];
-	int len = snprintf(buffer, sizeof(buffer),
-	                  "[vm-debug] stage=%s ip=%llu\n",
-	                  stage, (unsigned long long)ip_value);
+	int len;
+	switch (vm_debug_layout_id & 3U) {
+		case 0:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug] stage=%s ip=%llu\n",
+			               stage, (unsigned long long)ip_value);
+			break;
+		case 1:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug:%u] ip=%llu stage=%s\n",
+			               (unsigned)vm_debug_layout_id,
+			               (unsigned long long)ip_value, stage);
+			break;
+		case 2:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug:%u] s=%s v=%llu\n",
+			               (unsigned)vm_debug_layout_id,
+			               stage, (unsigned long long)vm_debug_layout_value(DEBUG_ID_IP, ip_value));
+			break;
+		default:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug:%u] v=%llu s=%s\n",
+			               (unsigned)vm_debug_layout_id,
+			               (unsigned long long)vm_debug_layout_value(DEBUG_ID_IP, ip_value), stage);
+			break;
+	}
 	if (len > 0) {
 		size_t to_write = (size_t)len < sizeof(buffer) ? (size_t)len : sizeof(buffer);
 		(void)write(2, buffer, to_write);
@@ -654,10 +825,36 @@ static void vm_debug_log_u32_stage(const char *stage, uint32_t a, uint32_t b) {
 	if (!vmp_debug_enabled) {
 		return;
 	}
+	vm_prepare_layout_variant();
 	char buffer[160];
-	int len = snprintf(buffer, sizeof(buffer),
-	                  "[vm-debug] stage=%s a=%u b=%u\n",
-	                  stage, a, b);
+	int len;
+	switch ((vm_debug_layout_id >> 1) & 3U) {
+		case 0:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug] stage=%s a=%u b=%u\n",
+			               stage, a, b);
+			break;
+		case 1:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug:%u] b=%u a=%u stage=%s\n",
+			               (unsigned)vm_debug_layout_id, b, a, stage);
+			break;
+		case 2:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug:%u] stage=%s x=%llu y=%llu\n",
+			               (unsigned)vm_debug_layout_id, stage,
+			               (unsigned long long)vm_debug_layout_value(DEBUG_ID_CMP_OP1, a),
+			               (unsigned long long)vm_debug_layout_value(DEBUG_ID_CMP_OP2, b));
+			break;
+		default:
+			len = snprintf(buffer, sizeof(buffer),
+			               "[vm-debug:%u] y=%llu x=%llu stage=%s\n",
+			               (unsigned)vm_debug_layout_id,
+			               (unsigned long long)vm_debug_layout_value(DEBUG_ID_CMP_OP2, b),
+			               (unsigned long long)vm_debug_layout_value(DEBUG_ID_CMP_OP1, a),
+			               stage);
+			break;
+	}
 	if (len > 0) {
 		size_t to_write = (size_t)len < sizeof(buffer) ? (size_t)len : sizeof(buffer);
 		(void)write(2, buffer, to_write);
@@ -853,7 +1050,13 @@ static uint32_t chacha_rotl32(uint32_t value, unsigned shift) {
 	a += b; d ^= a; d = chacha_rotl32(d, 8); \
 	c += d; b ^= c; b = chacha_rotl32(b, 7)
 
-static void chacha20_block(const uint32_t key_words[8], uint32_t counter,
+#if defined(__clang__)
+#define VMP_RUNTIME_CRYPTO_ATTR __attribute__((used,noinline,optnone))
+#else
+#define VMP_RUNTIME_CRYPTO_ATTR __attribute__((used,noinline))
+#endif
+
+static VMP_RUNTIME_CRYPTO_ATTR void chacha20_block(const uint32_t key_words[8], uint32_t counter,
 	                      const uint32_t nonce_words[3], uint8_t out[64]) {
 	static const uint32_t constants[4] = {
 		0x61707865U, 0x3320646eU, 0x79622d32U, 0x6b206574U
@@ -892,7 +1095,7 @@ static void chacha20_block(const uint32_t key_words[8], uint32_t counter,
 
 #undef CHACHA_QR
 
-static void derive_chacha_material(uint64_t function_key, uint64_t payload_seed,
+static VMP_RUNTIME_CRYPTO_ATTR void derive_chacha_material(uint64_t function_key, uint64_t payload_seed,
 	                              uint64_t chain_seed, uint32_t bb_offset,
 	                              uint32_t key_words[8], uint32_t nonce_words[3]) {
 	uint64_t state = function_key ^ rotl64(payload_seed, 17) ^
@@ -909,19 +1112,119 @@ static void derive_chacha_material(uint64_t function_key, uint64_t payload_seed,
 	}
 }
 
-static uint8_t chacha20_byte_at(uint64_t function_key, uint64_t payload_seed,
+static VMP_RUNTIME_CRYPTO_ATTR uint32_t vmp_schedule_bitrev6(uint32_t value) {
+	value &= 63U;
+	uint32_t result = 0;
+	for (unsigned i = 0; i < 6; ++i) {
+		result = (result << 1) | ((value >> i) & 1U);
+	}
+	return result & 63U;
+}
+
+static VMP_RUNTIME_CRYPTO_ATTR uint32_t vmp_schedule_rotl6(uint32_t value, unsigned shift) {
+	value &= 63U;
+	shift %= 6U;
+	if (!shift) {
+		return value;
+	}
+	return ((value << shift) | (value >> (6U - shift))) & 63U;
+}
+
+static VMP_RUNTIME_CRYPTO_ATTR uint64_t vmp_schedule_seed(uint64_t function_key, uint64_t payload_seed,
+	                              uint64_t chain_seed, uint32_t bb_offset,
+	                              uint32_t block_index) {
+	uint64_t mixed = function_key ^ rotl64(payload_seed, 9) ^
+	                 rotl64(chain_seed, 23) ^
+	                 ((uint64_t)bb_offset * 0xd6e8feb86659fd93ULL) ^
+	                 ((uint64_t)block_index * 0xa0761d6478bd642fULL) ^
+	                 0xe7037ed1a0b428dbULL;
+	return vm_mix64(mixed);
+}
+
+static VMP_RUNTIME_CRYPTO_ATTR uint32_t vmp_schedule_index(uint64_t function_key, uint64_t payload_seed,
+	                               uint64_t chain_seed, uint32_t bb_offset,
+	                               uint32_t payload_index) {
+	uint32_t block_base = payload_index & ~63U;
+	uint32_t block_index = payload_index >> 6;
+	uint32_t lane = payload_index & 63U;
+	uint64_t seed =
+	    vmp_schedule_seed(function_key, payload_seed, chain_seed, bb_offset,
+	                      block_index);
+	uint32_t add_a = (uint32_t)(seed & 63U);
+	uint32_t add_b = (uint32_t)((seed >> 8) & 63U);
+	uint32_t mul = (uint32_t)((((seed >> 16) & 31U) << 1) | 1U);
+	uint32_t rot = (uint32_t)(((seed >> 24) % 6U) + 1U);
+	uint32_t mode = (uint32_t)((seed >> 57) & 7U);
+	uint32_t scheduled_lane;
+	switch (mode) {
+		case 0:
+			scheduled_lane = lane ^ add_a;
+			break;
+		case 1:
+			scheduled_lane = (lane + add_a) & 63U;
+			break;
+		case 2:
+			scheduled_lane = (lane * mul + add_b) & 63U;
+			break;
+		case 3:
+			scheduled_lane = vmp_schedule_bitrev6(lane) ^ add_a;
+			break;
+		case 4:
+			scheduled_lane = vmp_schedule_bitrev6((lane + add_a) & 63U);
+			break;
+		case 5:
+			scheduled_lane = (vmp_schedule_rotl6(lane, rot) + add_b) & 63U;
+			break;
+		case 6:
+			scheduled_lane = vmp_schedule_rotl6((lane * mul + add_a) & 63U, rot);
+			break;
+		default:
+			scheduled_lane =
+			    (vmp_schedule_bitrev6(lane ^ add_b) * mul + add_a) & 63U;
+			break;
+	}
+	return block_base + (scheduled_lane & 63U);
+}
+
+static VMP_RUNTIME_CRYPTO_ATTR uint8_t vmp_schedule_mask(uint64_t function_key, uint64_t payload_seed,
+	                             uint64_t chain_seed, uint32_t bb_offset,
+	                             uint32_t payload_index) {
+	uint32_t block_index = payload_index >> 6;
+	uint32_t lane = payload_index & 63U;
+	uint64_t seed =
+	    vmp_schedule_seed(function_key, payload_seed, chain_seed, bb_offset,
+	                      block_index);
+	uint64_t mixed = seed ^
+	                 ((uint64_t)payload_index * 0x9e3779b97f4a7c15ULL) ^
+	                 rotl64(seed ^ function_key, (lane & 31U) + 1U) ^
+	                 ((uint64_t)(lane + 1U) * 0x94d049bb133111ebULL);
+	mixed = vm_mix64(mixed);
+	return (uint8_t)(mixed ^ (mixed >> 8) ^ (mixed >> 16) ^ (mixed >> 24) ^
+	                 (mixed >> 32) ^ (mixed >> 40) ^ (mixed >> 48) ^
+	                 (mixed >> 56));
+}
+
+static VMP_RUNTIME_CRYPTO_ATTR uint8_t chacha20_byte_at(uint64_t function_key, uint64_t payload_seed,
 	                           uint64_t chain_seed, uint32_t bb_offset,
 	                           uint32_t payload_index) {
 	uint32_t key_words[8];
 	uint32_t nonce_words[3];
 	uint8_t block[64];
-	uint32_t block_index = payload_index / 64U;
-	uint32_t block_offset = payload_index % 64U;
+	uint32_t scheduled_index =
+	    vmp_schedule_index(function_key, payload_seed, chain_seed, bb_offset,
+	                       payload_index);
+	uint32_t block_index = scheduled_index / 64U;
+	uint32_t block_offset = scheduled_index % 64U;
 	derive_chacha_material(function_key, payload_seed, chain_seed, bb_offset,
 	                      key_words, nonce_words);
 	chacha20_block(key_words, block_index, nonce_words, block);
-	return block[block_offset];
+	uint8_t mask = vmp_schedule_mask(function_key, payload_seed, chain_seed,
+	                                 bb_offset, payload_index);
+	uint8_t out = block[block_offset] ^ mask;
+	return out;
 }
+
+#undef VMP_RUNTIME_CRYPTO_ATTR
 
 #ifdef IS_INLINE_FUNC
 	__inline__ __attribute__((always_inline))
@@ -955,17 +1258,9 @@ uint8_t get_byte_code() {
 		vm_debug_log_u32_stage("get-byte-enter", raw_index, payload_index);
 	}
 	uint8_t tmp = ((uint8_t *)code_seg_addr)[ip++];
-	{
-		uint32_t key_words[8];
-		uint32_t nonce_words[3];
-		uint8_t block[64];
-		uint32_t block_index = payload_index / 64U;
-		uint32_t block_offset = payload_index % 64U;
-		derive_chacha_material(vm_function_key, vm_code_state, vm_block_chain_state,
-		                      (uint32_t)current_bb_id, key_words, nonce_words);
-		chacha20_block(key_words, block_index, nonce_words, block);
-		tmp ^= block[block_offset];
-	}
+	tmp ^= chacha20_byte_at(vm_function_key, vm_code_state,
+	                        vm_block_chain_state, (uint32_t)current_bb_id,
+	                        payload_index);
 	if (payload_index == 0) {
 		vm_debug_log_u32_stage("get-byte-after-chacha", raw_index, tmp);
 	}
@@ -2569,19 +2864,11 @@ uint8_t get_opcode() {
 	}
 	uint8_t raw_byte = ((uint8_t *)code_seg_addr)[ip++];
 	uint8_t curr_byte = raw_byte;
-	{
-		uint32_t key_words[8];
-		uint32_t nonce_words[3];
-		uint8_t block[64];
-		uint32_t block_index = payload_index / 64U;
-		uint32_t block_offset = payload_index % 64U;
-		derive_chacha_material(vm_function_key, vm_code_state, vm_block_chain_state,
-		                      (uint32_t)current_bb_id, key_words, nonce_words);
-		chacha20_block(key_words, block_index, nonce_words, block);
-		curr_byte ^= block[block_offset];
-		if (payload_index == 0) {
-			vm_debug_log_u32_stage("get-opcode-after-chacha", raw_byte, curr_byte);
-		}
+	curr_byte ^= chacha20_byte_at(vm_function_key, vm_code_state,
+	                              vm_block_chain_state,
+	                              (uint32_t)current_bb_id, payload_index);
+	if (payload_index == 0) {
+		vm_debug_log_u32_stage("get-opcode-after-chacha", raw_byte, curr_byte);
 	}
 	if (payload_index == 0) {
 		vm_debug_log_u32_stage("get-opcode-after-chacha-confirm", raw_byte, curr_byte);

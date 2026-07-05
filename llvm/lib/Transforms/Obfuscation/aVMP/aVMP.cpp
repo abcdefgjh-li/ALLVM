@@ -770,7 +770,11 @@ class GOVMTranslator {
             if (type->isIntegerTy()){
                 if (ConstantInt* CI = dyn_cast<ConstantInt>(const_value)) {
                     if (CI->getBitWidth() <= 64) {
-                        value = CI->getSExtValue();
+                        // VM stores integer constants as raw low-order bytes.  Using
+                        // sign-extension turns i1 true into 0xff, so `xor i1 %v, true`
+                        // becomes `%v ^ 0xff` and any non-zero byte is treated as true
+                        // by the branch handler.
+                        value = static_cast<int64_t>(CI->getZExtValue());
                         handled = true;
                     }
                 } else if (isa<UndefValue>(const_value) || isa<PoisonValue>(const_value)) {
@@ -1534,9 +1538,25 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         }
     };
 
+    auto copyOriginalCallABI = [&](CallBase *newCall) {
+        if (!newCall) {
+            return;
+        }
+        newCall->setCallingConv(inst->getCallingConv());
+        newCall->setAttributes(inst->getAttributes());
+        newCall->setDebugLoc(inst->getDebugLoc());
+        if (auto *newCI = dyn_cast<CallInst>(newCall)) {
+            if (auto *oldCI = dyn_cast<CallInst>(inst)) {
+                newCI->setTailCallKind(oldCI->getTailCallKind());
+            }
+        }
+    };
+
     auto emitCallLike = [&](FunctionType *funcType, Value *calleeValue) -> Value * {
         if (!isInvokeCall) {
-            return IRBcallFunction.CreateCall(funcType, calleeValue, ArrayRef<Value *>(target_func_args));
+            CallInst *newCall = IRBcallFunction.CreateCall(funcType, calleeValue, ArrayRef<Value *>(target_func_args));
+            copyOriginalCallABI(newCall);
+            return newCall;
         }
 
         InvokeInst *originalInvoke = cast<InvokeInst>(inst);
@@ -1553,12 +1573,13 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
             "invokeUnwind_" + to_string(this->callinst_handler_curr_idx),
             this->callinst_handler);
 
-        Value *invokeResult = IRBcallFunction.CreateInvoke(
+        InvokeInst *newInvoke = IRBcallFunction.CreateInvoke(
             funcType,
             calleeValue,
             normalBB,
             unwindBB,
             ArrayRef<Value *>(target_func_args));
+        copyOriginalCallABI(newInvoke);
 
         invokeNormalBuilder = std::make_unique<IRBuilder<>>(normalBB);
         resultBuilder = invokeNormalBuilder.get();
@@ -1597,7 +1618,7 @@ void GOVMTranslator::handle_callinst(CallBase *inst, long long curr_func_id) {
         IRBunwind.CreateStore(excObj, exception_ptr_global);
         IRBunwind.CreateStore(excSel, exception_selector_global);
         IRBunwind.CreateRetVoid();
-        return invokeResult;
+        return newInvoke;
     };
 
     // errs() << "[handle_callinst] isIndirectCall=" << inst->isIndirectCall() << "\n";
@@ -4060,15 +4081,28 @@ const std::set<std::string> interpreter_function_names{
                                                         "chacha_rotl32",
                                                         "chacha20_block",
                                                         "derive_chacha_material",
+                                                        "vmp_schedule_bitrev6",
+                                                        "vmp_schedule_rotl6",
+                                                        "vmp_schedule_seed",
+                                                        "vmp_schedule_index",
+                                                        "vmp_schedule_mask",
                                                         "chacha20_byte_at",
-                                                         "vm_trace_push",
-                                                         "vm_dump_fault_context",
-                                                         "call_handler_with_exception_handling",
-                                                         "vmp_report_and_kill",
-                                                         "__clang_call_terminate",
-                                                         "get_aggregate_addr",
-                                                         "vmp_resume_unwind",
-                                                         "vm_interpreter",
+                                                        "vm_layout_mix64",
+                                                        "vm_prepare_layout_variant",
+                                                        "vm_trace_encode_payload",
+                                                        "vm_trace_decode_payload",
+                                                        "vm_debug_layout_value",
+                                                        "vm_debug_log_stdio_entry",
+                                                        "vm_debug_log_ip_stage",
+                                                        "vm_debug_log_u32_stage",
+                                                        "vm_trace_push",
+                                                        "vm_dump_fault_context",
+                                                        "call_handler_with_exception_handling",
+                                                        "vmp_report_and_kill",
+                                                        "__clang_call_terminate",
+                                                        "get_aggregate_addr",
+                                                        "vmp_resume_unwind",
+                                                        "vm_interpreter",
                                                         "vm_interpreter_callinst_dispatch"      // only for check annotation
 
                                                         };

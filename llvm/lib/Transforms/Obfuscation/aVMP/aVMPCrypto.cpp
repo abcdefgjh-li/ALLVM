@@ -158,16 +158,111 @@ void deriveChaCha20Material(uint64_t FunctionKey, uint64_t PayloadSeed,
     }
 }
 
+static uint32_t vmpScheduleBitrev6(uint32_t Value) {
+    Value &= 63U;
+    uint32_t Result = 0;
+    for (unsigned I = 0; I < 6; ++I) {
+        Result = (Result << 1) | ((Value >> I) & 1U);
+    }
+    return Result & 63U;
+}
+
+static uint32_t vmpScheduleRotl6(uint32_t Value, unsigned Shift) {
+    Value &= 63U;
+    Shift %= 6U;
+    if (!Shift) {
+        return Value;
+    }
+    return ((Value << Shift) | (Value >> (6U - Shift))) & 63U;
+}
+
+static uint64_t vmpScheduleSeed(uint64_t FunctionKey, uint64_t PayloadSeed,
+                                uint64_t ChainSeed, uint32_t BBOffset,
+                                uint32_t BlockIndex) {
+    uint64_t Mixed = FunctionKey ^ vmRotl64(PayloadSeed, 9) ^
+                     vmRotl64(ChainSeed, 23) ^
+                     ((uint64_t)BBOffset * 0xd6e8feb86659fd93ULL) ^
+                     ((uint64_t)BlockIndex * 0xa0761d6478bd642fULL) ^
+                     0xe7037ed1a0b428dbULL;
+    return vmMix64(Mixed);
+}
+
+static uint32_t vmpScheduleIndex(uint64_t FunctionKey, uint64_t PayloadSeed,
+                                 uint64_t ChainSeed, uint32_t BBOffset,
+                                 uint32_t PayloadIndex) {
+    uint32_t BlockBase = PayloadIndex & ~63U;
+    uint32_t BlockIndex = PayloadIndex >> 6;
+    uint32_t Lane = PayloadIndex & 63U;
+    uint64_t Seed =
+        vmpScheduleSeed(FunctionKey, PayloadSeed, ChainSeed, BBOffset, BlockIndex);
+    uint32_t AddA = (uint32_t)(Seed & 63U);
+    uint32_t AddB = (uint32_t)((Seed >> 8) & 63U);
+    uint32_t Mul = (uint32_t)((((Seed >> 16) & 31U) << 1) | 1U);
+    uint32_t Rot = (uint32_t)(((Seed >> 24) % 6U) + 1U);
+    uint32_t Mode = (uint32_t)((Seed >> 57) & 7U);
+    uint32_t ScheduledLane;
+    switch (Mode) {
+        case 0:
+            ScheduledLane = Lane ^ AddA;
+            break;
+        case 1:
+            ScheduledLane = (Lane + AddA) & 63U;
+            break;
+        case 2:
+            ScheduledLane = (Lane * Mul + AddB) & 63U;
+            break;
+        case 3:
+            ScheduledLane = vmpScheduleBitrev6(Lane) ^ AddA;
+            break;
+        case 4:
+            ScheduledLane = vmpScheduleBitrev6((Lane + AddA) & 63U);
+            break;
+        case 5:
+            ScheduledLane = (vmpScheduleRotl6(Lane, Rot) + AddB) & 63U;
+            break;
+        case 6:
+            ScheduledLane = vmpScheduleRotl6((Lane * Mul + AddA) & 63U, Rot);
+            break;
+        default:
+            ScheduledLane =
+                (vmpScheduleBitrev6(Lane ^ AddB) * Mul + AddA) & 63U;
+            break;
+    }
+    return BlockBase + (ScheduledLane & 63U);
+}
+
+static uint8_t vmpScheduleMask(uint64_t FunctionKey, uint64_t PayloadSeed,
+                               uint64_t ChainSeed, uint32_t BBOffset,
+                               uint32_t PayloadIndex) {
+    uint32_t BlockIndex = PayloadIndex >> 6;
+    uint32_t Lane = PayloadIndex & 63U;
+    uint64_t Seed =
+        vmpScheduleSeed(FunctionKey, PayloadSeed, ChainSeed, BBOffset, BlockIndex);
+    uint64_t Mixed = Seed ^
+                     ((uint64_t)PayloadIndex * 0x9e3779b97f4a7c15ULL) ^
+                     vmRotl64(Seed ^ FunctionKey, (Lane & 31U) + 1U) ^
+                     ((uint64_t)(Lane + 1U) * 0x94d049bb133111ebULL);
+    Mixed = vmMix64(Mixed);
+    return (uint8_t)(Mixed ^ (Mixed >> 8) ^ (Mixed >> 16) ^ (Mixed >> 24) ^
+                     (Mixed >> 32) ^ (Mixed >> 40) ^ (Mixed >> 48) ^
+                     (Mixed >> 56));
+}
+
 uint8_t chacha20ByteAt(uint64_t FunctionKey, uint64_t PayloadSeed,
                        uint64_t ChainSeed, uint32_t BBOffset,
                        uint32_t PayloadIndex) {
     uint32_t KeyWords[8];
     uint32_t NonceWords[3];
     uint8_t Block[64];
-    uint32_t BlockIndex = PayloadIndex / 64U;
-    uint32_t BlockOffset = PayloadIndex % 64U;
+    uint32_t ScheduledIndex =
+        vmpScheduleIndex(FunctionKey, PayloadSeed, ChainSeed, BBOffset,
+                         PayloadIndex);
+    uint32_t BlockIndex = ScheduledIndex / 64U;
+    uint32_t BlockOffset = ScheduledIndex % 64U;
     deriveChaCha20Material(FunctionKey, PayloadSeed, ChainSeed, BBOffset,
                            KeyWords, NonceWords);
     chacha20Block(KeyWords, BlockIndex, NonceWords, Block);
-    return Block[BlockOffset];
+    return Block[BlockOffset] ^
+           vmpScheduleMask(FunctionKey, PayloadSeed, ChainSeed, BBOffset,
+                           PayloadIndex);
 }
