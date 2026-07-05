@@ -4315,6 +4315,187 @@ static std::string vmpMakeSafeSymbolSuffix(StringRef Name, uint64_t Key) {
     return Suffix;
 }
 
+struct VMPDispatchCase {
+    ConstantInt *Value;
+    BasicBlock *Dest;
+};
+
+static SwitchInst *findVmOpcodeDispatchSwitch(Function *F) {
+    if (!F) {
+        return nullptr;
+    }
+
+    for (Instruction &I : instructions(F)) {
+        SwitchInst *SI = dyn_cast<SwitchInst>(&I);
+        if (!SI) {
+            continue;
+        }
+        if (!SI->getCondition()->getType()->isIntegerTy(8)) {
+            continue;
+        }
+
+        bool Seen[OP_TOTAL + 1] = {};
+        unsigned Matched = 0;
+        for (auto CaseIt = SI->case_begin(); CaseIt != SI->case_end(); ++CaseIt) {
+            ConstantInt *CaseValue = CaseIt->getCaseValue();
+            if (!CaseValue) {
+                continue;
+            }
+            uint64_t Opcode = CaseValue->getZExtValue();
+            if (Opcode <= OP_TOTAL && !Seen[Opcode]) {
+                Seen[Opcode] = true;
+                ++Matched;
+            }
+        }
+
+        if (Matched >= OP_TOTAL) {
+            return SI;
+        }
+    }
+
+    return nullptr;
+}
+
+static void addPhiIncomingForNewDispatchPred(BasicBlock *Dest,
+                                             BasicBlock *OldPred,
+                                             BasicBlock *NewPred) {
+    if (!Dest || !OldPred || !NewPred) {
+        return;
+    }
+
+    for (PHINode &PN : Dest->phis()) {
+        Value *Incoming = nullptr;
+        for (unsigned I = 0, E = PN.getNumIncomingValues(); I != E; ++I) {
+            if (PN.getIncomingBlock(I) == OldPred) {
+                Incoming = PN.getIncomingValue(I);
+                break;
+            }
+        }
+        if (!Incoming) {
+            Incoming = UndefValue::get(PN.getType());
+        }
+        PN.addIncoming(Incoming, NewPred);
+    }
+}
+
+static void removePhiIncomingForOldDispatchPred(BasicBlock *Dest,
+                                                BasicBlock *OldPred) {
+    if (!Dest || !OldPred) {
+        return;
+    }
+
+    for (PHINode &PN : Dest->phis()) {
+        while (true) {
+            int Index = PN.getBasicBlockIndex(OldPred);
+            if (Index < 0) {
+                break;
+            }
+            PN.removeIncomingValue((unsigned)Index, false);
+        }
+    }
+}
+
+static bool randomizeVmOpcodeDispatch(Function *Clone,
+                                      uint64_t FunctionKey,
+                                      GlobalVariable *SaltGV) {
+    SwitchInst *SI = findVmOpcodeDispatchSwitch(Clone);
+    if (!SI) {
+        if (isIRObfuscationDebugEnabled() && Clone) {
+            errs() << "[VMP_DISPATCH_RANDOMIZE] no opcode switch in "
+                   << Clone->getName() << "\n";
+        }
+        return false;
+    }
+
+    BasicBlock *SwitchBB = SI->getParent();
+    BasicBlock *DefaultDest = SI->getDefaultDest();
+    Value *OpcodeValue = SI->getCondition();
+    IntegerType *OpcodeTy = dyn_cast<IntegerType>(OpcodeValue->getType());
+    if (!SwitchBB || !DefaultDest || !OpcodeTy) {
+        return false;
+    }
+
+    std::vector<VMPDispatchCase> Cases;
+    Cases.reserve(SI->getNumCases());
+    for (auto CaseIt = SI->case_begin(); CaseIt != SI->case_end(); ++CaseIt) {
+        Cases.push_back({CaseIt->getCaseValue(), CaseIt->getCaseSuccessor()});
+    }
+    if (Cases.empty()) {
+        return false;
+    }
+
+    uint64_t State = FunctionKey ^ 0x94d049bb133111ebULL;
+    if (State == 0) {
+        State = 0xd1b54a32d192ed03ULL;
+    }
+    for (size_t I = Cases.size(); I > 1; --I) {
+        uint64_t R = vmpSplitmix64NextLocal(State);
+        size_t J = static_cast<size_t>(R % I);
+        std::swap(Cases[I - 1], Cases[J]);
+    }
+
+    Function *F = SwitchBB->getParent();
+    LLVMContext &Ctx = F->getContext();
+    std::string BaseName = "vmp.dispatch." + vmpHex64(FunctionKey);
+    std::vector<BasicBlock *> TestBlocks;
+    TestBlocks.reserve(Cases.size());
+    for (size_t I = 0; I < Cases.size(); ++I) {
+        TestBlocks.push_back(BasicBlock::Create(
+            Ctx, BaseName + "." + std::to_string(I), F));
+    }
+
+    std::set<BasicBlock *> Destinations;
+    for (size_t I = 0; I < Cases.size(); ++I) {
+        BasicBlock *TestBB = TestBlocks[I];
+        BasicBlock *CaseDest = Cases[I].Dest;
+        BasicBlock *FalseDest = (I + 1 < Cases.size()) ? TestBlocks[I + 1] : DefaultDest;
+
+        addPhiIncomingForNewDispatchPred(CaseDest, SwitchBB, TestBB);
+        Destinations.insert(CaseDest);
+
+        IRBuilder<> Builder(TestBB);
+        Value *LHS = OpcodeValue;
+        Value *RHS = Cases[I].Value;
+
+        if (SaltGV && SaltGV->getValueType()->isIntegerTy(64)) {
+            LoadInst *SaltA = Builder.CreateLoad(SaltGV->getValueType(), SaltGV,
+                                                 "vmp.dispatch.salt.a");
+            LoadInst *SaltB = Builder.CreateLoad(SaltGV->getValueType(), SaltGV,
+                                                 "vmp.dispatch.salt.b");
+            SaltA->setVolatile(true);
+            SaltB->setVolatile(true);
+            Value *SaltAOp = Builder.CreateTrunc(SaltA, OpcodeTy);
+            Value *SaltBOp = Builder.CreateTrunc(SaltB, OpcodeTy);
+            LHS = Builder.CreateXor(OpcodeValue, SaltAOp);
+            RHS = Builder.CreateXor(Cases[I].Value, SaltBOp);
+        }
+
+        Value *Cond = Builder.CreateICmpEQ(LHS, RHS);
+        Builder.CreateCondBr(Cond, CaseDest, FalseDest);
+    }
+
+    addPhiIncomingForNewDispatchPred(DefaultDest, SwitchBB, TestBlocks.back());
+    Destinations.insert(DefaultDest);
+
+    IRBuilder<> EntryBuilder(SI);
+    EntryBuilder.CreateBr(TestBlocks.front());
+    SI->eraseFromParent();
+
+    for (BasicBlock *Dest : Destinations) {
+        removePhiIncomingForOldDispatchPred(Dest, SwitchBB);
+    }
+
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[VMP_DISPATCH_RANDOMIZE] clone=" << F->getName()
+               << " cases=" << Cases.size()
+               << " style=volatile-xor-chain"
+               << " key=0x" << Twine::utohexstr(FunctionKey)
+               << "\n";
+    }
+
+    return true;
+}
+
 static Function *cloneVmInterpreterForFunction(Module *M,
                                                Function *SharedInterpreter,
                                                Function *TargetFunction,
@@ -4363,6 +4544,8 @@ static Function *cloneVmInterpreterForFunction(Module *M,
     IRBuilder<> Builder(&*Entry.getFirstInsertionPt());
     LoadInst *SaltLoad = Builder.CreateLoad(I64Ty, SaltGV, "vmp.clone.salt");
     SaltLoad->setVolatile(true);
+
+    randomizeVmOpcodeDispatch(Clone, FunctionKey, SaltGV);
 
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[VMP_INTERPRETER_CLONE] function=" << TargetFunction->getName()
