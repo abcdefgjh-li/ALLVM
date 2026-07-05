@@ -16,6 +16,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
@@ -142,6 +143,27 @@ static RegisterPass<ExceptionToErrorHandlingPass>
 
 using namespace llvm;
 using namespace std;
+
+static void normalizeLocalDefaultVisibility(GlobalValue *GV) {
+    if (!GV || !GV->hasLocalLinkage()) {
+        return;
+    }
+    if (GV->getVisibility() != GlobalValue::DefaultVisibility) {
+        GV->setVisibility(GlobalValue::DefaultVisibility);
+    }
+}
+
+static void normalizeModuleLocalDefaultVisibility(Module &M) {
+    for (Function &F : M) {
+        normalizeLocalDefaultVisibility(&F);
+    }
+    for (GlobalVariable &GV : M.globals()) {
+        normalizeLocalDefaultVisibility(&GV);
+    }
+    for (GlobalAlias &GA : M.aliases()) {
+        normalizeLocalDefaultVisibility(&GA);
+    }
+}
 // code and data segment
 // extern GlobalVariable * gv_code_seg;
 // extern GlobalVariable * gv_data_seg;
@@ -4549,6 +4571,7 @@ static Function *cloneVmInterpreterForFunction(Module *M,
     Clone->copyAttributesFrom(SharedInterpreter);
     Clone->setCallingConv(SharedInterpreter->getCallingConv());
     Clone->setDSOLocal(true);
+    normalizeLocalDefaultVisibility(Clone);
 
     ValueToValueMapTy VMap;
     Function::arg_iterator DestI = Clone->arg_begin();
@@ -4561,6 +4584,7 @@ static Function *cloneVmInterpreterForFunction(Module *M,
     CloneFunctionInto(Clone, SharedInterpreter, VMap,
                       CloneFunctionChangeType::LocalChangesOnly, Returns);
     Clone->setSection(".AProtect.text");
+    normalizeLocalDefaultVisibility(Clone);
 
     IntegerType *I64Ty = Type::getInt64Ty(M->getContext());
     uint64_t Salt = FunctionKey ^ 0xa0761d6478bd642fULL;
@@ -4713,6 +4737,7 @@ void GOVMInterpreter::run() {
                     llvm::GlobalValue::LinkageTypes::InternalLinkage,
                     newFuncName, Mod);
             }
+            normalizeLocalDefaultVisibility(NewF);
             interpreter_func_map[fun] = NewF;
         }
     }
@@ -4783,6 +4808,7 @@ void GOVMInterpreter::run() {
                             Init,
                             GV.getName().str() + "_shared"
                         );
+                        normalizeLocalDefaultVisibility(NewGV);
                         if (GV.hasInitializer()) {
                             NewGV->setInitializer(Init);
                         }
@@ -4878,9 +4904,11 @@ void GOVMInterpreter::run() {
                 if (isIRObfuscationDebugEnabled()) {
                     errs() << "[GOVMInterpreter]     CloneFunctionInto completed\n";
                 }
+                normalizeLocalDefaultVisibility(NewF);
 
                 // 设置段名为 .AProtect.text
                 NewF->setSection(".AProtect.text");
+                normalizeLocalDefaultVisibility(NewF);
 
                 // 函数名已经在创建时设置，这里不需要再设置
 
@@ -5165,6 +5193,7 @@ struct VMProtect : public ModulePass {
         }
       }
 
+      normalizeModuleLocalDefaultVisibility(M);
       return true;
 
   }
@@ -5277,6 +5306,8 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
     modifier->run();
     changed = true;
   }
+
+  normalizeModuleLocalDefaultVisibility(M);
   
   return changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
 }

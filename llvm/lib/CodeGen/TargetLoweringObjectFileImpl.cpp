@@ -405,6 +405,8 @@ void TargetLoweringObjectFileELF::emitPersonalityValue(
   NameData += Sym->getName();
   MCSymbolELF *Label =
       cast<MCSymbolELF>(getContext().getOrCreateSymbol(NameData));
+  if (Label->isDefined() || Label->isVariable())
+    return;
   Streamer.emitSymbolAttribute(Label, MCSA_Hidden);
   Streamer.emitSymbolAttribute(Label, MCSA_Weak);
   unsigned Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_GROUP;
