@@ -408,6 +408,7 @@ class GOVMTranslator {
             this->callinst_handler_entryBB = nullptr;
             this->targetfunc_id = nullptr;
             this->callinst_handler_curr_idx = 0;
+            this->init_opcode_variant();
         }
 
         Module * Mod;
@@ -574,6 +575,8 @@ class GOVMTranslator {
         // encrypt opcode, use xorshift
         uint64_t xorshift32_state = 0;
         uint64_t xorshift32_seed = 0;
+        uint8_t opcode_encode_map[OP_TOTAL + 1] = {};
+        uint8_t opcode_decode_map[OP_TOTAL + 1] = {};
 
         /* encrypt vm_code */
         // mark seed for each basicblock
@@ -587,6 +590,50 @@ class GOVMTranslator {
         uint64_t xorshift32(uint64_t *state)
         {
             return vmpSplitmix64NextLocal(*state);
+        }
+
+        void init_opcode_variant() {
+            for (unsigned i = 0; i <= OP_TOTAL; ++i) {
+                opcode_encode_map[i] = 0;
+                opcode_decode_map[i] = 0;
+            }
+
+            for (unsigned i = 1; i <= OP_TOTAL; ++i) {
+                opcode_decode_map[i] = static_cast<uint8_t>(i);
+            }
+
+            uint64_t state = vm_function_key ^ 0x6d2b79f5aa17c3e9ULL;
+            if (state == 0) {
+                state = 0x9e3779b97f4a7c15ULL;
+            }
+
+            for (int i = OP_TOTAL; i > 1; --i) {
+                uint64_t r = vmpSplitmix64NextLocal(state);
+                int j = static_cast<int>(r % static_cast<uint64_t>(i)) + 1;
+                uint8_t tmp = opcode_decode_map[i];
+                opcode_decode_map[i] = opcode_decode_map[j];
+                opcode_decode_map[j] = tmp;
+            }
+
+            for (unsigned ordinal = 1; ordinal <= OP_TOTAL; ++ordinal) {
+                uint8_t semantic = opcode_decode_map[ordinal];
+                if (semantic <= OP_TOTAL) {
+                    opcode_encode_map[semantic] = static_cast<uint8_t>(ordinal);
+                }
+            }
+
+            if (isIRObfuscationDebugEnabled()) {
+                errs() << "[VMP_VARIANT] function=" << F->getName()
+                       << " key=0x" << Twine::utohexstr(vm_function_key)
+                       << " semantic_to_ordinal=";
+                for (unsigned semantic = 1; semantic <= OP_TOTAL; ++semantic) {
+                    errs() << semantic << ":" << (unsigned)opcode_encode_map[semantic];
+                    if (semantic != OP_TOTAL) {
+                        errs() << ",";
+                    }
+                }
+                errs() << "\n";
+            }
         }
 
         void encrypt_vm_code() {
@@ -670,12 +717,17 @@ class GOVMTranslator {
 
         // pack one byte opcode
         std::vector<uint8_t> pack_op(uint8_t op){
+            uint8_t ordinal = op;
+            if (op > 0 && op <= OP_TOTAL) {
+                ordinal = opcode_encode_map[op] ? opcode_encode_map[op] : op;
+            }
+
             uint8_t res = 0;
             std::vector<uint8_t> his;
             const int MAX_RETRIES = 1000;
             int total_retries = 0;
             
-            for (int i = 0; i < op; i++) {
+            for (int i = 0; i < ordinal; i++) {
                 if (total_retries >= MAX_RETRIES) {
                     res = (uint8_t)xorshift32(&xorshift32_state);
                     break;
@@ -692,7 +744,10 @@ class GOVMTranslator {
                 }
             }
             if (isIRObfuscationDebugEnabled()) {
-                errs() << "[pack_op] op=" << (int)op << " res=" << (int)res << " xorshift32_state=" << xorshift32_state << "\n";
+                errs() << "[pack_op] op=" << (int)op
+                       << " ordinal=" << (int)ordinal
+                       << " res=" << (int)res
+                       << " xorshift32_state=" << xorshift32_state << "\n";
             }
             return pack(res, 1);
         }
@@ -4006,11 +4061,14 @@ const std::set<std::string> interpreter_function_names{
                                                         "chacha20_block",
                                                         "derive_chacha_material",
                                                         "chacha20_byte_at",
-                                                        "vm_trace_push",
-                                                        "vm_dump_fault_context",
-                                                        "get_aggregate_addr",
-                                                        "vmp_resume_unwind",
-                                                        "vm_interpreter",
+                                                         "vm_trace_push",
+                                                         "vm_dump_fault_context",
+                                                         "call_handler_with_exception_handling",
+                                                         "vmp_report_and_kill",
+                                                         "__clang_call_terminate",
+                                                         "get_aggregate_addr",
+                                                         "vmp_resume_unwind",
+                                                         "vm_interpreter",
                                                         "vm_interpreter_callinst_dispatch"      // only for check annotation
 
                                                         };
@@ -4229,6 +4287,92 @@ static Function* createVmpDebugId(Module *M, bool debug_enabled, std::string fun
     return Func;
 }
 
+static std::string vmpHex64(uint64_t Value) {
+    static const char Hex[] = "0123456789abcdef";
+    std::string Out;
+    Out.reserve(16);
+    for (int Shift = 60; Shift >= 0; Shift -= 4) {
+        Out.push_back(Hex[(Value >> Shift) & 0xFULL]);
+    }
+    return Out;
+}
+
+static std::string vmpMakeSafeSymbolSuffix(StringRef Name, uint64_t Key) {
+    std::string Suffix;
+    Suffix.reserve(Name.size() + 24);
+    for (char C : Name) {
+        bool Keep = (C >= 'a' && C <= 'z') ||
+                    (C >= 'A' && C <= 'Z') ||
+                    (C >= '0' && C <= '9') ||
+                    C == '_' || C == '$' || C == '.';
+        Suffix.push_back(Keep ? C : '_');
+    }
+    if (Suffix.empty()) {
+        Suffix = "anon";
+    }
+    Suffix += "_k";
+    Suffix += vmpHex64(Key);
+    return Suffix;
+}
+
+static Function *cloneVmInterpreterForFunction(Module *M,
+                                               Function *SharedInterpreter,
+                                               Function *TargetFunction,
+                                               uint64_t FunctionKey) {
+    if (!M || !SharedInterpreter || !TargetFunction || SharedInterpreter->empty()) {
+        return SharedInterpreter;
+    }
+
+    std::string Suffix = vmpMakeSafeSymbolSuffix(TargetFunction->getName(), FunctionKey);
+    std::string CloneName = "vm_interpreter_" + Suffix;
+
+    Function *Clone = Function::Create(
+        SharedInterpreter->getFunctionType(),
+        GlobalValue::InternalLinkage,
+        CloneName,
+        M);
+    Clone->copyAttributesFrom(SharedInterpreter);
+    Clone->setCallingConv(SharedInterpreter->getCallingConv());
+    Clone->setDSOLocal(true);
+
+    ValueToValueMapTy VMap;
+    Function::arg_iterator DestI = Clone->arg_begin();
+    for (const Argument &Arg : SharedInterpreter->args()) {
+        DestI->setName(Arg.getName());
+        VMap[&Arg] = &*DestI++;
+    }
+
+    SmallVector<ReturnInst *, 8> Returns;
+    CloneFunctionInto(Clone, SharedInterpreter, VMap,
+                      CloneFunctionChangeType::LocalChangesOnly, Returns);
+    Clone->setSection(".AProtect.text");
+
+    IntegerType *I64Ty = Type::getInt64Ty(M->getContext());
+    uint64_t Salt = FunctionKey ^ 0xa0761d6478bd642fULL;
+    GlobalVariable *SaltGV = new GlobalVariable(
+        *M,
+        I64Ty,
+        false,
+        GlobalValue::InternalLinkage,
+        ConstantInt::get(I64Ty, Salt),
+        "vmp_interpreter_clone_salt_" + Suffix);
+    SaltGV->setSection(".AProtect.data");
+    SaltGV->setAlignment(Align(8));
+
+    BasicBlock &Entry = Clone->getEntryBlock();
+    IRBuilder<> Builder(&*Entry.getFirstInsertionPt());
+    LoadInst *SaltLoad = Builder.CreateLoad(I64Ty, SaltGV, "vmp.clone.salt");
+    SaltLoad->setVolatile(true);
+
+    if (isIRObfuscationDebugEnabled()) {
+        errs() << "[VMP_INTERPRETER_CLONE] function=" << TargetFunction->getName()
+               << " key=0x" << Twine::utohexstr(FunctionKey)
+               << " clone=" << Clone->getName() << "\n";
+    }
+
+    return Clone;
+}
+
 void GOVMInterpreter::run() {
 
     if (isIRObfuscationDebugEnabled()) {
@@ -4402,6 +4546,9 @@ void GOVMInterpreter::run() {
                 }
                 for (auto it = interpreter_module->global_begin(); it != interpreter_module->global_end(); ++it) {
                     GlobalVariable &GV = *it;
+                    if (GV.hasAppendingLinkage() || GV.getName().starts_with("llvm.")) {
+                        continue;
+                    }
                     if (VMap.find(&GV) == VMap.end()) {
                         // 如果这个全局变量还没有被映射，创建一个新的
                         Constant *Init = nullptr;
@@ -4768,10 +4915,12 @@ struct VMProtect : public ModulePass {
           translators.front()->exception_selector_global);
       interpreter->run();
 
-      Function *vm_interpreter_func = M.getFunction("vm_interpreter_shared");
+      Function *shared_vm_interpreter_func = M.getFunction("vm_interpreter_shared");
       Function *resume_unwind_helper_func = M.getFunction("vmp_resume_unwind_shared");
       for (GOVMTranslator *translator : translators) {
         Function *F = translator->get_function();
+        Function *vm_interpreter_func = cloneVmInterpreterForFunction(
+            &M, shared_vm_interpreter_func, F, translator->get_vm_function_key());
         GOVMModifier *modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
                                                    translator->get_blockaddress_info_map(),
                                                    translator->get_value_map(),
@@ -4881,10 +5030,12 @@ PreservedAnalyses llvm::VMProtectPass::run(Module &M, ModuleAnalysisManager &AM)
       translators.front()->exception_selector_global);
   interpreter->run();
 
-  Function *vm_interpreter_func = M.getFunction("vm_interpreter_shared");
+  Function *shared_vm_interpreter_func = M.getFunction("vm_interpreter_shared");
   Function *resume_unwind_helper_func = M.getFunction("vmp_resume_unwind_shared");
   for (GOVMTranslator *translator : translators) {
     Function *F = translator->get_function();
+    Function *vm_interpreter_func = cloneVmInterpreterForFunction(
+        &M, shared_vm_interpreter_func, F, translator->get_vm_function_key());
     GOVMModifier *modifier = new GOVMModifier(F, translator->get_gv_value_map(), translator->get_gep_info_map(),
                                                translator->get_blockaddress_info_map(),
                                                translator->get_value_map(),

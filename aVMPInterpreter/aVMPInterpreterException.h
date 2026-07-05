@@ -68,7 +68,15 @@ typedef struct {
 #define BASE_PUBLIC_MASK 0x2
 #define BASE_OFFSET_SHIFT 8
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void call_handler_with_exception_handling(uint64_t targetfunc_id);
 void vmp_resume_unwind(void *exc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

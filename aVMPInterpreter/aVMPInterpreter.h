@@ -142,7 +142,15 @@ void insertelement_handler();
 void shufflevector_handler();
 void freeze_handler();
 void catchswitch_handler();  // 新增：异常分发handler
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern void call_handler(uint64_t targetfunc_id);
 void vmp_resume_unwind(void *exc);
 void vm_interpreter();
 void data_seg_clear();
+
+#ifdef __cplusplus
+}
+#endif

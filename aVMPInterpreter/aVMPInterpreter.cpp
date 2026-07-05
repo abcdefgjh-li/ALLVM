@@ -16,19 +16,19 @@
 #include "aVMPInterpreterException.h"
 #include "aVMPInterpreterOpcode.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern void _Unwind_Resume(void *exc) __attribute__((noreturn));
+#ifdef __cplusplus
+}
+#endif
 
 static __attribute__((noreturn)) void vmp_report_and_kill(void) {
 	static const char banner[] = "A-Protector\nProtection v1.2.0\n";
 	(void)write(2, banner, sizeof(banner) - 1);
 	kill(getpid(), SIGKILL);
-#if defined(__aarch64__) || defined(__arm64__)
-	__asm__ __volatile__("brk #0");
-#elif defined(__arm__)
-	__asm__ __volatile__("bkpt #0");
-#elif defined(__x86_64__) || defined(__i386__)
-	__asm__ __volatile__("int3");
-#endif
+	__builtin_trap();
 	__builtin_unreachable();
 }
 
@@ -453,6 +453,8 @@ void *exception_ptr;
 int exception_selector;
 uint64_t last_br_from_bb_id;
 uint64_t current_bb_id;
+static uint64_t vm_opcode_variant_key;
+static uint8_t vm_opcode_decode_map[OP_TOTAL + 1];
 
 void vm_dump_fault_context(const char *reason, uint64_t detail0, uint64_t detail1);
 
@@ -773,6 +775,49 @@ static uint64_t derive_chain_seed(uint64_t function_key, uint64_t bb_token,
 	                 ((uint64_t)bb_offset * 0x165667b19e3779f9ULL) ^
 	                 0xd1b54a32d192ed03ULL;
 	return vm_nonzero64(vm_mix64(mixed), 0xd1b54a32d192ed03ULL);
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static void vm_prepare_opcode_variant(void) {
+	if (vm_opcode_variant_key == vm_function_key && vm_opcode_decode_map[1] != 0) {
+		return;
+	}
+
+	for (unsigned i = 0; i <= OP_TOTAL; ++i) {
+		vm_opcode_decode_map[i] = 0;
+	}
+	for (unsigned i = 1; i <= OP_TOTAL; ++i) {
+		vm_opcode_decode_map[i] = (uint8_t)i;
+	}
+
+	uint64_t state = vm_function_key ^ 0x6d2b79f5aa17c3e9ULL;
+	if (state == 0) {
+		state = 0x9e3779b97f4a7c15ULL;
+	}
+
+	for (int i = OP_TOTAL; i > 1; --i) {
+		uint64_t r = xorshift32(&state);
+		int j = (int)(r % (uint64_t)i) + 1;
+		uint8_t tmp = vm_opcode_decode_map[i];
+		vm_opcode_decode_map[i] = vm_opcode_decode_map[j];
+		vm_opcode_decode_map[j] = tmp;
+	}
+
+	vm_opcode_variant_key = vm_function_key;
+}
+
+#ifdef IS_INLINE_FUNC
+	__inline__ __attribute__((always_inline))
+#endif
+static uint8_t vm_decode_variant_opcode(uint8_t ordinal) {
+	vm_prepare_opcode_variant();
+	if (ordinal == 0 || ordinal > OP_TOTAL) {
+		return 0xFF;
+	}
+	uint8_t semantic = vm_opcode_decode_map[ordinal];
+	return semantic ? semantic : 0xFF;
 }
 
 #ifdef IS_INLINE_FUNC
@@ -2542,12 +2587,14 @@ uint8_t get_opcode() {
 		vm_debug_log_u32_stage("get-opcode-after-chacha-confirm", raw_byte, curr_byte);
 	}
 
-	for (int i = 0; i < OP_TOTAL + 1; i++) {
+	for (int i = 0; i < OP_TOTAL; i++) {
 		uint8_t tmp = (uint8_t)xorshift32(&opcode_xorshift32_state);
 		if (tmp == curr_byte) {
-			vm_trace_push(VM_TRACE_KIND_OPCODE, opcode_ip, (uint8_t)(i + 1), 0,
+			uint8_t ordinal = (uint8_t)(i + 1);
+			uint8_t semantic_opcode = vm_decode_variant_opcode(ordinal);
+			vm_trace_push(VM_TRACE_KIND_OPCODE, opcode_ip, semantic_opcode, ordinal,
 			             raw_byte, saved_opcode_state, saved_vm_state, current_bb_id);
-			return i + 1;
+			return semantic_opcode;
 		}
 
 		uint8_t flag = 1;

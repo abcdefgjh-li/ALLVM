@@ -1050,7 +1050,7 @@ static bool compile_interpreter(const std::string& target_triple) {
 
     std::string interp_dir = g_script_dir + "\\aVMPInterpreter";
     std::string bc_file = interp_dir + "\\aVMPInterpreter.bc";
-    std::string src_file = interp_dir + "\\aVMPInterpreter.c";
+    std::string src_file = interp_dir + "\\aVMPInterpreter.cpp";
 
     std::string ndk_clang = g_ndk_bin + "\\clang.exe";
     std::string build_clang = g_build_dir + "\\bin\\clang.exe";

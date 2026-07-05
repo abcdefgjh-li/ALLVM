@@ -1,4 +1,4 @@
-set(INTERPRETER_BC "${CMAKE_CURRENT_SOURCE_DIR}/../../../aVMPInterpreter/aVMPInterpreter.bc")
+set(INTERPRETER_BC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../aVMPInterpreter/aVMPInterpreter.bc")
 
 add_llvm_library(LLVMObfuscation
   CryptoUtils.cpp

@@ -12,3 +12,17 @@
 {"ts":"2026-07-03T15:44:23Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=0"}
 {"ts":"2026-07-03T15:46:01Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j32"}
 {"ts":"2026-07-03T15:46:07Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=0"}
+{"ts":"2026-07-05T08:21:23Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:21:29Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=0"}
+{"ts":"2026-07-05T08:27:13Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:27:20Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=0"}
+{"ts":"2026-07-05T08:28:51Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:29:18Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=2"}
+{"ts":"2026-07-05T08:31:06Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:31:35Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=2"}
+{"ts":"2026-07-05T08:33:29Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:33:55Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=2"}
+{"ts":"2026-07-05T08:35:38Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:36:04Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=2"}
+{"ts":"2026-07-05T08:37:10Z","session":"aarch64-ndk-crash","event":"ndk_build_start","detail":"cwd=D:\\cpp\\ALLVM\\test cmd=\"D:\\cpp\\ALLVM\\android-ndk-r30-beta1-windows\\ndk-build.cmd\" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk APP_ABI=x86_64 -j8"}
+{"ts":"2026-07-05T08:37:37Z","session":"aarch64-ndk-crash","event":"ndk_build_end","detail":"ret=0"}
